@@ -1,5 +1,5 @@
 import torch
-
+from .kernels.prune import pruner
 
 def compute_remainder_sparsity(mat, m, n, init_sparsity=None):
     if init_sparsity is None:
@@ -14,8 +14,14 @@ def compute_remainder_sparsity(mat, m, n, init_sparsity=None):
 class Sparsify(torch.autograd.Function):
     """Both forward and backward are static methods."""
     @staticmethod
-    def forward(ctx, input, m, n):
-        sparse_input, mask = sparsify(input, m, n)
+    def forward(ctx, input):
+        # assert (m, n, input.dtype) in [(1, 2, torch.float32), (2, 4, torch.float16)], f"Invalid Sparsity: m={m}, n={n}, input.dtype={input.dtype}"
+        n = 2 if input.dtype == torch.float32 else 4
+        assert input.shape[-1] % (n) == 0, f"Invalid Shape for m:n Sparsification: input.shape={input.shape}, n={n}"
+        input_shape = input.shape
+        sparse_input, mask = pruner.prune(input.reshape(-1, input.shape[-1])) #sparsify(input, m, n)
+        sparse_input = sparse_input.reshape(input_shape)
+        mask = mask.reshape(input_shape)
         ctx.save_for_backward(mask)
         return sparse_input
 
@@ -24,7 +30,7 @@ class Sparsify(torch.autograd.Function):
         sparsity_mask = ctx.saved_tensors
         grad_input = grad_output.clone()
         # grad_input[sparsity_mask] = 0.
-        return grad_input, None, None
+        return grad_input
 
 
 def sparsify(mat, m, n):
