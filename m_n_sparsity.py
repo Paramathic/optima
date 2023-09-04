@@ -1,6 +1,10 @@
 import torch
 from .kernels.prune import pruner
 
+
+force_2_4 = False
+
+
 def compute_remainder_sparsity(mat, m, n, init_sparsity=None):
     if init_sparsity is None:
         init_sparsity = 1 - (mat.sum() / mat.numel())
@@ -15,11 +19,22 @@ class Sparsify(torch.autograd.Function):
     """Both forward and backward are static methods."""
     @staticmethod
     def forward(ctx, input):
-        # assert (m, n, input.dtype) in [(1, 2, torch.float32), (2, 4, torch.float16)], f"Invalid Sparsity: m={m}, n={n}, input.dtype={input.dtype}"
-        n = 2 if input.dtype == torch.float32 else 4
-        assert input.shape[-1] % (n) == 0, f"Invalid Shape for m:n Sparsification: input.shape={input.shape}, n={n}"
-        input_shape = input.shape
-        sparse_input, mask = pruner.prune(input.reshape(-1, input.shape[-1])) #sparsify(input, m, n)
+        if force_2_4:
+            m, n = 2, 4
+            dtype = input.dtype
+            input = input.contiguous()
+            input_shape = input.shape
+            half_input = input.half()
+            sparse_input, mask = pruner.prune(input.reshape(-1, input.shape[-1]))
+            if dtype == torch.float32:
+                sparse_input = input.clone().reshape(mask.shape)
+                sparse_input[mask] = 0.
+        else:
+            n = 2 if input.dtype == torch.float32 else 4
+            assert input.shape[-1] % (n) == 0, f"Invalid Shape for m:n Sparsification: input.shape={input.shape}, n={n}"
+            input = input.contiguous()
+            input_shape = input.shape
+            sparse_input, mask = pruner.prune(input.reshape(-1, input.shape[-1])) #sparsify(input, m, n)
         sparse_input = sparse_input.reshape(input_shape)
         mask = mask.reshape(input_shape)
         ctx.save_for_backward(mask)
@@ -29,7 +44,7 @@ class Sparsify(torch.autograd.Function):
     def backward(ctx, grad_output):
         sparsity_mask = ctx.saved_tensors
         grad_input = grad_output.clone()
-        # grad_input[sparsity_mask] = 0.
+        grad_input[sparsity_mask] = 0.
         return grad_input
 
 
