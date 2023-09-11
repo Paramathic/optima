@@ -25,7 +25,7 @@ class Sparsify(torch.autograd.Function):
             input = input.contiguous()
             input_shape = input.shape
             half_input = input.half()
-            sparse_input, mask = pruner.prune(input.reshape(-1, input.shape[-1]))
+            sparse_input, mask = pruner.prune(half_input.reshape(-1, input.shape[-1]))
             if dtype == torch.float32:
                 sparse_input = input.clone().reshape(mask.shape)
                 sparse_input[mask] = 0.
