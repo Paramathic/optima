@@ -2,7 +2,7 @@ import torch
 
 
 def lora_hook(module, input, output):
-    output += torch.matmul(torch.matmul(input[0], module.lora_left), module.lora_right)
+    output = output + torch.matmul(torch.matmul(input[0], module.lora_left), module.lora_right) / module.lora_rank
 
 
 def add_lora(model, disable_grads=True, rank=4, skip_layers=[]):
@@ -16,6 +16,7 @@ def add_lora(model, disable_grads=True, rank=4, skip_layers=[]):
 
             module.lora_left = torch.nn.Parameter(torch.randn(module.weight.shape[1], rank)).to(module.weight.device)
             module.lora_right = torch.nn.Parameter(torch.zeros(rank, module.weight.shape[0])).to(module.weight.device)
+            module.lora_rank = rank
             if disable_grads:
                 module.weight.requires_grad = False
             

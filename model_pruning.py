@@ -7,12 +7,16 @@ def static_prune_inputs_forward(module, input):
     output, module.mask = StaticPruneInputsMatmul.apply(input, module.weight, module.mask)
     if not module.bias is None:
         output += module.bias
+    if module.add_lora:
+        output += torch.matmul(torch.matmul(input[0], module.lora_left), module.lora_right) / module.lora_rank
     return output
 
 def dynamic_prune_inputs_forward(module, input):
     output = DynamicPruneInputsMatmul.apply(input, module.weight)
     if not module.bias is None:
         output += module.bias
+    if module.add_lora:
+        output += torch.matmul(torch.matmul(input[0], module.lora_left), module.lora_right) / module.lora_rank
     return output
 
 
@@ -20,6 +24,8 @@ def static_prune_inputs_reduction_dim_forward(module, input):
     output, module.mask = ReductionDimStaticPruneInputsMatmul.apply(input, module.weight, module.mask)
     if not module.bias is None:
         output += module.bias
+    if module.add_lora:
+        output += torch.matmul(torch.matmul(input[0], module.lora_left), module.lora_right) / module.lora_rank
     return output
 
 
@@ -27,6 +33,8 @@ def dynamic_prune_inputs_reduction_dim_forward(module, input):
     output = ReductionDimDynamicPruneInputsMatmul.apply(input, module.weight)
     if not module.bias is None:
         output += module.bias
+    if module.add_lora:
+        output += torch.matmul(torch.matmul(input[0], module.lora_left), module.lora_right) / module.lora_rank
     return output
 
 
@@ -34,6 +42,8 @@ def dynamic_prune_weight_forward(module, input):
     output = DynamicPruneWeightMatmul.apply(input, module.weight)
     if not module.bias is None:
         output += module.bias
+    if module.add_lora:
+        output += torch.matmul(torch.matmul(input[0], module.lora_left), module.lora_right) / module.lora_rank
     return output
 
 
@@ -41,6 +51,8 @@ def dynamic_prune_weight_reduction_dim_forward(module, input):
     output = ReductionDimDynamicPruneWeightMatmul.apply(input, module.weight)
     if not module.bias is None:
         output += module.bias
+    if module.add_lora:
+        output += torch.matmul(torch.matmul(input[0], module.lora_left), module.lora_right) / module.lora_rank
     return output
 
 
@@ -48,6 +60,8 @@ def static_prune_weight_forward(module, input):
     output, module.mask = StaticPruneWeightMatmul.apply(input, module.weight, module.mask)
     if not module.bias is None:
         output += module.bias
+    if module.add_lora:
+        output += torch.matmul(torch.matmul(input[0], module.lora_left), module.lora_right) / module.lora_rank
     return output
 
 
@@ -55,6 +69,8 @@ def static_prune_weight_reduction_dim_forward(module, input):
     output, module.mask = ReductionDimStaticPruneWeightMatmul.apply(input, module.weight, module.mask)
     if not module.bias is None:
         output += module.bias
+    if module.add_lora:
+        output += torch.matmul(torch.matmul(input[0], module.lora_left), module.lora_right) / module.lora_rank
     return output
 
 
@@ -62,6 +78,8 @@ def dynamic_prune_output_grad_forward(module, input):
     output = DynamicPruneOutputGradMatmul.apply(input, module.weight)
     if not module.bias is None:
         output += module.bias
+    if module.add_lora:
+        output += torch.matmul(torch.matmul(input[0], module.lora_left), module.lora_right) / module.lora_rank
     return output
 
 
@@ -69,6 +87,8 @@ def dynamic_prune_output_grad_reduction_dim_forward(module, input):
     output = ReductionDimDynamicPruneOutputGradMatmul.apply(input, module.weight)
     if not module.bias is None:
         output += module.bias
+    if module.add_lora:
+        output += torch.matmul(torch.matmul(input[0], module.lora_left), module.lora_right) / module.lora_rank
     return output
 
 
@@ -79,7 +99,7 @@ def sparse_linear_activation_forward(module, input):
         return module.act_fn(module.linear(input))
 
 
-def prune_model(model, skip_layers=[], pruned_matrix="static-weight", reduction_dim=True):
+def prune_model(model, skip_layers=[], pruned_matrix="static-weight", reduction_dim=True, add_lora=False, lora_rank=4):
     if is_main_process():
         print(f"Modifying model to prune {pruned_matrix}")
     known_modules = {"Linear", "LinearActivation"}
@@ -139,6 +159,11 @@ def prune_model(model, skip_layers=[], pruned_matrix="static-weight", reduction_
             if module_type == "LinearActivation":
                 module.linear = MethodType(pruning_kernel[module_type], module)
             module.forward = MethodType(prunining_layer[module_type], module)
+            module.add_lora = add_lora
+            if add_lora:
+                module.lora_left = torch.nn.Parameter(torch.randn(module.weight.shape[1], lora_rank)).to(module.weight.device)
+                module.lora_right = torch.nn.Parameter(torch.zeros(lora_rank, module.weight.shape[0])).to(module.weight.device)
+                module.lora_rank = lora_rank
             if "static" in pruned_matrix:
                 setattr(module.weight, "pruned", False)
                 module.mask = None
