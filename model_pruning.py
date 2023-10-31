@@ -204,8 +204,13 @@ def get_skip_layers(model, args):
                             model.bert.encoder.layer[0].attention.self.query,
                             model.bert.encoder.layer[0].attention.self.key,
                             model.bert.encoder.layer[0].attention.self.value,
-                            model.cls.predictions.decoder,
-                            model.cls.seq_relationship
     })
+    try:
+        skip_layers.update({
+                                model.cls.predictions.decoder,
+                                model.cls.seq_relationship
+        })
+    except:
+        pass
     return skip_layers
 
