@@ -58,29 +58,29 @@ __global__ void prune_kernel(
         int min_idx1, min_idx2;
         min1 = output[index];
         min_idx1 = index;
-        if(MIN(min1, output[index + 1]) == abs(output[index + 1])){
+        if(MIN(min1, output[index + 1]) == output[index + 1]){
             min1 = output[index + 1];
             min_idx1 = index + 1;
         }
-        if(MIN(min1, output[index + 2]) == abs(output[index + 2])){
+        if(MIN(min1, output[index + 2]) == output[index + 2]){
             min1 = output[index + 2];
             min_idx1 = index + 2;
         }
-        if(MIN(min1, output[index + 3]) == abs(output[index + 3])){
+        if(MIN(min1, output[index + 3]) == output[index + 3]){
             min1 = output[index + 3];
             min_idx1 = index + 3;
         }
         min2 = min_idx1 == index ? output[index + 1] : output[index];
         min_idx2 = min_idx1 == index ? index + 1 : index;
-        if((MIN(min2, output[index + 1]) == abs(output[index + 1])) && min_idx1 != index + 1){
+        if((MIN(min2, output[index + 1]) == output[index + 1]) && min_idx1 != index + 1){
             min2 = output[index + 1];
             min_idx2 = index + 1;
         }
-        if((MIN(min2, output[index + 2]) == abs(output[index + 2])) && min_idx1 != index + 2){
+        if((MIN(min2, output[index + 2]) == output[index + 2]) && min_idx1 != index + 2){
             min2 = output[index + 2];
             min_idx2 = index + 2;
         }
-        if((MIN(min2, output[index + 3]) == abs(output[index + 3])) && min_idx1 != index + 3){
+        if((MIN(min2, output[index + 3]) == output[index + 3]) && min_idx1 != index + 3){
             min2 = output[index + 3];
             min_idx2 = index + 3;
         }
@@ -89,29 +89,29 @@ __global__ void prune_kernel(
 
         min1 = output[index + 4];
         min_idx1 = index + 4;
-        if(MIN(min1, output[index + 5]) == abs(output[index + 5])){
+        if(MIN(min1, output[index + 5]) == output[index + 5]){
             min1 = output[index + 5];
             min_idx1 = index + 5;
         }
-        if(MIN(min1, output[index + 6]) == abs(output[index + 6])){
+        if(MIN(min1, output[index + 6]) == output[index + 6]){
             min1 = output[index + 6];
             min_idx1 = index + 6;
         }
-        if(MIN(min1, output[index + 7]) == abs(output[index + 7])){
+        if(MIN(min1, output[index + 7]) == output[index + 7]){
             min1 = output[index + 7];
             min_idx1 = index + 7;
         }
         min2 = min_idx1 == index + 4 ? output[index + 5] : output[index + 4];
         min_idx2 = min_idx1 == index + 4 ? index + 5 : index + 4;
-        if((MIN(min2, output[index + 5]) == abs(output[index + 5])) && min_idx1 != index + 5){
+        if((MIN(min2, output[index + 5]) == output[index + 5]) && min_idx1 != index + 5){
             min2 = output[index + 5];
             min_idx2 = index + 5;
         }
-        if((MIN(min2, output[index + 6]) == abs(output[index + 6])) && min_idx1 != index + 6){
+        if((MIN(min2, output[index + 6]) == output[index + 6]) && min_idx1 != index + 6){
             min2 = output[index + 6];
             min_idx2 = index + 6;
         }
-        if((MIN(min2, output[index + 7]) == abs(output[index + 7])) && min_idx1 != index + 7){
+        if((MIN(min2, output[index + 7]) == output[index + 7]) && min_idx1 != index + 7){
             min2 = output[index + 7];
             min_idx2 = index + 7;
         }
@@ -205,8 +205,159 @@ __global__ void prune_kernel(
 }
 
 
+template <class T>
+__device__ void find_kth_smallest(
+                                    int *smallest_idx,
+                                    const T* __restrict__ input,
+                                    const int k,
+                                    const int M, int index) {
+    int min_idx = 0;
+    T min = 6.0e4;
+
+    for(int i = 0; i < M; i++)
+    {
+        bool ignore = false;
+        for(int j = 0; j < k; j++)
+        {
+            if(smallest_idx[j] == i)
+            {
+                ignore = true;
+            }
+        }
+        if(ignore)
+        {
+            continue;
+        }
+        if(MIN(min, input[i]) == input[i]){
+            min = input[i];
+            min_idx = i;
+        }
+    }
+    smallest_idx[k] = min_idx;
+}
+
+
+__global__ void prune_kernel(
+        const at::Half* __restrict__ input,
+        at::Half* __restrict__ output,
+        bool* __restrict__ mask,
+        size_t row_size,
+        const int N,
+        const int M) {
+
+    const int column = M * (blockIdx.x * blockDim.x + threadIdx.x);
+    const int index = blockIdx.y * row_size + column;
+    if (column < row_size) {
+        for(int i = 0; i < M / 8; i++)
+        {
+            reinterpret_cast<float4*>(&output[index + 8 * i])[0] = reinterpret_cast<const float4*>(&input[index + 8 * i])[0];
+        }
+
+        int min_idx_list[16];
+        for(int k = 0; k < (M - N); k++)
+        {
+            find_kth_smallest<at::Half>(min_idx_list, &input[index], k, M, index);
+        }
+
+        for(int i = 0; i < (M - N); i++)
+        {
+            output[min_idx_list[i] + index] = 0.; mask[min_idx_list[i] + index] = true;
+        }
+  }
+}
+
+
+__global__ void prune_kernel(
+        const float* __restrict__ input,
+        float* __restrict__ output,
+        bool* __restrict__ mask,
+        size_t row_size,
+        const int N,
+        const int M) {
+
+    const int column = M * (blockIdx.x * blockDim.x + threadIdx.x);
+    const int index = blockIdx.y * row_size + column;
+    if (column < row_size) {
+        for(int i = 0; i < M / 4; i++)
+        {
+            reinterpret_cast<float4*>(&output[index + 4 * i])[0] = reinterpret_cast<const float4*>(&input[index + 4 * i])[0];
+        }
+
+        int *min_idx_list;
+        min_idx_list = (int*)malloc((M - N) * sizeof(int));
+        for(int k = 0; k < (M - N); k++)
+        {
+            find_kth_smallest<float>(min_idx_list, &input[index], k, M, index);
+        }
+
+        for(int i = 0; i < (M - N); i++)
+        {
+            output[min_idx_list[i] + index] = 0.; mask[min_idx_list[i] + index] = true;
+        }
+  }
+}
+
+
+template <int N, int M>
+__global__ void prune_kernel(
+        const float* __restrict__ input,
+        float* __restrict__ output,
+        bool* __restrict__ mask,
+        size_t row_size) {
+
+    const int column = M * (blockIdx.x * blockDim.x + threadIdx.x);
+    const int index = blockIdx.y * row_size + column;
+    if (column < row_size) {
+        for(int i = 0; i < M / 4; i++)
+        {
+            reinterpret_cast<float4*>(&output[index + 4 * i])[0] = reinterpret_cast<const float4*>(&input[index + 4 * i])[0];
+        }
+
+        int min_idx_list[M - N];
+        for(int k = 0; k < (M - N); k++)
+        {
+            find_kth_smallest<float>(min_idx_list, &input[index], k, M, index);
+        }
+
+        for(int i = 0; i < (M - N); i++)
+        {
+            output[min_idx_list[i] + index] = 0.; mask[min_idx_list[i] + index] = true;
+        }
+  }
+}
+
+
+template <int N, int M>
+__global__ void prune_kernel(
+        const at::Half* __restrict__ input,
+        at::Half* __restrict__ output,
+        bool* __restrict__ mask,
+        size_t row_size) {
+
+    const int column = M * (blockIdx.x * blockDim.x + threadIdx.x);
+    const int index = blockIdx.y * row_size + column;
+    if (column < row_size) {
+        for(int i = 0; i < M / 8; i++)
+        {
+            reinterpret_cast<float4*>(&output[index + 8 * i])[0] = reinterpret_cast<const float4*>(&input[index + 8 * i])[0];
+        }
+
+        int min_idx_list[M - N];
+        for(int k = 0; k < (M - N); k++)
+        {
+            find_kth_smallest<at::Half>(min_idx_list, &input[index], k, M, index);
+        }
+
+        for(int i = 0; i < (M - N); i++)
+        {
+            output[min_idx_list[i] + index] = 0.; mask[min_idx_list[i] + index] = true;
+        }
+  }
+}
+
+
 std::vector<torch::Tensor> prune_cuda(
-    torch::Tensor input) {
+    torch::Tensor input, const int N, const int M) {
 
     auto output = torch::zeros_like(input);
     auto options = torch::TensorOptions().dtype(torch::kBool);
@@ -217,25 +368,113 @@ std::vector<torch::Tensor> prune_cuda(
 
     const int threads = 1024;
 
-    switch (input.type().scalarType()) {
-        case torch::ScalarType::Float:
-        {
-            const dim3 blocks(((row_size / 4) + threads - 1) / threads, batch_size);
-            prune_kernel<<<blocks, threads>>>(
-                input.data<float>(),
-                output.data<float>(),
-                mask.data<bool>(),
-                row_size);
-             break;
+    if(N == 1 && M == 2) {
+        switch (input.type().scalarType()) {
+            case torch::ScalarType::Float: {
+                const dim3 blocks(((row_size / 4) + threads - 1) / threads, batch_size);
+                prune_kernel<<<blocks, threads>>>(
+                        input.data<float>(),
+                        output.data<float>(),
+                        mask.data<bool>(),
+                        row_size);
+                break;
+            }
+            case torch::ScalarType::Half: {
+                throw std::runtime_error("Half precision not supported for N=1, M=2");
+            }
         }
-        case torch::ScalarType::Half:
+    }
+    else if(N == 2 && M == 4)
+    {
+            switch (input.type().scalarType()) {
+                case torch::ScalarType::Float: {
+                    throw std::runtime_error("Full precision not supported for N=2, M=4");
+                    break;
+                }
+                case torch::ScalarType::Half: {
+                    const dim3 blocks(((row_size / 8) + threads - 1) / threads, batch_size);
+                    prune_kernel<<<blocks, threads>>>(
+                            input.data<at::Half>(),
+                            output.data<at::Half>(),
+                            mask.data<bool>(),
+                            row_size);
+                }
+            }
+    }
+    else if((N == 2 && M == 8))
+    {
+        switch (input.type().scalarType()){
+            case torch::ScalarType::Float: {
+            const dim3 blocks(((row_size / M) + threads - 1) / threads, batch_size);
+            prune_kernel<2, 8><<<blocks, threads>>>(
+                    input.data<float>(),
+                    output.data<float>(),
+                    mask.data<bool>(),
+                    row_size);
+            break;
+            }
+            case torch::ScalarType::Half: {
+                const dim3 blocks(((row_size / M) + threads - 1) / threads, batch_size);
+                prune_kernel<2, 8><<<blocks, threads>>>(
+                        input.data<at::Half>(),
+                        output.data<at::Half>(),
+                        mask.data<bool>(),
+                        row_size);
+            }
+        }
+    }
+    else if((N == 2 && M == 16))
+    {
+        switch (input.type().scalarType()){
+            case torch::ScalarType::Float: {
+            const dim3 blocks(((row_size / M) + threads - 1) / threads, batch_size);
+            prune_kernel<2, 16><<<blocks, threads>>>(
+                    input.data<float>(),
+                    output.data<float>(),
+                    mask.data<bool>(),
+                    row_size);
+            break;
+            }
+            case torch::ScalarType::Half: {
+                const dim3 blocks(((row_size / M) + threads - 1) / threads, batch_size);
+                prune_kernel<2, 16><<<blocks, threads>>>(
+                        input.data<at::Half>(),
+                        output.data<at::Half>(),
+                        mask.data<bool>(),
+                        row_size);
+            }
+        }
+    }
+    else
+    {
+        if(M < 8 || M % 8 != 0)
         {
-            const dim3 blocks(((row_size / 8) + threads - 1) / threads, batch_size);
-            prune_kernel<<<blocks, threads>>>(
-                input.data<at::Half>(),
-                output.data<at::Half>(),
-                mask.data<bool>(),
-                row_size);
+            throw std::runtime_error("M must be a multiple of 8");
+        }
+        switch (input.type().scalarType()) {
+            case torch::ScalarType::Float:
+            {
+                const dim3 blocks(((row_size / M) + threads - 1) / threads, batch_size);
+                prune_kernel<<<blocks, threads>>>(
+                    input.data<float>(),
+                    output.data<float>(),
+                    mask.data<bool>(),
+                    row_size,
+                    N,
+                    M);
+                 break;
+            }
+            case torch::ScalarType::Half:
+            {
+                const dim3 blocks(((row_size / M) + threads - 1) / threads, batch_size);
+                prune_kernel<<<blocks, threads>>>(
+                    input.data<at::Half>(),
+                    output.data<at::Half>(),
+                    mask.data<bool>(),
+                    row_size,
+                    N,
+                    M);
+            }
         }
     }
 

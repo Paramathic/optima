@@ -1,2 +1,2 @@
-from .m_n_sparsity import *
+from .n_m_sparsity import *
 from .model_pruning import *

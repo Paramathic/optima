@@ -1,4 +1,4 @@
-from .m_n_sparsity import *
+from .n_m_sparsity import *
 from types import MethodType
 from src.utils import is_main_process
 
@@ -66,7 +66,7 @@ def static_prune_weight_forward(module, input):
 
 
 def static_prune_weight_reduction_dim_forward(module, input):
-    output, module.mask = ReductionDimStaticPruneWeightMatmul.apply(input, module.weight, module.mask)
+    output, module.mask = ReductionDimStaticPruneWeightMatmul.apply(input, module.weight, module.mask, module.n, module.m)
     if not module.bias is None:
         output += module.bias
     if module.add_lora:
@@ -99,7 +99,12 @@ def sparse_linear_activation_forward(module, input):
         return module.act_fn(module.linear(input))
 
 
-def prune_model(model, skip_layers=[], pruned_matrix="static-weight", reduction_dim=True, add_lora=False, lora_rank=4):
+def prune_model(model,
+                skip_layers=[],
+                pruned_matrix="static-weight",
+                reduction_dim=True,
+                add_lora=False,
+                lora_rank=4):
     if is_main_process():
         print(f"Modifying model to prune {pruned_matrix}")
     known_modules = {"Linear", "LinearActivation"}
@@ -164,6 +169,7 @@ def prune_model(model, skip_layers=[], pruned_matrix="static-weight", reduction_
                 module.lora_left = torch.nn.Parameter(torch.randn(module.weight.shape[1], lora_rank)).to(module.weight.device)
                 module.lora_right = torch.nn.Parameter(torch.zeros(lora_rank, module.weight.shape[0])).to(module.weight.device)
                 module.lora_rank = lora_rank
+            module.n, module.m = torch.tensor(0), torch.tensor(0)
             if "static" in pruned_matrix:
                 setattr(module.weight, "pruned", False)
                 module.mask = None
@@ -213,4 +219,30 @@ def get_skip_layers(model, args):
     except:
         pass
     return skip_layers
+
+
+def set_n_m(model, sparsity_increment=[]):
+    if sparsity_increment == [] or sparsity_increment [-1]:
+        return
+    else:
+        sparsity_increment = [int(i) for i in sparsity_increment]
+        sparsity_increment = sparsity_increment + [len(model.bert.encoder.layer)]
+    n, m = torch.tensor(2), torch.tensor(8)
+    for i in range(len(sparsity_increment) - 1):
+        for layer_number in range(sparsity_increment[i], sparsity_increment[i + 1]):
+            print(f"Setting {n}:{m} sparsity for layers {layer_number}")
+            layer = model.bert.encoder.layer[layer_number]
+            layer.attention.self.query.m = m.clone().detach()
+            layer.attention.self.key.m = m.clone().detach()
+            layer.attention.self.value.m = m.clone().detach()
+            layer.attention.output.m = m.clone().detach()
+            layer.intermediate.dense_act.m = m.clone().detach()
+            layer.output.dense.m = m.clone().detach()
+            layer.attention.self.query.n = n.clone().detach()
+            layer.attention.self.key.n = n.clone().detach()
+            layer.attention.self.value.n = n.clone().detach()
+            layer.attention.output.n = n.clone().detach()
+            layer.intermediate.dense_act.n = n.clone().detach()
+            layer.output.dense.n = n.clone().detach()
+        m *= 2
 

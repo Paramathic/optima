@@ -19,34 +19,23 @@ def compute_remainder_sparsity(mat, m, n, init_sparsity=None):
     return final_sparsity, init_sparsity - final_sparsity
 
 
-def prune_row_wise(input):
-    if force_2_4:
-        m, n = 2, 4
-        dtype = input.dtype
-        input = input.contiguous()
-        input_shape = input.shape
-        half_input = input.half()
-        sparse_input, mask = pruner.prune(half_input.reshape(-1, input.shape[-1]))
-        if dtype == torch.float32:
-            sparse_input = input.clone().reshape(mask.shape)
-            sparse_input[mask] = 0.
-    else:
-        n = 2 if input.dtype == torch.float32 else 4
-        assert input.dtype in [torch.float16, torch.float32]
-        assert input.shape[-1] % (n) == 0, f"Invalid Shape for m:n Sparsification: input.shape={input.shape}, n={n}"
-        input = input.contiguous()
-        input_shape = input.shape
-        sparse_input, mask = pruner.prune(input.reshape(-1, input.shape[-1]))  # sparsify(input, m, n)
+def prune_row_wise(input, n=0, m=0):
+    if (n, m) == (0, 0):
+        n = 1 if input.dtype == torch.float32 else 2
+        m = 2 if input.dtype == torch.float32 else 4
+    input = input.contiguous()
+    input_shape = input.shape
+    sparse_input, mask = pruner.prune(input.reshape(-1, input.shape[-1]), n, m)  # sparsify(input, m, n)
     sparse_input = sparse_input.reshape(input_shape)
     mask = mask.reshape(input_shape)
     return sparse_input, mask
 
 
-def prune_column_wise(input, transpose=False):
+def prune_column_wise(input, transpose=False, n=0, m=0):
     assert not (transpose and (input.dim() != 2))
     input_shape = input.shape
     input = input.reshape(-1, input.shape[-1])
-    sparse_input, mask = prune_row_wise(input.t())
+    sparse_input, mask = prune_row_wise(input.t(), n=n, m=m)
     if not transpose:
         sparse_input = sparse_input.t()
         mask = mask.t()
@@ -310,8 +299,8 @@ class StaticPruneWeightMatmul(torch.autograd.Function):
         else:
             sparse_weight = weight
             sparse_weight[mask] = 0.
-        ctx.save_for_backward(input, weight, mask)
-        return torch.matmul(input, weight.t()), mask
+        ctx.save_for_backward(input, sparse_weight, mask)
+        return torch.matmul(input, sparse_weight.t()), mask
 
     @staticmethod
     def backward(ctx, grad_output, grad_mask):
@@ -396,19 +385,19 @@ class ReductionDimDynamicPruneOutputGradMatmul(torch.autograd.Function):
 class ReductionDimStaticPruneWeightMatmul(torch.autograd.Function):
     """Both forward and backward are static methods."""
     @staticmethod
-    def forward(ctx, input, weight, mask=None):
+    def forward(ctx, input, weight, mask=None, n=0, m=0):
         if mask is None:
-            sparse_weight, mask = prune_row_wise(weight)
+            sparse_weight, mask = prune_row_wise(weight, n, m)
             weight.data = sparse_weight.data
         else:
             sparse_weight = weight
             sparse_weight[mask] = 0.
-        ctx.save_for_backward(input, weight, mask)
-        return torch.matmul(input, weight.t()), mask
+        ctx.save_for_backward(input, sparse_weight, mask, n, m)
+        return torch.matmul(input, sparse_weight.t()), mask
 
     @staticmethod
     def backward(ctx, grad_output, grad_mask):
-        input, weight, mask = ctx.saved_tensors
+        input, weight, mask, n, m = ctx.saved_tensors
         input_shape = input.shape
         if input.dim() == 3:
             new_batch_size = input_shape[0] * input_shape[1]
@@ -423,11 +412,11 @@ class ReductionDimStaticPruneWeightMatmul(torch.autograd.Function):
         grad_weight = torch.matmul(grad_output.t().to(dtype), input.to(dtype))
         grad_weight[mask] = 0.
 
-        weight, _ = prune_column_wise(weight)
+        weight, _ = prune_column_wise(weight, n=n, m=m)
 
         grad_input = torch.matmul(grad_output.to(dtype), weight.to(dtype))
         grad_input = grad_input.reshape(input_shape)
-        return grad_input, grad_weight, None
+        return grad_input, grad_weight, None, None, None
 
 
 # def sparsify(mat, m, n):
@@ -464,9 +453,15 @@ class ReductionDimStaticPruneWeightMatmul(torch.autograd.Function):
 
 
 if __name__ == '__main__':
-    mat = torch.randn(456, 768).to('cuda').half()
+    N, M = 2, 8
+    dtype=torch.half
+    mat = torch.randn(1024, 1024, dtype=dtype).to('cuda')
+    print(mat)
     print(torch.sum(mat != 0.) / mat.numel())
-    mat, mask = prune_row_wise(mat)
+    mat[0, 0] = 0.
+    mat, mask = prune_row_wise(mat, N=N, M=M)
+    print(mat)
     print(torch.sum(mat != 0.) / mat.numel())
-    mat, mask = prune_column_wise(mat)
+    mat, mask = prune_column_wise(mat, N=N, M=M)
+    print(mat)
     print(torch.sum(mat != 0.) / mat.numel())
