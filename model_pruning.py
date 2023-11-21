@@ -230,7 +230,8 @@ def set_n_m(model, sparsity_increment=[]):
     n, m = torch.tensor(2), torch.tensor(8)
     for i in range(len(sparsity_increment) - 1):
         for layer_number in range(sparsity_increment[i], sparsity_increment[i + 1]):
-            print(f"Setting {n}:{m} sparsity for layers {layer_number}")
+            if is_main_process():
+                print(f"Setting {n}:{m} sparsity for layers {layer_number}")
             layer = model.bert.encoder.layer[layer_number]
             layer.attention.self.query.m = m.clone().detach()
             layer.attention.self.key.m = m.clone().detach()
