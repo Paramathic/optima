@@ -222,7 +222,7 @@ def get_skip_layers(model, args):
 
 
 def set_n_m(model, sparsity_increment=[]):
-    if sparsity_increment == [] or sparsity_increment [-1]:
+    if sparsity_increment == [] or sparsity_increment == [-1]:
         return
     else:
         sparsity_increment = [int(i) for i in sparsity_increment]
