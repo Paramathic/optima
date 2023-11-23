@@ -250,5 +250,4 @@ def set_n_m(model, sparsity_increment=[]):
             layer.intermediate.dense_act.n = n.clone().detach()
             layer.output.dense.n = n.clone().detach()
         m *= 2
-    exit()
 
