@@ -222,11 +222,15 @@ def get_skip_layers(model, args):
 
 
 def set_n_m(model, sparsity_increment=[]):
-    if sparsity_increment == [] or sparsity_increment == ['-1']:
+    if sparsity_increment == "" or sparsity_increment == "-1":
         return
     else:
-        sparsity_increment = [int(i) for i in sparsity_increment]
-        sparsity_increment = sparsity_increment + [len(model.bert.encoder.layer)]
+        sparsity_increment = sparsity_increment.split(",")
+        sparsity_increment = [int(x) for x in sparsity_increment]
+        if sparsity_increment[-1] == -1:
+            sparsity_increment = sparsity_increment[:-1]
+        else:
+            sparsity_increment = sparsity_increment + [len(model.bert.encoder.layer)]
     n, m = torch.tensor(2), torch.tensor(8)
     for i in range(len(sparsity_increment) - 1):
         for layer_number in range(sparsity_increment[i], sparsity_increment[i + 1]):
@@ -246,4 +250,5 @@ def set_n_m(model, sparsity_increment=[]):
             layer.intermediate.dense_act.n = n.clone().detach()
             layer.output.dense.n = n.clone().detach()
         m *= 2
+    exit()
 
