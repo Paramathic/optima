@@ -64,8 +64,9 @@ class Matmul(torch.autograd.Function):
     """Both forward and backward are static methods."""
     @staticmethod
     def forward(ctx, input, weight):
+        input, weight = input.half(), weight.half()
         ctx.save_for_backward(input, weight)
-        return torch.matmul(input, weight.t())
+        return torch.matmul(input, weight.t()).half()
 
     @staticmethod
     def backward(ctx, grad_output):
