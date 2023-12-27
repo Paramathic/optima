@@ -3,6 +3,12 @@ from types import MethodType
 from src.utils import is_main_process
 
 
+def dense_forward(module, input):
+    output = Matmul.apply(input, module.weight)
+    if not module.bias is None:
+        output += module.bias
+    return output
+
 def static_prune_inputs_forward(module, input):
     output, module.mask = StaticPruneInputsMatmul.apply(input, module.weight, module.mask)
     if not module.bias is None:
@@ -110,47 +116,51 @@ def prune_model(model,
     known_modules = {"Linear", "LinearActivation"}
     if pruned_matrix in ["dynamic-input", "input-dynamic"]:
         if reduction_dim:
-            prunining_layer = {"Linear": dynamic_prune_inputs_reduction_dim_forward,
+            pruning_layer = {"Linear": dynamic_prune_inputs_reduction_dim_forward,
                                "LinearActivation": sparse_linear_activation_forward}
-            pruning_kernel = {"LinearActivation": prunining_layer["Linear"]}
+            pruning_kernel = {"LinearActivation": pruning_layer["Linear"]}
         else:
-            prunining_layer = {"Linear": dynamic_prune_inputs_forward,
+            pruning_layer = {"Linear": dynamic_prune_inputs_forward,
                                "LinearActivation": sparse_linear_activation_forward}
-            pruning_kernel = {"LinearActivation": prunining_layer["Linear"]}
+            pruning_kernel = {"LinearActivation": pruning_layer["Linear"]}
     elif pruned_matrix in ["static-input", "input-static"]:
         if reduction_dim:
-            prunining_layer = {"Linear": static_prune_inputs_reduction_dim_forward,
+            pruning_layer = {"Linear": static_prune_inputs_reduction_dim_forward,
                                "LinearActivation": sparse_linear_activation_forward}
-            pruning_kernel = {"LinearActivation": prunining_layer["Linear"]}
+            pruning_kernel = {"LinearActivation": pruning_layer["Linear"]}
         else:
-            prunining_layer = {"Linear": static_prune_inputs_forward}
+            pruning_layer = {"Linear": static_prune_inputs_forward}
     elif pruned_matrix in ["dynamic-weight", "weight-dynamic"]:
         if reduction_dim:
-            prunining_layer = {"Linear": dynamic_prune_weight_reduction_dim_forward,
+            pruning_layer = {"Linear": dynamic_prune_weight_reduction_dim_forward,
                                "LinearActivation": sparse_linear_activation_forward}
-            pruning_kernel = {"LinearActivation": prunining_layer["Linear"]}
+            pruning_kernel = {"LinearActivation": pruning_layer["Linear"]}
         else:
-            prunining_layer = {"Linear": dynamic_prune_weight_forward,
+            pruning_layer = {"Linear": dynamic_prune_weight_forward,
                                "LinearActivation": sparse_linear_activation_forward}
-            pruning_kernel = {"LinearActivation": prunining_layer["Linear"]}
+            pruning_kernel = {"LinearActivation": pruning_layer["Linear"]}
     elif pruned_matrix in ["static-weight", "weight-static"]:
         if reduction_dim:
-            prunining_layer = {"Linear": static_prune_weight_reduction_dim_forward,
+            pruning_layer = {"Linear": static_prune_weight_reduction_dim_forward,
                                "LinearActivation": sparse_linear_activation_forward}
-            pruning_kernel = {"LinearActivation": prunining_layer["Linear"]}
+            pruning_kernel = {"LinearActivation": pruning_layer["Linear"]}
         else:
-            prunining_layer = {"Linear": static_prune_weight_forward,
+            pruning_layer = {"Linear": static_prune_weight_forward,
                                "LinearActivation": sparse_linear_activation_forward}
-            pruning_kernel = {"LinearActivation": prunining_layer["Linear"]}
+            pruning_kernel = {"LinearActivation": pruning_layer["Linear"]}
     elif pruned_matrix in ["dynamic-grad", "grad-dynamic", "dynamic-output-grad", "output-grad-dynamic"]:
         if reduction_dim:
-            prunining_layer = {"Linear": dynamic_prune_output_grad_reduction_dim_forward,
+            pruning_layer = {"Linear": dynamic_prune_output_grad_reduction_dim_forward,
                                "LinearActivation": sparse_linear_activation_forward}
-            pruning_kernel = {"LinearActivation": prunining_layer["Linear"]}
+            pruning_kernel = {"LinearActivation": pruning_layer["Linear"]}
         else:
-            prunining_layer = {"Linear": dynamic_prune_output_grad_forward,
+            pruning_layer = {"Linear": dynamic_prune_output_grad_forward,
                                "LinearActivation": sparse_linear_activation_forward}
-            pruning_kernel = {"LinearActivation": prunining_layer["Linear"]}
+            pruning_kernel = {"LinearActivation": pruning_layer["Linear"]}
+    elif pruned_matrix in ["dense"]:
+        pruning_layer = {"Linear": dense_forward,
+                         "LinearActivation": dense_forward}
+        pruning_kernel = {"LinearActivation": pruning_layer["Linear"]}
     else:
         raise NotImplementedError
 
@@ -163,7 +173,7 @@ def prune_model(model,
                 continue
             if module_type == "LinearActivation":
                 module.linear = MethodType(pruning_kernel[module_type], module)
-            module.forward = MethodType(prunining_layer[module_type], module)
+            module.forward = MethodType(pruning_layer[module_type], module)
             module.add_lora = add_lora
             if add_lora:
                 module.lora_left = torch.nn.Parameter(torch.randn(module.weight.shape[1], lora_rank)).to(module.weight.device)
