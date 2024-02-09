@@ -34,6 +34,15 @@ def static_prune_inputs_reduction_dim_forward(module, input):
         output += torch.matmul(torch.matmul(input[0], module.lora_left), module.lora_right) / module.lora_rank
     return output
 
+def static_prune_weight_unstructured_masking_forward(module, input):
+    output, module.mask = UnstructuredStaticPruneWeightMatmul.apply(input, module.weight, module.mask, module.unstructured_sparsity_ratio)
+    if not module.bias is None:
+        output += module.bias
+
+    if module.add_lora:
+        output += torch.matmul(torch.matmul(input[0], module.lora_left), module.lora_right) / module.lora_rank
+    return output
+
 
 def dynamic_prune_inputs_reduction_dim_forward(module, input):
     output = ReductionDimDynamicPruneInputsMatmul.apply(input, module.weight)
@@ -110,7 +119,9 @@ def prune_model(model,
                 pruned_matrix="static-weight",
                 reduction_dim=True,
                 add_lora=False,
-                lora_rank=4):
+                lora_rank=4,
+                unstructured_masking = False,
+                unstructured_mask_sparsity = 60):
     if is_main_process():
         print(f"Modifying model to prune {pruned_matrix}")
     known_modules = {"Linear", "LinearActivation"}
@@ -140,14 +151,19 @@ def prune_model(model,
                                "LinearActivation": sparse_linear_activation_forward}
             pruning_kernel = {"LinearActivation": pruning_layer["Linear"]}
     elif pruned_matrix in ["static-weight", "weight-static"]:
-        if reduction_dim:
-            pruning_layer = {"Linear": static_prune_weight_reduction_dim_forward,
+        if unstructured_masking:
+            pruning_layer = {"Linear": static_prune_weight_unstructured_masking_forward,
                                "LinearActivation": sparse_linear_activation_forward}
             pruning_kernel = {"LinearActivation": pruning_layer["Linear"]}
         else:
-            pruning_layer = {"Linear": static_prune_weight_forward,
-                               "LinearActivation": sparse_linear_activation_forward}
-            pruning_kernel = {"LinearActivation": pruning_layer["Linear"]}
+            if reduction_dim:
+                pruning_layer = {"Linear": static_prune_weight_reduction_dim_forward,
+                                   "LinearActivation": sparse_linear_activation_forward}
+                pruning_kernel = {"LinearActivation": pruning_layer["Linear"]}
+            else:
+                pruning_layer = {"Linear": static_prune_weight_forward,
+                                   "LinearActivation": sparse_linear_activation_forward}
+                pruning_kernel = {"LinearActivation": pruning_layer["Linear"]}
     elif pruned_matrix in ["dynamic-grad", "grad-dynamic", "dynamic-output-grad", "output-grad-dynamic"]:
         if reduction_dim:
             pruning_layer = {"Linear": dynamic_prune_output_grad_reduction_dim_forward,
@@ -175,11 +191,15 @@ def prune_model(model,
                 module.linear = MethodType(pruning_kernel[module_type], module)
             module.forward = MethodType(pruning_layer[module_type], module)
             module.add_lora = add_lora
+            module.unstructured_masking = unstructured_masking
             if add_lora:
                 module.lora_left = torch.nn.Parameter(torch.randn(module.weight.shape[1], lora_rank)).to(module.weight.device)
                 module.lora_right = torch.nn.Parameter(torch.zeros(lora_rank, module.weight.shape[0])).to(module.weight.device)
                 module.lora_rank = lora_rank
             module.n, module.m = torch.tensor(0), torch.tensor(0)
+            if unstructured_masking:
+                module.unstructured_sparsity_ratio = unstructured_mask_sparsity/100
+                module.weight.sparse_lr = 1
             if "static" in pruned_matrix:
                 setattr(module.weight, "pruned", False)
                 module.mask = None

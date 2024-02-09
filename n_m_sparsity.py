@@ -44,6 +44,19 @@ def prune_column_wise(input, transpose=False, n=0, m=0):
     return sparse_input, mask
 
 
+def prune_unstructured(input, sparsity_ratio):
+    abs_tensor = torch.abs(input)
+    flat_abs_tensor = abs_tensor.flatten()
+    kept_elements = int((1 - sparsity_ratio) * flat_abs_tensor.numel())
+
+    _, indices = torch.topk(flat_abs_tensor, k=kept_elements)
+    sparse_mask = torch.ones_like(flat_abs_tensor , dtype=torch.bool)
+    sparse_mask[indices] = False
+    sparse_mask = sparse_mask.view_as(abs_tensor)
+
+    input[sparse_mask] = 0.
+    return input, sparse_mask
+
 class Sparsify(torch.autograd.Function):
     """Both forward and backward are static methods."""
     @staticmethod
@@ -418,6 +431,47 @@ class ReductionDimStaticPruneWeightMatmul(torch.autograd.Function):
         grad_input = torch.matmul(grad_output.to(dtype), weight.to(dtype))
         grad_input = grad_input.reshape(input_shape)
         return grad_input, grad_weight, None, None, None
+
+
+class UnstructuredStaticPruneWeightMatmul(torch.autograd.Function):
+    """Both forward and backward are static methods."""
+
+    @staticmethod
+    def forward(ctx, input, weight, mask=None, unstructured_sparsity_ratio=60):
+        if mask is None:
+            # print(weight.data)
+            sparse_weight, mask = prune_unstructured(weight, unstructured_sparsity_ratio)
+
+            weight.data = sparse_weight.data
+
+        else:
+
+            sparse_weight = weight
+            sparse_weight[mask] = 0.
+        ctx.save_for_backward(input, sparse_weight, mask)
+        return torch.matmul(input, sparse_weight.t()), mask
+
+    @staticmethod
+    def backward(ctx, grad_output, grad_mask):
+        input, weight, mask = ctx.saved_tensors
+        input_shape = input.shape
+        if input.dim() == 3:
+            new_batch_size = input_shape[0] * input_shape[1]
+            input = input.reshape(new_batch_size, -1)
+            grad_output = grad_output.reshape(new_batch_size, -1)
+        if input.dtype == torch.bfloat16 or weight.dtype == torch.bfloat16 or grad_output.dtype == torch.bfloat16:
+            dtype = torch.bfloat16
+        elif input.dtype == torch.float16 or weight.dtype == torch.float16 or grad_output.dtype == torch.float16:
+            dtype = torch.float16
+        else:
+            dtype = torch.float32
+        grad_weight = torch.matmul(grad_output.t().to(dtype), input.to(dtype))
+        grad_weight[mask] = 0.
+
+        #        weight, _ = prune_row_wise(weight)
+        grad_input = torch.matmul(grad_output.to(dtype), weight.to(dtype))
+        grad_input = grad_input.reshape(input_shape)
+        return grad_input, grad_weight, None, None
 
 
 # def sparsify(mat, m, n):
