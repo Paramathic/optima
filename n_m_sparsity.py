@@ -1,6 +1,6 @@
 import torch
 from .kernels.prune import pruner
-
+from quantization.model_quantizing import *
 
 force_2_4 = False
 
@@ -104,10 +104,43 @@ class Matmul(torch.autograd.Function):
 class DynamicPruneInputsMatmul(torch.autograd.Function):
     """Both forward and backward are static methods."""
     @staticmethod
-    def forward(ctx, input, weight):
+    def forward(ctx, input, weight,  weight_quantizer = None, quantization_en= False,  qbitwidth=8):
         sparse_input, mask = prune_row_wise(input)
         ctx.save_for_backward(sparse_input, weight, mask)
-        return torch.matmul(sparse_input, weight.t())
+
+        input_quantizer = Quantizer("input")
+        if quantization_en:
+            input_for_mul = sparse_input.clone()
+            if input.dim() == 3:
+                input_for_mul = input_for_mul.reshape(-1, input_for_mul.size(-1))
+            input_for_mul = input_quantizer.quantize(input_for_mul, qbitwidth)
+            if input.dim() == 3:
+                input_for_mul = input_for_mul.reshape(input.shape[0], input.shape[1], -1)
+
+        else:
+            input_for_mul = sparse_input
+
+        if qbitwidth > 4 and quantization_en:
+            if input_for_mul.dim() == 3:
+                output = torch.zeros(input_for_mul.shape[0], input_for_mul.shape[1], weight.t().shape[1],
+                                     dtype=torch.float32).cuda()
+            else:
+                output = torch.zeros(input_for_mul.shape[0], weight.t().shape[1], dtype=torch.float32).cuda()
+
+            output = torch.matmul(input_for_mul, weight.t(), out=output)
+        else:
+            output = torch.matmul(input_for_mul, weight.t())
+
+        if quantization_en:
+            dim = output.dim()
+            if output.dim() == 3:
+                output_shape = output.shape
+                output = output.reshape(-1, output.size(-1))
+            output = input_quantizer.dequantize_output(output, weight, weight_quantizer.scaling_factor)
+            if dim == 3:
+                output = output.reshape(output_shape[0], output_shape[1], -1)
+        output = output.clone()
+        return output
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -127,16 +160,50 @@ class DynamicPruneInputsMatmul(torch.autograd.Function):
         grad_input = torch.matmul(grad_output.to(dtype), weight.to(dtype))
         grad_input = grad_input.reshape(input_shape)
         grad_input[sparsity_mask] = 0.
-        return grad_input, grad_weight
+        return grad_input, grad_weight, None, None, None
 
 
 class ReductionDimDynamicPruneInputsMatmul(torch.autograd.Function):
     """Both forward and backward are static methods."""
     @staticmethod
-    def forward(ctx, input, weight):
+    def forward(ctx, input, weight,  weight_quantizer = None, quantization_en= False,  qbitwidth=8):
         sparse_input, mask = prune_row_wise(input)
         ctx.save_for_backward(sparse_input, weight, mask)
-        return torch.matmul(sparse_input, weight.t())
+
+        input_quantizer = Quantizer("input")
+        if quantization_en:
+            input_for_mul = sparse_input.clone()
+            if input.dim() == 3:
+                input_for_mul = input_for_mul.reshape(-1, input_for_mul.size(-1))
+            input_for_mul = input_quantizer.quantize(input_for_mul, qbitwidth)
+            if input.dim() == 3:
+                input_for_mul = input_for_mul.reshape(input.shape[0], input.shape[1], -1)
+
+        else:
+            input_for_mul = sparse_input
+
+        if qbitwidth > 4 and quantization_en:
+            if input_for_mul.dim() == 3:
+                output = torch.zeros(input_for_mul.shape[0], input_for_mul.shape[1], weight.t().shape[1],
+                                     dtype=torch.float32).cuda()
+            else:
+                output = torch.zeros(input_for_mul.shape[0], weight.t().shape[1], dtype=torch.float32).cuda()
+
+            output = torch.matmul(input_for_mul, weight.t(), out=output)
+        else:
+            output = torch.matmul(input_for_mul, weight.t())
+
+        if quantization_en:
+            dim = output.dim()
+            if output.dim() == 3:
+                output_shape = output.shape
+                output = output.reshape(-1, output.size(-1))
+            output = input_quantizer.dequantize_output(output, weight, weight_quantizer.scaling_factor)
+            if dim == 3:
+                output = output.reshape(output_shape[0], output_shape[1], -1)
+
+        output = output.clone()
+        return output
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -166,20 +233,54 @@ class ReductionDimDynamicPruneInputsMatmul(torch.autograd.Function):
         grad_input = torch.matmul(grad_output, weight)
         grad_input = grad_input.reshape(input_shape)
         grad_input[sparsity_mask] = 0.
-        return grad_input, grad_weight
+        return grad_input, grad_weight, None, None, None
 
 
 class StaticPruneInputsMatmul(torch.autograd.Function):
     """Both forward and backward are static methods."""
     @staticmethod
-    def forward(ctx, input, weight, mask=None):
+    def forward(ctx, input, weight, mask=None, weight_quantizer = None, quantization_en= False,  qbitwidth=8):
         if mask is None:
             sparse_input, mask = prune_row_wise(input)
         else:
             sparse_input = input
             sparse_input[mask] = 0.
         ctx.save_for_backward(sparse_input, weight, mask)
-        return torch.matmul(sparse_input, weight.t()), mask
+
+        input_quantizer = Quantizer("input")
+        if quantization_en:
+            input_for_mul = sparse_input.clone()
+            if input.dim() == 3:
+                input_for_mul = input_for_mul.reshape(-1, input_for_mul.size(-1))
+            input_for_mul = input_quantizer.quantize(input_for_mul, qbitwidth)
+            if input.dim() == 3:
+                input_for_mul = input_for_mul.reshape(input.shape[0], input.shape[1], -1)
+
+        else:
+            input_for_mul = sparse_input
+
+        if qbitwidth > 4 and quantization_en:
+            if input_for_mul.dim() == 3:
+                output = torch.zeros(input_for_mul.shape[0], input_for_mul.shape[1], weight.t().shape[1],
+                                     dtype=torch.float32).cuda()
+            else:
+                output = torch.zeros(input_for_mul.shape[0], weight.t().shape[1], dtype=torch.float32).cuda()
+
+            output = torch.matmul(input_for_mul, weight.t(), out=output)
+        else:
+            output = torch.matmul(input_for_mul, weight.t())
+
+        if quantization_en:
+            dim = output.dim()
+            if output.dim() == 3:
+                output_shape = output.shape
+                output = output.reshape(-1, output.size(-1))
+            output = input_quantizer.dequantize_output(output, weight, weight_quantizer.scaling_factor)
+            if dim == 3:
+                output = output.reshape(output_shape[0], output_shape[1], -1)
+
+        output = output.clone()
+        return output, mask
 
     @staticmethod
     def backward(ctx, grad_output, grad_mask):
@@ -199,13 +300,13 @@ class StaticPruneInputsMatmul(torch.autograd.Function):
         grad_input = torch.matmul(grad_output.to(dtype), weight.to(dtype))
         grad_input = grad_input.reshape(input_shape)
         grad_input[sparsity_mask] = 0.
-        return grad_input, grad_weight, None
+        return grad_input, grad_weight, None, None, None, None
 
 
 class ReductionDimStaticPruneInputsMatmul(torch.autograd.Function):
     """Both forward and backward are static methods."""
     @staticmethod
-    def forward(ctx, input, weight, mask=None):
+    def forward(ctx, input, weight, mask=None, weight_quantizer = None, quantization_en= False,  qbitwidth=8):
         if mask is None:
             sparse_input, mask = prune_row_wise(torch.rand_like(input))
         else:
@@ -215,7 +316,41 @@ class ReductionDimStaticPruneInputsMatmul(torch.autograd.Function):
             except:
                 sparse_input = input
         ctx.save_for_backward(sparse_input, weight, mask)
-        return torch.matmul(sparse_input, weight.t()), mask
+
+        input_quantizer = Quantizer("input")
+        if quantization_en:
+            input_for_mul = sparse_input.clone()
+            if input.dim() == 3:
+                input_for_mul = input_for_mul.reshape(-1, input_for_mul.size(-1))
+            input_for_mul = input_quantizer.quantize(input_for_mul, qbitwidth)
+            if input.dim() == 3:
+                input_for_mul = input_for_mul.reshape(input.shape[0], input.shape[1], -1)
+
+        else:
+            input_for_mul = sparse_input
+
+        if qbitwidth > 4 and quantization_en:
+            if input_for_mul.dim() == 3:
+                output = torch.zeros(input_for_mul.shape[0], input_for_mul.shape[1], weight.t().shape[1],
+                                     dtype=torch.float32).cuda()
+            else:
+                output = torch.zeros(input_for_mul.shape[0], weight.t().shape[1], dtype=torch.float32).cuda()
+
+            output = torch.matmul(input_for_mul, weight.t(), out=output)
+        else:
+            output = torch.matmul(input_for_mul, weight.t())
+
+        if quantization_en:
+            dim = output.dim()
+            if output.dim() == 3:
+                output_shape = output.shape
+                output = output.reshape(-1, output.size(-1))
+            output = input_quantizer.dequantize_output(output, weight, weight_quantizer.scaling_factor)
+            if dim == 3:
+                output = output.reshape(output_shape[0], output_shape[1], -1)
+
+        output = output.clone()
+        return output, mask
 
     @staticmethod
     def backward(ctx, grad_output, grad_mask):
@@ -241,16 +376,50 @@ class ReductionDimStaticPruneInputsMatmul(torch.autograd.Function):
         grad_input = torch.matmul(grad_output, weight)
         grad_input = grad_input.reshape(input_shape)
         grad_input[sparsity_mask] = 0.
-        return grad_input, grad_weight, None
+        return grad_input, grad_weight, None, None, None, None
 
 
 class DynamicPruneWeightMatmul(torch.autograd.Function):
     """Both forward and backward are static methods."""
     @staticmethod
-    def forward(ctx, input, weight):
+    def forward(ctx, input, weight,  weight_quantizer = None, quantization_en= False,  qbitwidth=8):
         sparse_weight, _ = prune_column_wise(weight)
         ctx.save_for_backward(input, sparse_weight)
-        return torch.matmul(input, sparse_weight.t())
+
+        input_quantizer = Quantizer("input")
+        if quantization_en:
+            input_for_mul = input.clone()
+            if input.dim() == 3:
+                input_for_mul = input_for_mul.reshape(-1, input_for_mul.size(-1))
+            input_for_mul = input_quantizer.quantize(input_for_mul, qbitwidth)
+            if input.dim() == 3:
+                input_for_mul = input_for_mul.reshape(input.shape[0], input.shape[1], -1)
+
+        else:
+            input_for_mul = input
+
+        if qbitwidth > 4 and quantization_en:
+            if input_for_mul.dim() == 3:
+                output = torch.zeros(input_for_mul.shape[0], input_for_mul.shape[1], sparse_weight.t().shape[1],
+                                     dtype=torch.float32).cuda()
+            else:
+                output = torch.zeros(input_for_mul.shape[0], sparse_weight.t().shape[1], dtype=torch.float32).cuda()
+
+            output = torch.matmul(input_for_mul, sparse_weight.t(), out=output)
+        else:
+            output = torch.matmul(input_for_mul, sparse_weight.t())
+
+        if quantization_en:
+            dim = output.dim()
+            if output.dim() == 3:
+                output_shape = output.shape
+                output = output.reshape(-1, output.size(-1))
+            output = input_quantizer.dequantize_output(output, sparse_weight, weight_quantizer.scaling_factor)
+            if dim == 3:
+                output = output.reshape(output_shape[0], output_shape[1], -1)
+
+        output = output.clone()
+        return output
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -271,16 +440,50 @@ class DynamicPruneWeightMatmul(torch.autograd.Function):
         weight, _ = prune_row_wise(weight)
         grad_input = torch.matmul(grad_output.to(dtype), weight.to(dtype))
         grad_input = grad_input.reshape(input_shape)
-        return grad_input, grad_weight
+        return grad_input, grad_weight, None, None, None
 
 
 class ReductionDimDynamicPruneWeightMatmul(torch.autograd.Function):
     """Both forward and backward are static methods."""
     @staticmethod
-    def forward(ctx, input, weight):
+    def forward(ctx, input, weight,  weight_quantizer = None, quantization_en= False,  qbitwidth=8):
         sparse_weight, _ = prune_row_wise(weight)
         ctx.save_for_backward(input, sparse_weight)
-        return torch.matmul(input, sparse_weight.t())
+
+        input_quantizer = Quantizer("input")
+        if quantization_en:
+            input_for_mul = input.clone()
+            if input.dim() == 3:
+                input_for_mul = input_for_mul.reshape(-1, input_for_mul.size(-1))
+            input_for_mul = input_quantizer.quantize(input_for_mul, qbitwidth)
+            if input.dim() == 3:
+                input_for_mul = input_for_mul.reshape(input.shape[0], input.shape[1], -1)
+
+        else:
+            input_for_mul = input
+
+        if qbitwidth > 4 and quantization_en:
+            if input_for_mul.dim() == 3:
+                output = torch.zeros(input_for_mul.shape[0], input_for_mul.shape[1], sparse_weight.t().shape[1],
+                                     dtype=torch.float32).cuda()
+            else:
+                output = torch.zeros(input_for_mul.shape[0], sparse_weight.t().shape[1], dtype=torch.float32).cuda()
+
+            output = torch.matmul(input_for_mul, sparse_weight.t(), out=output)
+        else:
+            output = torch.matmul(input_for_mul, sparse_weight.t())
+
+        if quantization_en:
+            dim = output.dim()
+            if output.dim() == 3:
+                output_shape = output.shape
+                output = output.reshape(-1, output.size(-1))
+            output = input_quantizer.dequantize_output(output, sparse_weight, weight_quantizer.scaling_factor)
+            if dim == 3:
+                output = output.reshape(output_shape[0], output_shape[1], -1)
+        output = output.clone()
+
+        return output
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -301,20 +504,52 @@ class ReductionDimDynamicPruneWeightMatmul(torch.autograd.Function):
         weight, _ = prune_column_wise(weight)
         grad_input = torch.matmul(grad_output.to(dtype), weight.to(dtype))
         grad_input = grad_input.reshape(input_shape)
-        return grad_input, grad_weight
+        return grad_input, grad_weight, None, None, None
 
 
 class StaticPruneWeightMatmul(torch.autograd.Function):
     """Both forward and backward are static methods."""
     @staticmethod
-    def forward(ctx, input, weight, mask=None):
+    def forward(ctx, input, weight, mask=None, weight_quantizer = None, quantization_en= False,  qbitwidth=8):
         if mask is None:
             sparse_weight, mask = prune_column_wise(weight)
         else:
             sparse_weight = weight
             sparse_weight[mask] = 0.
         ctx.save_for_backward(input, sparse_weight, mask)
-        return torch.matmul(input, sparse_weight.t()), mask
+        input_quantizer = Quantizer("input")
+        if quantization_en:
+            input_for_mul = input.clone()
+            if input.dim() == 3:
+                input_for_mul = input_for_mul.reshape(-1, input_for_mul.size(-1))
+            input_for_mul = input_quantizer.quantize(input_for_mul, qbitwidth)
+            if input.dim() == 3:
+                input_for_mul = input_for_mul.reshape(input.shape[0], input.shape[1], -1)
+
+        else:
+            input_for_mul = input
+
+        if qbitwidth > 4 and quantization_en:
+            if input_for_mul.dim() == 3:
+                output = torch.zeros(input_for_mul.shape[0], input_for_mul.shape[1], sparse_weight.t().shape[1],
+                                     dtype=torch.float32).cuda()
+            else:
+                output = torch.zeros(input_for_mul.shape[0], sparse_weight.t().shape[1], dtype=torch.float32).cuda()
+
+            output = torch.matmul(input_for_mul, sparse_weight.t(), out=output)
+        else:
+            output = torch.matmul(input_for_mul, sparse_weight.t())
+
+        if quantization_en:
+            dim = output.dim()
+            if output.dim() == 3:
+                output_shape = output.shape
+                output = output.reshape(-1, output.size(-1))
+            output = input_quantizer.dequantize_output(output, sparse_weight, weight_quantizer.scaling_factor)
+            if dim == 3:
+                output = output.reshape(output_shape[0], output_shape[1], -1)
+        output = output.clone()
+        return output, mask
 
     @staticmethod
     def backward(ctx, grad_output, grad_mask):
@@ -336,15 +571,47 @@ class StaticPruneWeightMatmul(torch.autograd.Function):
         weight, _ = prune_row_wise(weight)
         grad_input = torch.matmul(grad_output.to(dtype), weight.to(dtype))
         grad_input = grad_input.reshape(input_shape)
-        return grad_input, grad_weight, None
+        return grad_input, grad_weight, None, None, None, None
 
 
 class DynamicPruneOutputGradMatmul(torch.autograd.Function):
     """Both forward and backward are static methods."""
     @staticmethod
-    def forward(ctx, input, weight):
+    def forward(ctx, input, weight, weight_quantizer = None, quantization_en= False,  qbitwidth=8):
+        input_quantizer = Quantizer("input")
+        if quantization_en:
+            input_for_mul = input.clone()
+            if input.dim() == 3:
+                input_for_mul = input_for_mul.reshape(-1, input_for_mul.size(-1))
+            input_for_mul = input_quantizer.quantize(input_for_mul, qbitwidth)
+            if input.dim() == 3:
+                input_for_mul = input_for_mul.reshape(input.shape[0], input.shape[1], -1)
+
+        else:
+            input_for_mul = input
         ctx.save_for_backward(input, weight)
-        return torch.matmul(input, weight.t())
+
+        if qbitwidth > 4 and quantization_en:
+            if input_for_mul.dim() == 3:
+                output = torch.zeros(input_for_mul.shape[0], input_for_mul.shape[1], weight.t().shape[1],
+                                     dtype=torch.float32).cuda()
+            else:
+                output = torch.zeros(input_for_mul.shape[0], weight.t().shape[1], dtype=torch.float32).cuda()
+
+            output = torch.matmul(input_for_mul, weight.t(), out=output)
+        else:
+            output = torch.matmul(input_for_mul, weight.t())
+
+        if quantization_en:
+            dim = output.dim()
+            if output.dim() == 3:
+                output_shape = output.shape
+                output = output.reshape(-1, output.size(-1))
+            output = input_quantizer.dequantize_output(output, weight, weight_quantizer.scaling_factor)
+            if dim == 3:
+                output = output.reshape(output_shape[0], output_shape[1], -1)
+        output = output.clone()
+        return output
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -364,15 +631,47 @@ class DynamicPruneOutputGradMatmul(torch.autograd.Function):
         grad_weight = torch.matmul(sparse_grad_output.t().to(dtype), input.to(dtype))
         grad_input = torch.matmul(sparse_grad_output.to(dtype), weight.to(dtype))
         grad_input = grad_input.reshape(input_shape)
-        return grad_input, grad_weight
+        return grad_input, grad_weight, None, None, None
 
 
 class ReductionDimDynamicPruneOutputGradMatmul(torch.autograd.Function):
     """Both forward and backward are static methods."""
     @staticmethod
-    def forward(ctx, input, weight):
+    def forward(ctx, input, weight, weight_quantizer = None, quantization_en= False,  qbitwidth=8):
+        input_quantizer = Quantizer("input")
+        if quantization_en:
+            input_for_mul = input.clone()
+            if input.dim() == 3:
+                input_for_mul = input_for_mul.reshape(-1, input_for_mul.size(-1))
+            input_for_mul = input_quantizer.quantize(input_for_mul, qbitwidth)
+            if input.dim() == 3:
+                input_for_mul = input_for_mul.reshape(input.shape[0], input.shape[1], -1)
+
+        else:
+            input_for_mul = input
         ctx.save_for_backward(input, weight)
-        return torch.matmul(input, weight.t())
+
+        if qbitwidth > 4 and quantization_en:
+            if input_for_mul.dim() == 3:
+                output = torch.zeros(input_for_mul.shape[0], input_for_mul.shape[1], weight.t().shape[1],
+                                     dtype=torch.float32).cuda()
+            else:
+                output = torch.zeros(input_for_mul.shape[0], weight.t().shape[1], dtype=torch.float32).cuda()
+
+            output = torch.matmul(input_for_mul, weight.t(), out=output)
+        else:
+            output = torch.matmul(input_for_mul, weight.t())
+
+        if quantization_en:
+            dim = output.dim()
+            if output.dim() == 3:
+                output_shape = output.shape
+                output = output.reshape(-1, output.size(-1))
+            output = input_quantizer.dequantize_output(output, weight, weight_quantizer.scaling_factor)
+            if dim == 3:
+                output = output.reshape(output_shape[0], output_shape[1], -1)
+        output = output.clone()
+        return output
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -393,13 +692,23 @@ class ReductionDimDynamicPruneOutputGradMatmul(torch.autograd.Function):
         sparse_grad_output, _ = prune_row_wise(grad_output)
         grad_input = torch.matmul(sparse_grad_output.to(dtype), weight.to(dtype))
         grad_input = grad_input.reshape(input_shape)
-        return grad_input, grad_weight
+        return grad_input, grad_weight, None, None, None
 
 
 class ReductionDimStaticPruneWeightMatmul(torch.autograd.Function):
     """Both forward and backward are static methods."""
     @staticmethod
-    def forward(ctx, input, weight, mask=None, n=0, m=0):
+    def forward(ctx, input, weight, mask=None, n=0, m=0, weight_quantizer = None, quantization_en= False,  qbitwidth=8):
+        input_quantizer = Quantizer("input")
+        if quantization_en:
+            input_for_mul = input.clone()
+            if input.dim() == 3:
+                input_for_mul = input_for_mul.reshape(-1, input_for_mul.size(-1))
+            input_for_mul = input_quantizer.quantize(input_for_mul, qbitwidth)
+            if input.dim() == 3:
+                input_for_mul = input_for_mul.reshape(input.shape[0], input.shape[1], -1)
+        else:
+            input_for_mul = input
         if mask is None:
             sparse_weight, mask = prune_row_wise(weight, n, m)
             weight.data = sparse_weight.data
@@ -407,7 +716,29 @@ class ReductionDimStaticPruneWeightMatmul(torch.autograd.Function):
             sparse_weight = weight
             sparse_weight[mask] = 0.
         ctx.save_for_backward(input, sparse_weight, mask, n, m)
-        return torch.matmul(input, sparse_weight.t()), mask
+        if qbitwidth > 4 and quantization_en:
+            if input_for_mul.dim() == 3:
+                output = torch.zeros(input_for_mul.shape[0], input_for_mul.shape[1], sparse_weight.t().shape[1],
+                                     dtype=torch.float32).cuda()
+            else:
+                output = torch.zeros(input_for_mul.shape[0], sparse_weight.t().shape[1], dtype=torch.float32).cuda()
+
+            output = torch.matmul(input_for_mul, sparse_weight.t(), out=output)
+        else:
+            output = torch.matmul(input_for_mul, sparse_weight.t())
+
+        del input_for_mul
+        if quantization_en:
+            dim = output.dim()
+            if dim == 3:
+                output_shape = output.shape
+                output = output.reshape(-1, output.size(-1))
+            output = input_quantizer.dequantize_output(output, sparse_weight, weight_quantizer.scaling_factor)
+            if dim == 3:
+                output = output.reshape(output_shape[0], output_shape[1], -1)
+        output = output.clone()
+
+        return output, mask
 
     @staticmethod
     def backward(ctx, grad_output, grad_mask):
@@ -430,14 +761,16 @@ class ReductionDimStaticPruneWeightMatmul(torch.autograd.Function):
 
         grad_input = torch.matmul(grad_output.to(dtype), weight.to(dtype))
         grad_input = grad_input.reshape(input_shape)
-        return grad_input, grad_weight, None, None, None
+        return grad_input, grad_weight, None, None, None,None, None, None
+
 
 
 class UnstructuredStaticPruneWeightMatmul(torch.autograd.Function):
     """Both forward and backward are static methods."""
 
     @staticmethod
-    def forward(ctx, input, weight, mask=None, unstructured_sparsity_ratio=60):
+    def forward(ctx, input, weight, mask=None, unstructured_sparsity_ratio=60, weight_quantizer = None, quantization_en= False,  qbitwidth=8):
+        input_quantizer = Quantizer("input")
         if mask is None:
             # print(weight.data)
             sparse_weight, mask = prune_unstructured(weight, unstructured_sparsity_ratio)
@@ -449,7 +782,38 @@ class UnstructuredStaticPruneWeightMatmul(torch.autograd.Function):
             sparse_weight = weight
             sparse_weight[mask] = 0.
         ctx.save_for_backward(input, sparse_weight, mask)
-        return torch.matmul(input, sparse_weight.t()), mask
+        if quantization_en:
+            input_for_mul = input.clone()
+            if input.dim() == 3:
+                input_for_mul = input_for_mul.reshape(-1, input_for_mul.size(-1))
+            input_for_mul = input_quantizer.quantize(input_for_mul, qbitwidth)
+            if input.dim() == 3:
+                input_for_mul = input_for_mul.reshape(input.shape[0], input.shape[1], -1)
+
+        else:
+            input_for_mul = input
+
+        if qbitwidth > 4 and quantization_en:
+            if input_for_mul.dim() == 3:
+                output = torch.zeros(input_for_mul.shape[0], input_for_mul.shape[1], sparse_weight.t().shape[1],
+                                     dtype=torch.float32).cuda()
+            else:
+                output = torch.zeros(input_for_mul.shape[0], sparse_weight.t().shape[1], dtype=torch.float32).cuda()
+
+            output = torch.matmul(input_for_mul, sparse_weight.t(), out=output)
+        else:
+            output = torch.matmul(input_for_mul, sparse_weight.t())
+
+        if quantization_en:
+            dim = output.dim()
+            if output.dim() == 3:
+                output_shape = output.shape
+                output = output.reshape(-1, output.size(-1))
+            output = input_quantizer.dequantize_output(output, sparse_weight, weight_quantizer.scaling_factor)
+            if dim == 3:
+                output = output.reshape(output_shape[0], output_shape[1], -1)
+        output = output.clone()
+        return output, mask
 
     @staticmethod
     def backward(ctx, grad_output, grad_mask):
@@ -471,7 +835,7 @@ class UnstructuredStaticPruneWeightMatmul(torch.autograd.Function):
         #        weight, _ = prune_row_wise(weight)
         grad_input = torch.matmul(grad_output.to(dtype), weight.to(dtype))
         grad_input = grad_input.reshape(input_shape)
-        return grad_input, grad_weight, None, None
+        return grad_input, grad_weight, None, None, None, None, None
 
 
 # def sparsify(mat, m, n):

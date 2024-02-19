@@ -10,7 +10,8 @@ def dense_forward(module, input):
     return output
 
 def static_prune_inputs_forward(module, input):
-    output, module.mask = StaticPruneInputsMatmul.apply(input, module.weight, module.mask)
+    output, module.mask = StaticPruneInputsMatmul.apply(input, module.weight, module.mask ,module.quantizer, module.quantization_en, module.qbitwidth)
+
     if not module.bias is None:
         output += module.bias
     if module.add_lora:
@@ -18,7 +19,9 @@ def static_prune_inputs_forward(module, input):
     return output
 
 def dynamic_prune_inputs_forward(module, input):
-    output = DynamicPruneInputsMatmul.apply(input, module.weight)
+
+    output = DynamicPruneInputsMatmul.apply(input, module.weight ,module.quantizer, module.quantization_en, module.qbitwidth)
+
     if not module.bias is None:
         output += module.bias
     if module.add_lora:
@@ -27,7 +30,7 @@ def dynamic_prune_inputs_forward(module, input):
 
 
 def static_prune_inputs_reduction_dim_forward(module, input):
-    output, module.mask = ReductionDimStaticPruneInputsMatmul.apply(input, module.weight, module.mask)
+    output, module.mask = ReductionDimStaticPruneInputsMatmul.apply(input, module.weight, module.mask,module.quantizer, module.quantization_en, module.qbitwidth)
     if not module.bias is None:
         output += module.bias
     if module.add_lora:
@@ -35,7 +38,7 @@ def static_prune_inputs_reduction_dim_forward(module, input):
     return output
 
 def static_prune_weight_unstructured_masking_forward(module, input):
-    output, module.mask = UnstructuredStaticPruneWeightMatmul.apply(input, module.weight, module.mask, module.unstructured_sparsity_ratio)
+    output, module.mask = UnstructuredStaticPruneWeightMatmul.apply(input, module.weight, module.mask, module.unstructured_sparsity_ratio, module.quantizer, module.quantization_en, module.qbitwidth)
     if not module.bias is None:
         output += module.bias
 
@@ -45,7 +48,8 @@ def static_prune_weight_unstructured_masking_forward(module, input):
 
 
 def dynamic_prune_inputs_reduction_dim_forward(module, input):
-    output = ReductionDimDynamicPruneInputsMatmul.apply(input, module.weight)
+    output = ReductionDimDynamicPruneInputsMatmul.apply(input, module.weight,module.quantizer, module.quantization_en, module.qbitwidth)
+
     if not module.bias is None:
         output += module.bias
     if module.add_lora:
@@ -54,7 +58,9 @@ def dynamic_prune_inputs_reduction_dim_forward(module, input):
 
 
 def dynamic_prune_weight_forward(module, input):
-    output = DynamicPruneWeightMatmul.apply(input, module.weight)
+
+    output = DynamicPruneWeightMatmul.apply(input, module.weight,module.quantizer, module.quantization_en, module.qbitwidth)
+
     if not module.bias is None:
         output += module.bias
     if module.add_lora:
@@ -63,7 +69,8 @@ def dynamic_prune_weight_forward(module, input):
 
 
 def dynamic_prune_weight_reduction_dim_forward(module, input):
-    output = ReductionDimDynamicPruneWeightMatmul.apply(input, module.weight)
+
+    output = ReductionDimDynamicPruneWeightMatmul.apply(input, module.weight,module.quantizer, module.quantization_en, module.qbitwidth)
     if not module.bias is None:
         output += module.bias
     if module.add_lora:
@@ -72,7 +79,8 @@ def dynamic_prune_weight_reduction_dim_forward(module, input):
 
 
 def static_prune_weight_forward(module, input):
-    output, module.mask = StaticPruneWeightMatmul.apply(input, module.weight, module.mask)
+    output, module.mask = StaticPruneWeightMatmul.apply(input, module.weight, module.mask,module.quantizer, module.quantization_en, module.qbitwidth)
+
     if not module.bias is None:
         output += module.bias
     if module.add_lora:
@@ -81,7 +89,8 @@ def static_prune_weight_forward(module, input):
 
 
 def static_prune_weight_reduction_dim_forward(module, input):
-    output, module.mask = ReductionDimStaticPruneWeightMatmul.apply(input, module.weight, module.mask, module.n, module.m)
+    output, module.mask = ReductionDimStaticPruneWeightMatmul.apply(input, module.weight, module.mask, module.n,
+            module.m, module.quantizer, module.quantization_en, module.qbitwidth)
     if not module.bias is None:
         output += module.bias
     if module.add_lora:
@@ -90,7 +99,7 @@ def static_prune_weight_reduction_dim_forward(module, input):
 
 
 def dynamic_prune_output_grad_forward(module, input):
-    output = DynamicPruneOutputGradMatmul.apply(input, module.weight)
+    output = DynamicPruneOutputGradMatmul.apply(input, module.weight, module.quantizer, module.quantization_en, module.qbitwidth)
     if not module.bias is None:
         output += module.bias
     if module.add_lora:
@@ -99,7 +108,8 @@ def dynamic_prune_output_grad_forward(module, input):
 
 
 def dynamic_prune_output_grad_reduction_dim_forward(module, input):
-    output = ReductionDimDynamicPruneOutputGradMatmul.apply(input, module.weight)
+    output = ReductionDimDynamicPruneOutputGradMatmul.apply(input, module.weight, module.quantizer, module.quantization_en, module.qbitwidth)
+
     if not module.bias is None:
         output += module.bias
     if module.add_lora:
