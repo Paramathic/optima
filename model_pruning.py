@@ -214,7 +214,6 @@ def prune_model(model,
                 setattr(module.weight, "pruned", False)
                 module.mask = None
 
-# Test
 def set_n_m(model, sparsity_increment=[]):
     if sparsity_increment == "" or sparsity_increment == "-1":
         return
