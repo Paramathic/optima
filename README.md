@@ -16,5 +16,5 @@ Finally, push the reflected changes in `pruning` to your main repository.
 ```bash
 git subtree push --prefix=pruning/ pruning main
 git subtree pull --prefix=pruning/ pruning main
-git push origin/main
+git push
 ```
