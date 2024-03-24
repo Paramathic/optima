@@ -1,12 +1,20 @@
 import torch
 
 
-def add_lora(module, W_mask, rank_ratio=0.01, use_wanda=False, activations=None, use_randomized_svd=True):
+def add_lora(module, W_mask, rank_ratio=0.01, use_wanda=False, activations=None, use_randomized_svd=True, quantizer=None, bitwidth=8):
     if use_wanda and not any (activations.scaler_row == 0):
-        W_metric = module.weight.data * (torch.sqrt(activations.scaler_row.reshape((1,-1))))
-        new_weight = W_metric.clone().detach()
-        new_weight[W_mask] = 0
-        error_mat = W_metric - new_weight
+        if quantizer is None:
+            W_metric = module.weight.data * (torch.sqrt(activations.scaler_row.reshape((1,-1))))
+            new_weight = W_metric.clone().detach()
+            new_weight[W_mask] = 0
+            error_mat = W_metric - new_weight
+        else:
+            W_metric = module.weight.data
+            new_weight = W_metric.clone().detach()
+            new_weight[W_mask] = 0
+            new_weight = quantizer.quantize_weight(new_weight, bitwidth)
+            new_weight = quantizer.dequantize_absmax(new_weight)
+            error_mat = (W_metric - new_weight)* (torch.sqrt(activations.scaler_row.reshape((1,-1))))
         # Use SVD on the error matrix to find the best low-rank approximation
         if use_randomized_svd:
             U, S, V = randomized_svd(error_mat.float(), rank_ratio)
@@ -17,6 +25,9 @@ def add_lora(module, W_mask, rank_ratio=0.01, use_wanda=False, activations=None,
     else:
         new_weight = module.weight.data.clone().detach()
         new_weight[W_mask] = 0
+        if quantizer is not None:
+            new_weight = quantizer.quantize_weight(new_weight, bitwidth)
+            new_weight = quantizer.dequantize_absmax(new_weight)
         error_mat = module.weight.data - new_weight
         # Use SVD on the error matrix to find the best low-rank approximation
         if use_randomized_svd:

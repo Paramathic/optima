@@ -44,6 +44,10 @@ def main():
     parser.add_argument("--wanda_in_lora", action="store_true")
     parser.add_argument("--lora_rank", type=float, default=0.0)
     parser.add_argument("--randomized_svd", action="store_true")
+
+    parser.add_argument("--bitwidth", type=int, default=8)
+    parser.add_argument("--quantization", action="store_true")
+
     args = parser.parse_args()
 
     # Setting seeds for reproducibility

@@ -133,6 +133,11 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
     with torch.no_grad():
         inps, outs, attention_mask = prepare_calibration_input(model, dataloader, device)
 
+    if args.quantization:
+        quantizer = Quantizer("weight")
+    else:
+        quantizer = None
+
     layers = model.model.decoder.layers
     for i in range(len(layers)):
         layer = layers[i]
@@ -180,9 +185,12 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
 
             
             if args.lora_rank > 0.:
-                add_lora(subset[name], W_mask, args.lora_rank, args.wanda_in_lora, wrapped_layers[name], args.randomized_svd)
+                add_lora(subset[name], W_mask, args.lora_rank, args.wanda_in_lora, wrapped_layers[name], args.randomized_svd, quantizer, args.bitwidth)
             else:
-                subset[name].weight.data[W_mask] = 0  ## set weights to zero 
+                subset[name].weight.data[W_mask] = 0  ## set weights to zero
+                if quantizer is not None:
+                    subset[name].weight.data = quantizer.quantize_weight(subset[name].weight.data, args.bitwidth)
+                    subset[name].weight.data = quantizer.dequantize_absmax(subset[name].weight.data)
 
         for j in range(args.nsamples):
             with torch.no_grad():
