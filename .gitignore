@@ -1,0 +1,5 @@
+llm_weights/*
+data/*
+*/__pycache__/*
+local_checkpoints/*
+out/*
