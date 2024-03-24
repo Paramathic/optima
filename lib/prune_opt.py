@@ -31,11 +31,21 @@ def find_layers(module, layers=[nn.Linear], name=''):
         ))
     return res
 
+
+def get_layers_list(model):
+    if hasattr(model, "model"):
+        layers = model.model.decoder.layers
+    elif hasattr(model, "transformer"):
+        layers = model.transformer.h
+    else:
+        raise NotImplementedError
+    return layers
+
 def check_sparsity(model):
     use_cache = model.config.use_cache 
     model.config.use_cache = False 
 
-    layers = model.model.decoder.layers
+    layers = get_layers_list(model)
     count = 0 
     total_params = 0
     for i in range(len(layers)):
@@ -60,7 +70,7 @@ def check_sparsity(model):
 def prepare_calibration_input(model, dataloader, device):
     use_cache = model.config.use_cache
     model.config.use_cache = False
-    layers = model.model.decoder.layers
+    layers = get_layers_list(model)
 
     if "model.embed_tokens" in model.hf_device_map:
         device = model.hf_device_map["model.embed_tokens"]
@@ -102,7 +112,7 @@ def return_given_alpha(alpha, sort_res, W_metric, tmp_metric, sum_before):
     return W_mask, cur_sparsity
 
 def prune_magnitude(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
-    layers = model.model.decoder.layers 
+    layers = get_layers_list(model)
 
     for i in range(len(layers)):
         layer = layers[i]
@@ -138,7 +148,7 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
     else:
         quantizer = None
 
-    layers = model.model.decoder.layers
+    layers = get_layers_list(model)
     for i in range(len(layers)):
         layer = layers[i]
         subset = find_layers(layer)
@@ -208,7 +218,7 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
 
     use_cache = model.config.use_cache
     model.config.use_cache = False
-    layers = model.model.decoder.layers
+    layers = get_layers_list(model)
 
     if "model.embed_tokens" in model.hf_device_map:
         dev = model.hf_device_map["model.embed_tokens"]
@@ -296,7 +306,7 @@ def prune_ablate(args, model, tokenizer, dev, prune_n=0, prune_m=0):
 
     use_cache = model.config.use_cache
     model.config.use_cache = False
-    layers = model.model.decoder.layers
+    layers = get_layers_list(model)
 
     if "model.embed_tokens" in model.hf_device_map:
         dev = model.hf_device_map["model.embed_tokens"]

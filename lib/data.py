@@ -16,10 +16,10 @@ class TokenizerWrapper:
         self.input_ids = input_ids
 
 # Load and process wikitext2 dataset
-def get_wikitext2(nsamples, seed, seqlen, tokenizer):
+def get_wikitext2(nsamples, seed, seqlen, tokenizer, cache_dir='data'):
     # Load train and test datasets
-    traindata = load_dataset('wikitext', 'wikitext-2-raw-v1', split='train')
-    testdata = load_dataset('wikitext', 'wikitext-2-raw-v1', split='test')
+    traindata = load_dataset('wikitext', 'wikitext-2-raw-v1', split='train', cache_dir=cache_dir)
+    testdata = load_dataset('wikitext', 'wikitext-2-raw-v1', split='test', cache_dir=cache_dir)
     # Encode datasets
     # trainenc = tokenizer(" ".join(traindata['text']), return_tensors='pt')
     testenc = tokenizer("\n\n".join(testdata['text']), return_tensors='pt')
@@ -37,10 +37,10 @@ def get_wikitext2(nsamples, seed, seqlen, tokenizer):
     return trainloader, testenc
 
 # Load and process c4 dataset
-def get_c4(nsamples, seed, seqlen, tokenizer):
+def get_c4(nsamples, seed, seqlen, tokenizer, cache_dir='data'):
     # Load train and validation datasets
-    traindata = load_dataset('allenai/c4', 'allenai--c4', data_files={'train': 'en/c4-train.00000-of-01024.json.gz'}, split='train')
-    valdata = load_dataset('allenai/c4', 'allenai--c4', data_files={'validation': 'en/c4-validation.00000-of-00008.json.gz'}, split='validation')
+    traindata = load_dataset('allenai/c4', 'allenai--c4', data_files={'train': 'en/c4-train.00000-of-01024.json.gz'}, split='train', cache_dir=cache_dir)
+    valdata = load_dataset('allenai/c4', 'allenai--c4', data_files={'validation': 'en/c4-validation.00000-of-00008.json.gz'}, split='validation', cache_dir=cache_dir)
 
     # Generate samples from training set
     random.seed(seed)
@@ -64,9 +64,26 @@ def get_c4(nsamples, seed, seqlen, tokenizer):
     valenc = TokenizerWrapper(valenc)
     return trainloader, valenc
 
+def get_openwebtext(nsamples, seed, seqlen, tokenizer, cache_dir='data'):
+    # Load train and validation datasets
+    raw_datasets = load_dataset("openwebtext", cache_dir=cache_dir)
+    raw_datasets = raw_datasets["train"].train_test_split(
+        test_size=0.05, seed=seed,
+        shuffle=True  # Otherwise test will be at the end of the dataset
+        )
+    trainloader = None
+    valdata = raw_datasets['test']
+    valenc = tokenizer(' '.join(valdata[:1100]['text']), return_tensors='pt')
+    valenc = valenc.input_ids[:, :(256 * seqlen)]
+    valenc = TokenizerWrapper(valenc)
+    return trainloader, valenc
+
 # Function to select the appropriate loader based on dataset name
 def get_loaders(name, nsamples=128, seed=0, seqlen=2048, tokenizer=None):
     if 'wikitext2' in name:
         return get_wikitext2(nsamples, seed, seqlen, tokenizer)
     if "c4" in name:
         return get_c4(nsamples, seed, seqlen, tokenizer)
+    if "openwebtext" in name:
+        return get_openwebtext(nsamples, seed, seqlen, tokenizer)
+    raise ValueError(f"Unknown dataset {name}")

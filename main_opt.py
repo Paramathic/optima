@@ -13,7 +13,51 @@ print('transformers', version('transformers'))
 print('accelerate', version('accelerate'))
 print('# of gpus: ', torch.cuda.device_count())
 
-def get_llm(model_name, cache_dir="llm_weights"):
+
+def conv1d_to_linear(conv1d):
+    input_dim = conv1d.weight.shape[0]
+    output_dim = conv1d.weight.shape[1]
+    bias = conv1d.bias is not None
+    layer = torch.nn.Linear(input_dim, output_dim, bias=bias)
+    layer.weight.data = conv1d.weight.data.T
+    if bias:
+        layer.bias.data = conv1d.bias.data
+    return layer
+
+
+def convert_flashattn_checkpoint_to_hf(checkpoint):
+    if "state_dict" in checkpoint:
+            checkpoint = checkpoint["state_dict"]
+            for key in list(checkpoint.keys()):
+                new_key = key.replace('model.', '')
+                if "embeddings.word_embeddings.weight" in new_key:
+                    new_key = "transformer.wte.weight"
+                if "embeddings.position_embeddings.weight" in new_key:
+                    new_key = "transformer.wpe.weight"
+                if "layers" in new_key:
+                    new_key = new_key.replace("layers", "h")
+                if "mixer" in new_key:
+                    new_key = new_key.replace("mixer", "attn")
+                if "Wqkv" in new_key:
+                    new_key = new_key.replace("Wqkv", "c_attn")
+                if "out_proj" in new_key:
+                    new_key = new_key.replace("out_proj", "c_proj")
+                if "norm" in new_key:
+                    new_key = new_key.replace("norm", "ln_")
+                if "fc1" in new_key:
+                    new_key = new_key.replace("fc1",  "c_fc")
+                if "fc2" in new_key:
+                    new_key = new_key.replace("fc2", "c_proj")
+                if "wte" in new_key or "wpe" in new_key or "weight" not in new_key or "lora" in new_key or "lm_head" in new_key:
+                    checkpoint[new_key] = checkpoint.pop(key)
+                else:
+                    checkpoint[new_key] = checkpoint.pop(key).T
+                if "num-tokens" in new_key:
+                    del checkpoint[new_key]
+    return checkpoint
+
+
+def get_llm(model_name, cache_dir="llm_weights", local_checkpoint_dir=""):
     model = AutoModelForCausalLM.from_pretrained(
         model_name, 
         torch_dtype=torch.float16, 
@@ -21,6 +65,19 @@ def get_llm(model_name, cache_dir="llm_weights"):
         low_cpu_mem_usage=True, 
         device_map="auto"
     )
+
+    if local_checkpoint_dir != "":
+        checkpoint = torch.load(local_checkpoint_dir, map_location="cpu")
+        if "gpt" in model_name:
+            checkpoint = convert_flashattn_checkpoint_to_hf(checkpoint)
+        model.load_state_dict(checkpoint)
+
+    for i, layer in enumerate(model.transformer.h):
+        if hasattr(layer, "attn"):
+            layer.attn.c_attn = conv1d_to_linear(layer.attn.c_attn)
+            layer.attn.c_proj = conv1d_to_linear(layer.attn.c_proj)
+        layer.mlp.c_fc = conv1d_to_linear(layer.mlp.c_fc)
+        layer.mlp.c_proj = conv1d_to_linear(layer.mlp.c_proj)
 
     model.seqlen = model.config.max_position_embeddings 
     return model
@@ -47,6 +104,8 @@ def main():
 
     parser.add_argument("--bitwidth", type=int, default=8)
     parser.add_argument("--quantization", action="store_true")
+    parser.add_argument("--local_checkpoint_dir", type=str, default="")
+    parser.add_argument("--eval_dataset", type=str, default="wikitext2", choices=["wikitext2", "c4", "openwebtext"])
 
     args = parser.parse_args()
 
@@ -62,7 +121,7 @@ def main():
 
     model_name = args.model.split("/")[-1]
     print(f"loading llm model {args.model}")
-    model = get_llm(args.model, args.cache_dir)
+    model = get_llm(args.model, args.cache_dir, args.local_checkpoint_dir)
     model.eval()
     tokenizer = AutoTokenizer.from_pretrained(args.model, use_fast=False)
 
