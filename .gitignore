@@ -1,0 +1,4 @@
+.idea
+/kernels/cuda_cores/build/*
+/kernels/tensor_cores/build/*
+/kernels/tensor_cores/libcusparse_lt/*
