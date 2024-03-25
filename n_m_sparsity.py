@@ -1,7 +1,7 @@
 import torch
-from .kernels.prune import pruner
-from quantization.model_quantizing import *
-from quantization.kernels.int_matmul import int_matmul
+from kernels.sparse_backend import pruner
+# from quantization.model_quantizing import *
+# from quantization.kernels.int_matmul import int_matmul
 
 force_2_4 = False
 
@@ -765,6 +765,73 @@ class ReductionDimStaticPruneWeightMatmul(torch.autograd.Function):
         return grad_input, grad_weight, None, None, None,None, None, None, None
 
 
+class AcceleratedStaticPruneWeightMatmul(torch.autograd.Function):
+    """Both forward and backward are static methods."""
+    @staticmethod
+    def forward(ctx, input, weight, mask=None, sparse_index=None):
+        if input.dtype != torch.float16:
+            input = input.half()
+        if input.dim() == 3:
+            batch_size = input.shape[0]
+            sequence_length = input.shape[1]
+            input = input.reshape(batch_size * sequence_length, -1)
+        else:
+            batch_size = input.shape[0]
+            sequence_length = -1
+        if sparse_index is None and input.size(0) > 16:
+            weight = weight.half()
+            transpose_A = False
+            transpose_B = True
+            sparse_A = False
+            transposable_mask = True
+            sparse_index = []
+            sparse_index.append(pruner.setup_spmatmul(input, weight, transpose_A, transpose_B, sparse_A, transposable_mask))
+            transpose_B = False
+            sparse_index.append(pruner.setup_spmatmul(input, weight, transpose_A, transpose_B, sparse_A, transposable_mask))
+            mask = weight != 0
+
+        if sparse_index is None:
+            output = torch.matmul(input, weight.t())
+            ctx.save_for_backward(input, -torch.ones(1), mask, weight)
+        else:
+            sparseA = False
+            output = pruner.spmatmul(input, sparse_index[0], sparseA)
+            ctx.save_for_backward(input, sparse_index[1], mask, weight)
+
+        if sequence_length != -1:
+            output = output.reshape(batch_size, sequence_length, -1)
+
+
+        return output.clone(), mask, sparse_index
+
+    @staticmethod
+    def backward(ctx, grad_output, grad_mask, grad_sparse_index):
+        input, sparse_index, mask, weight = ctx.saved_tensors
+        if grad_output.dim() == 3:
+            batch_size = grad_output.shape[0]
+            sequence_length = grad_output.shape[1]
+            grad_output = grad_output.reshape(batch_size * sequence_length, -1)
+        else:
+            batch_size = input.shape[0]
+            sequence_length = -1
+        dtype = torch.float16
+        grad_weight = torch.matmul(grad_output.t().to(dtype), input.to(dtype))
+        if mask is not None:
+            # grad_weight = pruner.prune_and_compress(grad_weight, mask)
+            print(sparse_index, weight.shape, grad_output.shape, grad_output.dtype)
+            sparseA = False
+            grad_input = pruner.spmatmul(grad_output, sparse_index, sparseA)
+            torch.cuda.synchronize()
+            # else:
+            #     grad_input = torch.matmul(grad_output.to(dtype), weight.to(dtype))
+        else:
+            grad_input = torch.matmul(grad_output.to(dtype), weight.to(dtype))
+
+        if sequence_length != -1:
+            grad_input = grad_input.reshape(batch_size, sequence_length, -1)
+
+        return grad_input, grad_weight, None, None
+
 
 class UnstructuredStaticPruneWeightMatmul(torch.autograd.Function):
     """Both forward and backward are static methods."""
@@ -879,9 +946,9 @@ if __name__ == '__main__':
     print(mat)
     print(torch.sum(mat != 0.) / mat.numel())
     mat[0, 0] = 0.
-    mat, mask = prune_row_wise(mat, N=N, M=M)
+    mat, mask = prune_row_wise(mat, n=N, m=M)
     print(mat)
     print(torch.sum(mat != 0.) / mat.numel())
-    mat, mask = prune_column_wise(mat, N=N, M=M)
+    mat, mask = prune_column_wise(mat, n=N, m=M)
     print(mat)
     print(torch.sum(mat != 0.) / mat.numel())
