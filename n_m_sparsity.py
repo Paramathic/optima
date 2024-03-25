@@ -1,7 +1,7 @@
 import torch
-from kernels.sparse_backend import pruner
-# from quantization.model_quantizing import *
-# from quantization.kernels.int_matmul import int_matmul
+from .kernels.sparse_backend import pruner
+from quantization.model_quantizing import *
+from quantization.kernels.int_matmul import int_matmul
 
 force_2_4 = False
 
