@@ -228,9 +228,8 @@ int setup_prune_matmul( const int                       m,
     at::Half *dC, *dD;
     CHECK_CUDA( cudaMalloc((void**) &dC, C_size) )
 
-    at::Half hC[m * n] = {};
-    CHECK_CUDA( cudaMalloc((void**) &dC, C_size) )
-    CHECK_CUDA( cudaMemcpy(dC, hC, C_size, cudaMemcpyHostToDevice) )
+//     at::Half hC[m * n] = {};
+//     CHECK_CUDA( cudaMemcpy(dC, hC, C_size, cudaMemcpyHostToDevice) )
     dD = dC;
 
 
