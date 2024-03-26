@@ -1,6 +1,5 @@
 from .ops import *
 from types import MethodType
-from src.utils import is_main_process
 
 
 def dense_forward(module, input):
@@ -131,7 +130,8 @@ def prune_model(model,
                 add_lora=False,
                 lora_rank=4,
                 unstructured_masking = False,
-                unstructured_mask_sparsity = 60):
+                unstructured_mask_sparsity = 60,
+                is_main_process=lambda: True):
     if is_main_process():
         print(f"Modifying model to prune {pruned_matrix}")
     known_modules = {"Linear", "LinearActivation"}
@@ -214,7 +214,7 @@ def prune_model(model,
                 setattr(module.weight, "pruned", False)
                 module.mask = None
 
-def set_n_m(model, sparsity_increment=[]):
+def set_n_m(model, sparsity_increment=[], is_main_process=lambda: True):
     if sparsity_increment == "" or sparsity_increment == "-1":
         return
     else:

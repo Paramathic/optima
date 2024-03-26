@@ -1,5 +1,4 @@
 import torch
-#from src.utils import is_main_process
 from torch.nn.parameter import Parameter
 
 def quantize_two_matrices_sum_qbitwidth(A, B, qbitwidth, m):
@@ -97,7 +96,8 @@ def quantize_model(model,
                    quantization_en=False,
                    qbitwidth=8,
                    update_lora=False,
-                   accelerate_en=False):
+                   accelerate_en=False,
+                   is_main_process=lambda: True):
 
     if is_main_process() and quantization_en:
         print(f"Quantizing the model's weights")
