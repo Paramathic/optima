@@ -7,13 +7,14 @@ import torch
 import subprocess
 
 def get_allocated_memory():
-    try:
-        output = subprocess.check_output(['nvidia-smi', '--query-gpu=memory.used', '--format=csv,noheader,nounits'])
-        output = output.decode('utf-8')
-        allocated_memory = [int(x) for x in output.strip().split('\n')]
-        return allocated_memory
-    except subprocess.CalledProcessError:
-        return None
+    return [torch.cuda.memory_allocated() / 1024**2]
+    # try:
+    #     output = subprocess.check_output(['nvidia-smi', '--query-gpu=memory.used', '--format=csv,noheader,nounits'])
+    #     output = output.decode('utf-8')
+    #     allocated_memory = [int(x) for x in output.strip().split('\n')]
+    #     return allocated_memory
+    # except subprocess.CalledProcessError:
+    #     return None
 
 
 parser = argparse.ArgumentParser()
