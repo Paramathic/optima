@@ -1,2 +1,3 @@
-from .n_m_sparsity import *
-from .model_pruning import *
+from .ops import *
+from .model_compression import *
+from .quantization import *

@@ -1,4 +1,4 @@
-from .n_m_sparsity import *
+from .ops import *
 from types import MethodType
 from src.utils import is_main_process
 
