@@ -8,7 +8,9 @@ from .data import get_loaders
 
 from .ablate import AblateGPT 
 
-from .utils import add_lora
+from .utils import add_lora, get_layers_list, shift_zeros
+from compression.quantization.model_quantizing import Quantizer
+
 
 def find_layers(module, layers=[nn.Linear], name=''):
     """
@@ -31,15 +33,6 @@ def find_layers(module, layers=[nn.Linear], name=''):
         ))
     return res
 
-
-def get_layers_list(model):
-    if hasattr(model, "model"):
-        layers = model.model.decoder.layers
-    elif hasattr(model, "transformer"):
-        layers = model.transformer.h
-    else:
-        raise NotImplementedError
-    return layers
 
 def check_sparsity(model):
     use_cache = model.config.use_cache 
@@ -177,6 +170,8 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
 
         for name in subset:
             print(f"pruning layer {i} name {name}")
+            if args.shift_zero_metrics:
+                wrapped_layers[name].scaler_row = shift_zeros(wrapped_layers[name].scaler_row)
             W_metric = torch.abs(subset[name].weight.data) * torch.sqrt(wrapped_layers[name].scaler_row.reshape((1,-1)))
 
             W_mask = (torch.zeros_like(W_metric) == 1)  ## initialize a mask to be all False

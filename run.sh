@@ -1,14 +1,16 @@
 
-module load anaconda3
+module load anaconda3 cuda/11.4.4 gcc/10.3.0 ninja
 source activate pytorch
 
-MODEL_PREFIX=openai-community/gpt2 #facebook/opt-
-# MODEL_SIZE=-large #2.7b
+MODEL_PREFIX=facebook/opt-
+MODEL_SIZE=2.7b
 STRUCTURE=unstructured
-METHOD=magnitude
+METHOD=wanda
 SPARSITY_RATIO=0.5
-LORA_RANK=0
-# WANDA_IN_LORA='--wanda_in_lora'
+LORA_RANK=0.1
+WANDA_IN_LORA='--wanda_in_lora'
+SHIFT_ZERO_METRICS='--shift_zero_metrics'
+EVAL_DATASET='wikitext2'
 # RANDOMIZED_SVD='--randomized_svd'
 # LOCAL_CHECKPOINT_DIR='--local_checkpoint_dir local_checkpoints/flash_attn_gpt2_small_dense.pt'
 
@@ -21,6 +23,8 @@ python main_opt.py \
     --lora_rank $LORA_RANK \
     $WANDA_IN_LORA \
     $RANDOMIZED_SVD \
+    --eval_dataset $EVAL_DATASET \
+    $SHIFT_ZERO_METRICS \
     $LOCAL_CHECKPOINT_DIR
 
     

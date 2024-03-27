@@ -7,6 +7,7 @@ from importlib.metadata import version
 
 from lib.prune_opt import prune_wanda, prune_magnitude, prune_sparsegpt, prune_ablate, check_sparsity, find_layers
 from lib.eval import eval_ppl, eval_zero_shot
+from lib.utils import get_layers_list
 
 print('torch', version('torch'))
 print('transformers', version('transformers'))
@@ -72,12 +73,13 @@ def get_llm(model_name, cache_dir="llm_weights", local_checkpoint_dir=""):
             checkpoint = convert_flashattn_checkpoint_to_hf(checkpoint)
         model.load_state_dict(checkpoint)
 
-    for i, layer in enumerate(model.transformer.h):
+    for i, layer in enumerate(get_layers_list(model)):
         if hasattr(layer, "attn"):
             layer.attn.c_attn = conv1d_to_linear(layer.attn.c_attn)
             layer.attn.c_proj = conv1d_to_linear(layer.attn.c_proj)
-        layer.mlp.c_fc = conv1d_to_linear(layer.mlp.c_fc)
-        layer.mlp.c_proj = conv1d_to_linear(layer.mlp.c_proj)
+        if hasattr(layer, "mlp"):
+            layer.mlp.c_fc = conv1d_to_linear(layer.mlp.c_fc)
+            layer.mlp.c_proj = conv1d_to_linear(layer.mlp.c_proj)
 
     model.seqlen = model.config.max_position_embeddings 
     return model
@@ -106,6 +108,7 @@ def main():
     parser.add_argument("--quantization", action="store_true")
     parser.add_argument("--local_checkpoint_dir", type=str, default="")
     parser.add_argument("--eval_dataset", type=str, default="wikitext2", choices=["wikitext2", "c4", "openwebtext"])
+    parser.add_argument("--shift_zero_metrics", action="store_true")
 
     args = parser.parse_args()
 

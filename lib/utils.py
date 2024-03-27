@@ -1,6 +1,22 @@
 import torch
 
 
+def get_layers_list(model):
+    if hasattr(model, "model"):
+        layers = model.model.decoder.layers
+    elif hasattr(model, "transformer"):
+        layers = model.transformer.h
+    else:
+        raise NotImplementedError
+    return layers
+
+
+def shift_zeros(x):
+    min_positive = x.clone().detach()
+    min_positive[min_positive == 0] = 1
+    min_positive = min_positive.min()
+    return x + min_positive
+
 def add_lora(module, W_mask, rank_ratio=0.01, use_wanda=False, activations=None, use_randomized_svd=True, quantizer=None, bitwidth=8):
     if use_wanda and not any (activations.scaler_row == 0):
         if quantizer is None:
