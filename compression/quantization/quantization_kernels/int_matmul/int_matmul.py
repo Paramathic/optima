@@ -2,14 +2,16 @@ import torch
 from torch.utils.cpp_extension import load
 import os
 
-base_path = "."
+base_path = __file__.replace("int_matmul.py", "")
 
-if not os.path.exists(base_path + "/quantization/kernels/int_matmul/build"):
-    os.makedirs(base_path + "/quantization/kernels/int_matmul/build")
+if not os.path.exists(f"{base_path}/build"):
+        os.makedirs(f"{base_path}/build")
 
-intMatmul = load(name='intMatmul', sources=[base_path + '/quantization/kernels/int_matmul/int_matmul.cpp',
-                                            base_path + '/quantization/kernels/int_matmul/int_matmul.cu'],
-                 build_directory=base_path + "/quantization/kernels/int_matmul/build", verbose=True)
+intMatmul = load(name='intMatmul', 
+                 sources=[  f'{base_path}/int_matmul.cpp',
+                            f'{base_path}/int_matmul.cu'],
+                 build_directory=f'{base_path}/build', 
+                 verbose=True)
 
 #This function is actually computing AB^T
 def int_matmul(a, b):
