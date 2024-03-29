@@ -60,13 +60,26 @@ def check_sparsity(model):
     model.config.use_cache = use_cache 
     return float(count)/total_params 
 
-def prepare_calibration_input(model, dataloader, device):
+def prepare_calibration_input(model, dataloader, device, single_gpu=False):
     use_cache = model.config.use_cache
     model.config.use_cache = False
     layers = get_layers_list(model)
 
-    if "model.embed_tokens" in model.hf_device_map:
-        device = model.hf_device_map["model.embed_tokens"]
+    try:
+        if "model.embed_tokens" in model.hf_device_map:
+            device = model.hf_device_map["model.embed_tokens"]
+    except:
+        pass
+
+    if single_gpu:
+        dev = torch.device("cuda:0")
+        model.model.decoder.embed_tokens = model.model.decoder.embed_tokens.to(dev)
+        model.model.decoder.embed_positions = model.model.decoder.embed_positions.to(dev)
+        if hasattr(model.model.decoder, 'project_out') and model.model.decoder.project_out:
+            model.model.decoder.project_out = model.model.decoder.project_out.to(dev)
+        if hasattr(model.model.decoder, 'project_in') and model.model.decoder.project_in:
+            model.model.decoder.project_in = model.model.decoder.project_in.to(dev)
+        layers[0] = layers[0].to(dev)
 
     dtype = next(iter(model.parameters())).dtype
     inps = torch.zeros((128, model.seqlen, model.config.hidden_size), dtype=dtype, device=device)
@@ -89,6 +102,16 @@ def prepare_calibration_input(model, dataloader, device):
         except ValueError:
             pass 
     layers[0] = layers[0].module
+
+    if single_gpu:
+        layers[0] = layers[0].cpu()
+        model.model.decoder.embed_tokens = model.model.decoder.embed_tokens.cpu()
+        model.model.decoder.embed_positions = model.model.decoder.embed_positions.cpu()
+        if hasattr(model.model.decoder, 'project_out') and model.model.decoder.project_out:
+            model.model.decoder.project_out = model.model.decoder.project_out.cpu()
+        if hasattr(model.model.decoder, 'project_in') and model.model.decoder.project_in:
+            model.model.decoder.project_in = model.model.decoder.project_in.cpu()
+        torch.cuda.empty_cache()
 
     outs = torch.zeros_like(inps)
     attention_mask = cache['attention_mask']
@@ -126,7 +149,7 @@ def prune_magnitude(args, model, tokenizer, device=torch.device("cuda:0"), prune
 
             W[W_mask] = 0
 
-def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
+def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0, single_gpu_en = False):
     use_cache = model.config.use_cache 
     model.config.use_cache = False 
 
@@ -134,7 +157,7 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
     dataloader, _ = get_loaders("c4",nsamples=args.nsamples,seed=args.seed,seqlen=model.seqlen,tokenizer=tokenizer)
     print("dataset loading complete")
     with torch.no_grad():
-        inps, outs, attention_mask = prepare_calibration_input(model, dataloader, device)
+        inps, outs, attention_mask = prepare_calibration_input(model, dataloader, device, single_gpu_en)
 
     if args.quantization:
         quantizer = Quantizer("weight")
@@ -143,13 +166,18 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
 
     layers = get_layers_list(model)
     for i in range(len(layers)):
-        layer = layers[i]
+        if single_gpu_en:
+            layer = layers[i].to(device)
+        else:
+            layer = layers[i]
+
         subset = find_layers(layer)
-
-        if f"model.layers.{i}" in model.hf_device_map:   ## handle the case for llama-30B and llama-65B, when the device map has multiple GPUs;
-            dev = model.hf_device_map[f"model.layers.{i}"]
-            inps, outs, attention_mask = inps.to(dev), outs.to(dev), attention_mask.to(dev)
-
+        try:
+            if f"model.layers.{i}" in model.hf_device_map:   ## handle the case for llama-30B and llama-65B, when the device map has multiple GPUs;
+                dev = model.hf_device_map[f"model.layers.{i}"]
+                inps, outs, attention_mask = inps.to(dev), outs.to(dev), attention_mask.to(dev)
+        except:
+            pass
         wrapped_layers = {}
         for name in subset:
             wrapped_layers[name] = WrappedGPT(subset[name])
@@ -202,6 +230,10 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
                 outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask)[0]
         inps, outs = outs, inps
 
+        if single_gpu_en:
+            layers[i] = layer.cpu()
+            del layer
+            torch.cuda.empty_cache()
     model.config.use_cache = use_cache 
     torch.cuda.empty_cache()
 

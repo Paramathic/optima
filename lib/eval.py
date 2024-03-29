@@ -189,7 +189,6 @@ def eval_ppl_single_gpu_wikitext(model, testenc, bs=1, dev=torch.device(0)):
     attention_mask = cache['attention_mask']
 
     for i in range(len(layers)):
-
         layer = layers[i].to(dev)
 
         # if args.gmp:

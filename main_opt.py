@@ -59,13 +59,21 @@ def convert_flashattn_checkpoint_to_hf(checkpoint):
 
 
 def get_llm(model_name, cache_dir="llm_weights", local_checkpoint_dir=""):
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name, 
-        torch_dtype=torch.float16, 
-        cache_dir=cache_dir, 
-        low_cpu_mem_usage=True, 
-        device_map="auto"
+
+    if '30b' in model_name or '66b' in model_name:
+        model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        torch_dtype=torch.float16,
+        cache_dir=cache_dir,
     )
+    else:
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            torch_dtype=torch.float16,
+            cache_dir=cache_dir,
+            low_cpu_mem_usage=True,
+            device_map='auto'
+        )
 
     if local_checkpoint_dir != "":
         checkpoint = torch.load(local_checkpoint_dir, map_location="cpu")
@@ -125,18 +133,26 @@ def main():
     model_name = args.model.split("/")[-1]
     print(f"loading llm model {args.model}")
     model = get_llm(args.model, args.cache_dir, args.local_checkpoint_dir)
+
+    single_gpu = False
+    if '30b' in args.model or '66b' in args.model or '125m' in args.model:
+        single_gpu = True
+
     model.eval()
     tokenizer = AutoTokenizer.from_pretrained(args.model, use_fast=False)
 
     device = torch.device("cuda:0")
-    if "30b" in args.model or "66b" in args.model: # for 30b and 65b we use device_map to load onto multiple A6000 GPUs, thus the processing here.
-        device = model.hf_device_map["lm_head"]
+    try:
+        if "30b" in args.model or "66b" in args.model: # for 30b and 65b we use device_map to load onto multiple A6000 GPUs, thus the processing here.
+            device = model.hf_device_map["lm_head"]
+    except:
+        pass
     print("use device ", device)
 
     if args.sparsity_ratio != 0:
         print("pruning starts")
         if args.prune_method == "wanda":
-            prune_wanda(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
+            prune_wanda(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m, single_gpu_en = single_gpu)
         elif args.prune_method == "magnitude":
             prune_magnitude(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
         elif args.prune_method == "sparsegpt":
@@ -150,7 +166,7 @@ def main():
     print(f"sparsity sanity check {sparsity_ratio:.4f}")
     print("*"*30)
     ################################################################
-    ppl_test = eval_ppl(args, model, tokenizer, device)
+    ppl_test = eval_ppl(args, model, tokenizer, device, single_gpu = single_gpu)
     print(f"wikitext perplexity {ppl_test}")
 
     if not os.path.exists(args.save):
