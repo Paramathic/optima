@@ -135,7 +135,7 @@ def main():
     model = get_llm(args.model, args.cache_dir, args.local_checkpoint_dir)
 
     single_gpu = False
-    if '30b' in args.model or '66b' in args.model or '125m' in args.model:
+    if '30b' in args.model or '66b' in args.model:
         single_gpu = True
 
     model.eval()
