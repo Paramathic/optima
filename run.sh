@@ -11,6 +11,11 @@ LORA_RANK=0.1
 WANDA_IN_LORA='--wanda_in_lora'
 SHIFT_ZERO_METRICS='--shift_zero_metrics'
 EVAL_DATASET='wikitext2'
+QUANTIZATION='--quantization'
+BITWIDTH=4
+QUANTIZE_BEFORE_PRUNING='--quantize_before_pruning'
+MAX_BITWIDTH=8
+USE_STD_IN_QUANTIZATION='--use_std_in_quantization'
 # RANDOMIZED_SVD='--randomized_svd'
 # LOCAL_CHECKPOINT_DIR='--local_checkpoint_dir local_checkpoints/flash_attn_gpt2_small_dense.pt'
 
@@ -25,6 +30,11 @@ python main_opt.py \
     $RANDOMIZED_SVD \
     --eval_dataset $EVAL_DATASET \
     $SHIFT_ZERO_METRICS \
-    $LOCAL_CHECKPOINT_DIR
+    $LOCAL_CHECKPOINT_DIR \
+    $QUANTIZATION \
+    $QUANTIZE_BEFORE_PRUNING \
+    --bitwidth $BITWIDTH \
+    --max_bitwidth $MAX_BITWIDTH \
+    $USE_STD_IN_QUANTIZATION
 
     

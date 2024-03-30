@@ -8,7 +8,7 @@ from .data import get_loaders
 
 from .ablate import AblateGPT 
 
-from .utils import add_lora, get_layers_list, shift_zeros
+from .utils import add_lora, get_layers_list, shift_zeros, density_ratio
 from compression.quantization.model_quantizing import Quantizer
 
 
@@ -200,7 +200,28 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
             print(f"pruning layer {i} name {name}")
             if args.shift_zero_metrics:
                 wrapped_layers[name].scaler_row = shift_zeros(wrapped_layers[name].scaler_row)
-            W_metric = torch.abs(subset[name].weight.data) * torch.sqrt(wrapped_layers[name].scaler_row.reshape((1,-1)))
+            if args.quantize_before_pruning and quantizer is not None:
+                # print("Mean: ", subset[name].weight.data.flatten().mean().item())
+                # print("STD: ", subset[name].weight.data.flatten().std().item())
+                # weight = subset[name].weight.data.clone().detach().flatten()
+                # std = weight.std()
+                # print("Ratio 1x:" , (weight.abs() > std).sum().item() / weight.numel())
+                # print("Ratio 2x:" , (weight.abs() > 2*std).sum().item() / weight.numel())
+                # print("Ratio 3x:" , (weight.abs() > 3*std).sum().item() / weight.numel())
+
+                # print("Max", subset[name].weight.data.flatten().max().item())
+                quantized_weight = quantizer.dequantize_absmax(
+                                        quantizer.quantize_weight(
+                                            subset[name].weight.data, 
+                                            args.bitwidth, 
+                                            use_std=args.use_std_in_quantization,
+                                            max_bitwidth=args.max_bitwidth
+                                        )
+                )
+                # print("1- ", density_ratio(quantized_weight))
+                W_metric = torch.abs(quantized_weight) * torch.sqrt(wrapped_layers[name].scaler_row.reshape((1,-1)))
+            else:
+                W_metric = torch.abs(subset[name].weight.data) * torch.sqrt(wrapped_layers[name].scaler_row.reshape((1,-1)))
 
             W_mask = (torch.zeros_like(W_metric) == 1)  ## initialize a mask to be all False
             if prune_n != 0:
@@ -218,12 +239,27 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
 
             
             if args.lora_rank > 0.:
-                add_lora(subset[name], W_mask, args.lora_rank, args.wanda_in_lora, wrapped_layers[name], args.randomized_svd, quantizer, args.bitwidth)
+                add_lora(subset[name], 
+                         W_mask=W_mask, 
+                         rank_ratio=args.lora_rank, 
+                         use_wanda=args.wanda_in_lora, 
+                         activations=wrapped_layers[name], 
+                         use_randomized_svd=args.randomized_svd, 
+                         quantizer=quantizer, 
+                         bitwidth=args.bitwidth,
+                         use_std=args.use_std_in_quantization,
+                         max_bitwidth=args.max_bitwidth)
             else:
                 subset[name].weight.data[W_mask] = 0  ## set weights to zero
+                # print("Before Quantization: ", density_ratio(subset[name].weight.data))
                 if quantizer is not None:
-                    subset[name].weight.data = quantizer.quantize_weight(subset[name].weight.data, args.bitwidth)
+                    subset[name].weight.data = quantizer.quantize_weight(subset[name].weight.data, 
+                                                                         args.bitwidth, 
+                                                                         use_std=args.use_std_in_quantization,
+                                                                         max_bitwidth=args.max_bitwidth)
                     subset[name].weight.data = quantizer.dequantize_absmax(subset[name].weight.data)
+                # print("After Quantization", density_ratio(subset[name].weight.data))
+                    
 
         for j in range(args.nsamples):
             with torch.no_grad():

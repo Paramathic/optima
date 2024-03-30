@@ -114,9 +114,12 @@ def main():
 
     parser.add_argument("--bitwidth", type=int, default=8)
     parser.add_argument("--quantization", action="store_true")
+    parser.add_argument("--quantize_before_pruning", action="store_true")
     parser.add_argument("--local_checkpoint_dir", type=str, default="")
     parser.add_argument("--eval_dataset", type=str, default="wikitext2", choices=["wikitext2", "c4", "openwebtext"])
     parser.add_argument("--shift_zero_metrics", action="store_true")
+    parser.add_argument("--use_std_in_quantization", action="store_true")
+    parser.add_argument("--max_bitwidth", type=int, default=8)
 
     args = parser.parse_args()
 
