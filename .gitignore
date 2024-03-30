@@ -3,3 +3,6 @@ data/*
 */__pycache__/*
 local_checkpoints/*
 out/*
+compression/quantization/quantization_kernels/int_matmul/build/*
+lib/__pycache__/*
+compression/quantization/__pycache__/*
