@@ -23,13 +23,17 @@ class Quantizer:
         elif self.matrix_type == "input":
             return self.quantize_input(mat, num_bits)
 
-    def quantize_weight(self, mat, num_bits=8):
+    def quantize_weight(self, mat, num_bits=8, use_std=False, std_factor=3, max_bitwidth=8):
         """absmax quantization"""
         max_q = 2 ** (num_bits - 1) - 1
-
-        abs_max = mat.abs().max()
+        if use_std:
+            abs_max = std_factor * torch.sqrt((mat ** 2).mean())
+        else:
+            abs_max = mat.abs().max()
         scaling_factor = max_q / abs_max
         quantized_mat = torch.round(mat * scaling_factor)
+        if use_std:
+            max_q = 2 ** max_bitwidth - 1
         quantized_mat = torch.clamp(quantized_mat, -max_q, max_q)
 
         self.scaling_factor = scaling_factor
