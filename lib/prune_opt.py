@@ -248,7 +248,8 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
                          quantizer=quantizer, 
                          bitwidth=args.bitwidth,
                          use_std=args.use_std_in_quantization,
-                         max_bitwidth=args.max_bitwidth)
+                         max_bitwidth=args.max_bitwidth,
+                         pruned_L=args.pruned_l)
             else:
                 subset[name].weight.data[W_mask] = 0  ## set weights to zero
                 # print("Before Quantization: ", density_ratio(subset[name].weight.data))
