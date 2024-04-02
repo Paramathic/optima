@@ -106,8 +106,8 @@ constexpr int EXIT_UNSUPPORTED = 2;
 
 cusparseLtHandle_t handle;
 
-float alpha = 1.0f;
-float beta  = 0.0f;
+int8_t alpha = 1;
+int8_t beta  = 0;
 
 
 typedef struct {
@@ -146,7 +146,7 @@ typedef struct cusparseLtMatmulArgs_t {
     cudaStream_t                    stream;
     size_t                          workspace_size;
 //     void*                           d_workspace;
-    at::Half                        *dCompressed;
+    void                            *dCompressed;
     int                             m;
     int                             n;
 //     torch::Tensor                   grad;
@@ -175,16 +175,19 @@ typedef struct cusparseLtMatmulArgs_t {
 std::vector<cusparseLtMatmulArgs*> matmul_args;
 
 
+template <class T>
 int setup_prune_matmul( const int                       m,
                         const int                       n,
                         const int                       k,
-                        at::Half                        *dSparse,
-                        at::Half                        *dDense,
+                        T                               *dSparse,
+                        T                               *dDense,
                         int                             *index,
                         const bool                      transpose_A=false,
                         const bool                      transpose_B=false,
                         const bool                      sparseA=true,
-                        const bool                      transposable_mask=false)
+                        const bool                      transposable_mask=false,
+                        cudaDataType_t                  type=CUDA_R_16F,
+                        cusparseComputeType             compute_type=CUSPARSE_COMPUTE_16F)
 {
     matmul_args.push_back(new cusparseLtMatmulArgs_t);
     *index = matmul_args.size() - 1;
@@ -198,8 +201,6 @@ int setup_prune_matmul( const int                       m,
     auto          order        = CUSPARSE_ORDER_ROW;
     auto          opA          = transpose_A ? CUSPARSE_OPERATION_TRANSPOSE : CUSPARSE_OPERATION_NON_TRANSPOSE;
     auto          opB          = transpose_B ? CUSPARSE_OPERATION_TRANSPOSE : CUSPARSE_OPERATION_NON_TRANSPOSE;
-    auto          type         = CUDA_R_16F;
-    auto          compute_type = CUSPARSE_COMPUTE_16F;
 
     bool     is_rowmajor    = (order == CUSPARSE_ORDER_ROW);
     bool     isA_transposed = (opA != CUSPARSE_OPERATION_NON_TRANSPOSE);
@@ -215,7 +216,7 @@ int setup_prune_matmul( const int                       m,
     auto     ldb            = (is_rowmajor) ? num_B_cols : num_B_rows;
     auto     ldc            = (is_rowmajor) ? num_C_cols : num_C_rows;
     auto     C_height       = (is_rowmajor) ? num_C_rows : num_C_cols;
-    auto     C_size         = C_height * ldc * sizeof(at::Half);
+    auto     C_size         = C_height * ldc * sizeof(T);
 
 
     cusparseLtMatDescriptor_t*      matA;
@@ -225,10 +226,10 @@ int setup_prune_matmul( const int                       m,
     matB = new cusparseLtMatDescriptor_t;
     matC = new cusparseLtMatDescriptor_t;
 
-    at::Half *dC, *dD;
+    T *dC, *dD;
     CHECK_CUDA( cudaMalloc((void**) &dC, C_size) )
 
-//     at::Half hC[m * n] = {};
+//     T hC[m * n] = {};
 //     CHECK_CUDA( cudaMemcpy(dC, hC, C_size, cudaMemcpyHostToDevice) )
     dD = dC;
 
@@ -322,7 +323,7 @@ int setup_prune_matmul( const int                       m,
                                                 sparseA,
                                                 sparseA ? opA : opB,
                                                 dSparse,
-                                                args->dCompressed,
+                                                (T*) args->dCompressed,
                                                 dCompressedBuffer,
                                                 args->stream) )
 
@@ -335,12 +336,12 @@ int setup_prune_matmul( const int                       m,
     {
 //         printf("%f, %f, %f, %f, %f, %f\n", alpha, beta, *dDense,0.,0.,0.);// , dDense[0], beta, dC[0], dD[0]);
         CHECK_CUSPARSE( cusparseLtMatmulSearch(&handle, args->plan, &alpha,
-                                            args->dCompressed, dDense, &beta,
+                                            (T*) args->dCompressed, dDense, &beta,
                                             dC, dD, nullptr,
                                             args->streams, args->num_streams) )
     } else {
         CHECK_CUSPARSE( cusparseLtMatmulSearch(&handle, args->plan, &alpha,
-                                            dDense, args->dCompressed, &beta,
+                                            dDense, (T*) args->dCompressed, &beta,
                                             dC, dD, nullptr,
                                             args->streams, args->num_streams) )
     }
@@ -368,17 +369,101 @@ int setup_prune_matmul( const int                       m,
 }
 
 
-torch::Tensor spmatmul_cuda(at::Half    *dDense,
-                            int         index,
-                            bool        sparseA)
+torch::Tensor setup_spmatmul_cuda(torch::Tensor A,
+                                torch::Tensor B,
+                                const bool transpose_A=false,
+                                const bool transpose_B=false,
+                                const bool sparseA=true,
+                                const bool transposable_mask=false) {
+   auto index = torch::zeros({1}, torch::kInt32);
+   int result;
+   int m, k, n;
+   if(transpose_A && transpose_B)
+   {
+        m = A.size(1);
+        k = A.size(0);
+        n = B.size(0);
+   } else if(transpose_A)
+   {
+        m = A.size(1);
+        k = A.size(0);
+        n = B.size(1);
+   } else if(transpose_B)
+   {
+        m = A.size(0);
+        k = A.size(1);
+        n = B.size(0);
+   } else {
+        m = A.size(0);
+        k = A.size(1);
+        n = B.size(1);
+   }
+   switch (A.type().scalarType()) {
+        case torch::ScalarType::Half:
+        {
+            auto sparse_mat = sparseA ? A.data_ptr<at::Half>() : B.data_ptr<at::Half>();
+            auto dense_mat = sparseA ? B.data_ptr<at::Half>() : A.data_ptr<at::Half>();
+            at::Half *dCompressed;
+            result = setup_prune_matmul<at::Half>(     m,
+                                             n,
+                                             k,
+                                             sparse_mat,
+                                             dense_mat,
+                                             index.data_ptr<int>(),
+                                             transpose_A,
+                                             transpose_B,
+                                             sparseA,
+                                             transposable_mask,
+                                             CUDA_R_16F,
+                                             CUSPARSE_COMPUTE_16F);
+            break;
+        }
+        case torch::ScalarType::Char:
+        {
+            auto sparse_mat = sparseA ? A.data_ptr<int8_t>() : B.data_ptr<int8_t>();
+            auto dense_mat = sparseA ? B.data_ptr<int8_t>() : A.data_ptr<int8_t>();
+            int8_t *dCompressed;
+            result = setup_prune_matmul<int8_t>(     m,
+                                             n,
+                                             k,
+                                             sparse_mat,
+                                             dense_mat,
+                                             index.data_ptr<int>(),
+                                             transpose_A,
+                                             transpose_B,
+                                             sparseA,
+                                             transposable_mask,
+                                             CUDA_R_8I,
+                                             CUSPARSE_COMPUTE_32I);
+            break;}
+        default:
+        {
+            std::cout << A.type().scalarType() << std::endl;
+            throw std::runtime_error("Unsupported data type");
+        }
+   }
+   if(result == EXIT_SUCCESS) {
+     return index;
+   } else {
+     return -torch::ones({1}, torch::kInt32);
+   }
+}
+
+
+template <class T>
+torch::Tensor matmul(   T* dDense,
+                        int index,
+                        bool sparseA,
+                        torch::TensorOptions options=torch::TensorOptions()
+                    )
 {
     auto args = matmul_args[index];
-    auto options = torch::TensorOptions().dtype(torch::kHalf).device(torch::kCUDA);
+
     torch::Tensor C = torch::zeros({args->m, args->n}, options);
-    auto dC = C.data_ptr<at::Half>();
+    auto dC = C.data_ptr<T>();
     auto dD = dC;
-    auto dA = sparseA ? args->dCompressed : dDense;
-    auto dB = sparseA ? dDense : args->dCompressed;
+    auto dA = sparseA ? (T*) args->dCompressed : dDense;
+    auto dB = sparseA ? dDense : (T*) args->dCompressed;
     void *d_workspace;
     CHECK_CUDA_TORCH( cudaMalloc((void**) &d_workspace, args->workspace_size) )
     // Perform the matrix multiplication
@@ -387,6 +472,27 @@ torch::Tensor spmatmul_cuda(at::Half    *dDense,
                                      args->num_streams) )
     CHECK_CUDA_TORCH( cudaFree(d_workspace) )
     return C;
+}
+
+
+torch::Tensor spmatmul_cuda(torch::Tensor   Dense,
+                            int             index,
+                            bool            sparseA)
+{
+    switch (Dense.type().scalarType()) {
+        case torch::ScalarType::Half: {
+            auto options = torch::TensorOptions().dtype(torch::kHalf).device(torch::kCUDA);
+            return matmul<at::Half>(Dense.data_ptr<at::Half>(), index, sparseA, options);
+        }
+        case torch::ScalarType::Char: {
+            auto options = torch::TensorOptions().dtype(torch::kInt8).device(torch::kCUDA);
+            return matmul<int8_t>(Dense.data_ptr<int8_t>(), index, sparseA, options);
+        }
+        default:
+        {
+            throw std::runtime_error("Unsupported data type");
+        }
+    }
 }
 
 
@@ -887,7 +993,7 @@ torch::Tensor sparse_add_cuda(torch::Tensor dense, torch::Tensor sparse_index, t
             const dim3 blocks(((row_size / 8) + threads - 1) / threads, batch_size);
             sparse_add_kernel<<<blocks, threads>>>(
                 dense.data<at::Half>(),
-                args->dCompressed,
+                (at::Half*) args->dCompressed,
                 alpha.item<float>(),
                 beta.item<float>(),
                 result.data<at::Half>(),
@@ -930,7 +1036,7 @@ void update_sparse_matrix_cuda(torch::Tensor new_data, torch::Tensor sparse_idx)
             const dim3 blocks(((row_size / 8) + threads - 1) / threads, batch_size);
             update_sparse_matrix_kernel<<<blocks, threads>>>(
                 new_data.data<at::Half>(),
-                args->dCompressed,
+                (at::Half*) args->dCompressed,
                 row_size);
         }
     }

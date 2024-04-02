@@ -60,3 +60,19 @@ else:
     assert init_flag == 0, "Failed to initialize CuSparseLT"
 
 
+if __name__ == "__main__":
+    if torch.cuda.get_device_capability()[0] >= 8:
+        dtype = torch.int8
+        bs = 32
+        dim1 = 32
+        dim2 = 32
+        x = torch.randn(bs, dim1).to(dtype).cuda()
+        weight = torch.randn(dim2, dim1).to(dtype).cuda()
+        w_sparse_idx = pruner.setup_spmatmul(x, weight, False, True, False, True)
+        y_sparse = pruner.spmatmul(x, w_sparse_idx, False)
+        if dtype == torch.float16:
+            y_dense = torch.matmul(x, weight.t()).cuda()
+        elif dtype == torch.int8:
+            y_dense = torch.matmul(x.float(), weight.t().float()).cuda()
+            y_dense = y_dense.to(dtype)
+        print("SPMM Relative Error: ", ((y_dense - y_sparse).float().norm() / y_dense.float().norm()).item())
