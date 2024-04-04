@@ -119,6 +119,109 @@ def prepare_calibration_input(model, dataloader, device, single_gpu=False):
 
     return inps, outs, attention_mask
 
+
+def save_bias_correction_data(model, layers, inps, outs, attention_mask, single_gpu_en, device, nsamples):
+
+    layers_inps_outs  = {}
+
+    for i in range(len(layers)):
+        if single_gpu_en:
+            layer = layers[i].to(device)
+        else:
+            layer = layers[i]
+
+        subset = find_layers(layer)
+        sample_counter= 0
+        try:
+            if f"model.layers.{i}" in model.hf_device_map:   ## handle the case for llama-30B and llama-65B, when the device map has multiple GPUs;
+                dev = model.hf_device_map[f"model.layers.{i}"]
+                inps, outs, attention_mask = inps.to(dev), outs.to(dev), attention_mask.to(dev)
+        except:
+            pass
+
+        def save_layer_inp_out(module, input, output):
+            if sample_counter == 0:
+                 layers_inps_outs[id(module)] = (torch.zeros((nsamples, input[0].squeeze().shape[0], input[0].squeeze().shape[1]), dtype=next(iter(model.parameters())).dtype, device=torch.device("cpu")) ,torch.zeros((nsamples, output.squeeze().shape[0], output.squeeze().shape[1]), dtype=next(iter(model.parameters())).dtype, device=torch.device("cpu")))
+
+            layers_inps_outs[id(module)][0][sample_counter] =  input[0].detach().clone().squeeze().to(torch.device("cpu"))
+            layers_inps_outs[id(module)][1][sample_counter] =  output.detach().clone().squeeze().to(torch.device("cpu"))
+
+        handles = []
+        for name in subset:
+            handles.append(subset[name].register_forward_hook(save_layer_inp_out))
+        coeff = int(128/nsamples)
+        for j in range(nsamples):
+            with torch.no_grad():
+                outs[coeff*j] = layer(inps[coeff*j].unsqueeze(0), attention_mask=attention_mask)[0]
+                sample_counter+=1
+        for h in handles:
+            h.remove()
+
+        inps, outs = outs, inps
+
+        if single_gpu_en:
+            layers[i] = layer.cpu()
+            del layer
+            torch.cuda.empty_cache()
+
+    return layers_inps_outs
+
+def update_outputs_for_bias_correction(model, layers, layers_inps_outs,  single_gpu_en, device, alpha, nsamples):
+
+    def update_layer_inp_out(module, input, output):
+            layers_inps_outs[id(module)][1][sample_counter] -=  output.detach().clone().squeeze().to(torch.device("cpu"))
+
+    for i in range(len(layers)):
+        if single_gpu_en:
+            layer = layers[i].to(device)
+        else:
+            layer = layers[i]
+
+        subset = find_layers(layer)
+        sample_counter = 0
+        try:
+            if f"model.layers.{i}" in model.hf_device_map:   ## handle the case for llama-30B and llama-65B, when the device map has multiple GPUs;
+                dev = model.hf_device_map[f"model.layers.{i}"]
+                inps, outs, attention_mask = inps.to(dev), outs.to(dev), attention_mask.to(dev)
+        except:
+            pass
+
+
+        sample_counter = 0
+        handles = []
+        for name in subset:
+            handles.append(subset[name].register_forward_hook(update_layer_inp_out))
+        print(nsamples)
+        for j in range(nsamples):
+            for name in subset:
+                with torch.no_grad():
+                    layer_input = layers_inps_outs[id(subset[name])][0][sample_counter].to(subset[name].weight.data.device)
+                    subset[name](layer_input)
+                    del layer_input
+                    torch.cuda.empty_cache()
+            sample_counter+=1
+
+        for h in handles:
+            h.remove()
+
+        correct_bias(subset, layers_inps_outs, alpha)
+
+        if single_gpu_en:
+            layers[i] = layer.cpu()
+            del layer
+            torch.cuda.empty_cache()
+
+    return layers_inps_outs
+
+
+def correct_bias(subset, layers_outs, alpha):
+    print("bias correction alpha: "+ str(alpha))
+    for name in subset:
+       subset[name].bias.data += alpha*torch.mean(layers_outs[id(subset[name])][1].view(-1, layers_outs[id(subset[name])][1].shape[2]).to(subset[name].bias.data.device), dim=0)
+
+
+
+
 def return_given_alpha(alpha, sort_res, W_metric, tmp_metric, sum_before):
     thres_cumsum = sum_before * alpha 
     sort_mask = tmp_metric <= thres_cumsum.reshape((-1,1))
@@ -165,6 +268,14 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
         quantizer = None
 
     layers = get_layers_list(model)
+
+    if args.bias_correction:
+        layers_inps_outs = save_bias_correction_data(model, layers, inps, outs, attention_mask, single_gpu_en, device, args.bias_correction_nsamples)
+
+        with torch.no_grad():
+            inps, outs, attention_mask = prepare_calibration_input(model, dataloader, device, single_gpu_en)
+
+
     for i in range(len(layers)):
         if single_gpu_en:
             layer = layers[i].to(device)
@@ -271,7 +382,12 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
             layers[i] = layer.cpu()
             del layer
             torch.cuda.empty_cache()
-    model.config.use_cache = use_cache 
+
+    if args.bias_correction:
+        layers_inps_outs = update_outputs_for_bias_correction(model, layers, layers_inps_outs, single_gpu_en, device, args.bias_alpha, args.bias_correction_nsamples)
+
+
+    model.config.use_cache = use_cache
     torch.cuda.empty_cache()
 
 @torch.no_grad()
