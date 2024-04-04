@@ -102,7 +102,7 @@ def add_result_to_csv(args, ppl):
     # Load CSV if it exists, otherwise create a new DataFrame with given columns
     if os.path.exists(args.output_csv_path):
         df = pd.read_csv(args.output_csv_path)
-    else
+    else:
         df = pd.DataFrame(columns=CSV_COLUMNS)
 
     # Check if the row combination exists and update perplexity
@@ -140,6 +140,8 @@ def main():
     parser.add_argument('--save_model', type=str, default=None, help='Path to save the pruned model.')
 
     parser.add_argument("--eval_zero_shot", action="store_true")
+    parser.add_argument('--num_sample_partition', type=int, default=8,
+                        help='Number of partitions for evaluation samples.')
 
     parser.add_argument("--wanda_in_lora", action="store_true")
     parser.add_argument("--lora_rank", type=float, default=0.0)
@@ -208,7 +210,7 @@ def main():
     print(f"sparsity sanity check {sparsity_ratio:.4f}")
     print("*"*30)
     ################################################################
-    ppl_test = eval_ppl(args, model, tokenizer, device, single_gpu = single_gpu)
+    ppl_test = eval_ppl(args, model, tokenizer, device, single_gpu = single_gpu, num_partition = args.num_sample_partition)
     print(f"wikitext perplexity {ppl_test}")
 
     if args.output_csv_path:

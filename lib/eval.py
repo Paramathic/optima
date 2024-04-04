@@ -11,7 +11,7 @@ import fnmatch
 
 
 # Function to evaluate perplexity (ppl) on a specified model and tokenizer
-def eval_ppl(args, model, tokenizer, device=torch.device("cuda:0"), single_gpu = False):
+def eval_ppl(args, model, tokenizer, device=torch.device("cuda:0"), single_gpu = False, num_partition=8):
     # Set dataset
     dataset = args.eval_dataset
 
@@ -26,7 +26,7 @@ def eval_ppl(args, model, tokenizer, device=torch.device("cuda:0"), single_gpu =
     # Evaluate ppl in no grad context to avoid updating the model
     with torch.no_grad():
         if single_gpu:
-            ppl_test = eval_ppl_single_gpu_wikitext(model, testloader, 1, device)
+            ppl_test = eval_ppl_single_gpu_wikitext(model, testloader, 1, device, num_partition)
         else:
             ppl_test = eval_ppl_wikitext(model, testloader, 1, device)
     return ppl_test 
@@ -132,12 +132,13 @@ def eval_ppl_wikitext(model, testenc, bs=1, device=None):
     return ppl.item()
 
 
-def eval_ppl_single_gpu_wikitext(model, testenc, bs=1, dev=torch.device(0)):
+def eval_ppl_single_gpu_wikitext(model, testenc, bs=1, dev=torch.device(0) , num_partitions=8):
     # Get input IDs
     testenc = testenc.input_ids
 
     # Calculate number of samples
     nsamples = testenc.numel() // model.seqlen
+
     use_cache = model.config.use_cache
     model.config.use_cache = False
     layers = model.model.decoder.layers
@@ -175,7 +176,6 @@ def eval_ppl_single_gpu_wikitext(model, testenc, bs=1, dev=torch.device(0)):
         except ValueError:
             pass
     layers[0] = layers[0].module
-
     layers[0] = layers[0].cpu()
     model.model.decoder.embed_tokens = model.model.decoder.embed_tokens.cpu()
     model.model.decoder.embed_positions = model.model.decoder.embed_positions.cpu()
@@ -185,61 +185,94 @@ def eval_ppl_single_gpu_wikitext(model, testenc, bs=1, dev=torch.device(0)):
         model.model.decoder.project_in = model.model.decoder.project_in.cpu()
     torch.cuda.empty_cache()
 
-    outs = torch.zeros_like(inps)
-    attention_mask = cache['attention_mask']
+    batch_size = nsamples // num_partitions
+    outs = torch.zeros_like(inps[:batch_size, :, :])
+    print("inps shape: " + str(inps.shape))
+    print("outs shape: " + str(outs.shape))
 
-    for i in range(len(layers)):
-        layer = layers[i].to(dev)
+    for batch in range(num_partitions + 1):
+        if batch == num_partitions:
+            old_batch_size = batch_size
+            batch_size = nsamples - (num_partitions * batch_size)
+        attention_mask = cache['attention_mask']
 
-        # if args.gmp:
-        #   subset = find_layers(layer)
-        #  for name in subset:
-        #     W = subset[name].weight.data
-        #    thresh = torch.sort(torch.abs(W.flatten()))[0][int(W.numel() * args.sparsity)]
-        #   W.data[torch.abs(W.data) <= thresh] = 0
+        for i in range(len(layers)):
+            layer = layers[i].to(dev)
 
-        for j in range(nsamples):
-            #    if j % 50 == 0 and j > 0:
-            #     print(f"sample {j}, Perplexity {torch.exp(torch.stack(nlls).sum() / (j * model.seqlen))}")
-            outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask)[0]
-        layers[i] = layer.cpu()
-        del layer
-        torch.cuda.empty_cache()
-        inps, outs = outs, inps
+            # if args.gmp:
+            #   subset = find_layers(layer)
+            #  for name in subset:
+            #     W = subset[name].weight.data
+            #    thresh = torch.sort(torch.abs(W.flatten()))[0][int(W.numel() * args.sparsity)]
+            #   W.data[torch.abs(W.data) <= thresh] = 0
 
-    if model.model.decoder.final_layer_norm is not None:
-        model.model.decoder.final_layer_norm = model.model.decoder.final_layer_norm.to(dev)
-    if model.model.decoder.project_out is not None:
-        model.model.decoder.project_out = model.model.decoder.project_out.to(dev)
-    model.lm_head = model.lm_head.to(dev)
+            for j in range(batch_size):
+                #    if j % 50 == 0 and j > 0:
+                #     print(f"sample {j}, Perplexity {torch.exp(torch.stack(nlls).sum() / (j * model.seqlen))}")
+                if batch == 8:
+                    outs[j] = layer(inps[(batch * old_batch_size) + j].unsqueeze(0), attention_mask=attention_mask)[0]
+                else:
+                    outs[j] = layer(inps[(batch * batch_size) + j].unsqueeze(0), attention_mask=attention_mask)[0]
 
-    testenc = testenc.to(dev)
-    nlls = []
+            layers[i] = layer.cpu()
+            del layer
+            torch.cuda.empty_cache()
+            if batch == num_partitions:
+                # print("begin "+ str(batch* old_batch_size))
+                temp = inps[(batch * old_batch_size):, :, :].clone()
+                inps[(batch * old_batch_size):, :, :] = outs[:batch_size, :, :].clone()
+                outs[:batch_size, :, :] = temp
+                # inps[(batch* old_batch_size):,:,:], outs[:batch_size,:,:] = outs[:batch_size,:,:], inps[(batch* old_batch_size):,:,:]
+                del temp
+                torch.cuda.empty_cache()
+            else:
+                # print("begin " + str(batch* batch_size))
+                # print("end "+ str((batch+1) * batch_size))
+                # print("before")
+                # print(inps[(batch* batch_size):((batch+1) * batch_size),:,:])
+                # print(outs)
+                temp = inps[(batch * batch_size):((batch + 1) * batch_size), :, :].clone()
+                inps[(batch * batch_size):((batch + 1) * batch_size), :, :] = outs.clone()
+                outs = temp
+                del temp
+                torch.cuda.empty_cache()
+                # inps[(batch* batch_size):((batch+1) * batch_size),:,:], outs = outs, inps[(batch* batch_size):((batch+1) * batch_size),:,:]
+                # print("after")
+                # print(inps[(batch* batch_size):((batch+1) * batch_size),:,:])
+                # print(outs)
+            if model.model.decoder.final_layer_norm is not None:
+                model.model.decoder.final_layer_norm = model.model.decoder.final_layer_norm.to(dev)
+            if model.model.decoder.project_out is not None:
+                model.model.decoder.project_out = model.model.decoder.project_out.to(dev)
+            model.lm_head = model.lm_head.to(dev)
 
-    print(f"nsamples {nsamples}")
+            testenc = testenc.to(dev)
+            nlls = []
 
-    for i in range(nsamples):
-        if i % 50 == 0 and i > 0:
-            print(f"sample {i}, Perplexity {torch.exp(torch.stack(nlls).sum() / (i * model.seqlen))}")
-        hidden_states = inps[i].unsqueeze(0)
-        if model.model.decoder.final_layer_norm is not None:
-            hidden_states = model.model.decoder.final_layer_norm(hidden_states)
-        if model.model.decoder.project_out is not None:
-            hidden_states = model.model.decoder.project_out(hidden_states)
-        lm_logits = model.lm_head(hidden_states)
-        shift_logits = lm_logits[:, :-1, :].contiguous()
-        shift_labels = testenc[
-                       :, (i * model.seqlen):((i + 1) * model.seqlen)
-                       ][:, 1:]
-        loss_fct = nn.CrossEntropyLoss()
-        loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
-        neg_log_likelihood = loss.float() * model.seqlen
-        nlls.append(neg_log_likelihood)
-    ppl = torch.exp(torch.stack(nlls).sum() / (nsamples * model.seqlen))
-    # print(f"Perplexity: {ppl.item():3f}")
+            print(f"nsamples {nsamples}")
 
-    model.config.use_cache = use_cache
-    return ppl.item()
+            for i in range(nsamples):
+                if i % 50 == 0 and i > 0:
+                    print(f"sample {i}, Perplexity {torch.exp(torch.stack(nlls).sum() / (i * model.seqlen))}")
+                hidden_states = inps[i].unsqueeze(0)
+                if model.model.decoder.final_layer_norm is not None:
+                    hidden_states = model.model.decoder.final_layer_norm(hidden_states)
+                if model.model.decoder.project_out is not None:
+                    hidden_states = model.model.decoder.project_out(hidden_states)
+                lm_logits = model.lm_head(hidden_states)
+                shift_logits = lm_logits[:, :-1, :].contiguous()
+                shift_labels = testenc[
+                               :, (i * model.seqlen):((i + 1) * model.seqlen)
+                               ][:, 1:]
+                loss_fct = nn.CrossEntropyLoss()
+                loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+                neg_log_likelihood = loss.float() * model.seqlen
+                nlls.append(neg_log_likelihood)
+            ppl = torch.exp(torch.stack(nlls).sum() / (nsamples * model.seqlen))
+            # print(f"Perplexity: {ppl.item():3f}")
+
+            model.config.use_cache = use_cache
+            return ppl.item()
 
 
 def eval_zero_shot(model_name, model, tokenizer, task_list=["boolq","rte","hellaswag","winogrande","arc_challenge","arc_easy","openbookqa"],
