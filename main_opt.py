@@ -1,6 +1,7 @@
 import argparse
 import os 
 import numpy as np
+import pandas as pd
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from importlib.metadata import version
@@ -8,6 +9,11 @@ from importlib.metadata import version
 from lib.prune_opt import prune_wanda, prune_magnitude, prune_sparsegpt, prune_ablate, check_sparsity, find_layers
 from lib.eval import eval_ppl, eval_zero_shot
 from lib.utils import get_layers_list
+
+CSV_COLUMNS = ["model", "prune_method", "sparsity_ratio", "sparsity_type", "lora_rank",
+               "wanda_in_lora", "shift_zero_metrics", "eval_dataset", "quantization", "quantize_before_pruning",
+               "bitwidth", "max_bitwidth", "use_std_in_quantization", "bias_correction", "bias_alpha",
+               "bias_correction_nsamples", "perplexity"]
 
 print('torch', version('torch'))
 print('transformers', version('transformers'))
@@ -92,6 +98,33 @@ def get_llm(model_name, cache_dir="llm_weights", local_checkpoint_dir=""):
     model.seqlen = model.config.max_position_embeddings 
     return model
 
+def add_result_to_csv(args, ppl):
+    # Load CSV if it exists, otherwise create a new DataFrame with given columns
+    if os.path.exists(args.output_csv_path):
+        df = pd.read_csv(args.output_csv_path)
+    else
+        df = pd.DataFrame(columns=CSV_COLUMNS)
+
+    # Check if the row combination exists and update perplexity
+    new_row_data = {column: getattr(args, column) for column in CSV_COLUMNS[:-1]}
+    row_exists = df.index[(df[CSV_COLUMNS[:-1]] == pd.Series(new_row_data)).all(axis=1)]
+    
+    # Now we don't mind adding perplexity
+    new_row_data['perplexity'] = ppl
+
+    if row_exists.empty:
+        # Row combination does not exist, add a new row
+        new_row_df = pd.DataFrame([new_row_data], columns=CSV_COLUMNS)
+        df = pd.concat([df, new_row_df], ignore_index=True)
+    else:
+        # Row combination exists, modify perplexity
+        index_to_update = row_exists.values[0]
+        df.at[index_to_update, 'perplexity'] = new_row_data['perplexity']
+
+    # Save to CSV
+    df.to_csv(args.output_csv_path, index=False)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=str, help='LLaMA model')
@@ -124,6 +157,8 @@ def main():
     parser.add_argument("--shift_zero_metrics", action="store_true")
     parser.add_argument("--use_std_in_quantization", action="store_true")
     parser.add_argument("--max_bitwidth", type=int, default=8)
+    
+    parser.add_argument("--output_csv_path", type=str, default=None, help='Output CSV to accumulate experiment result')
 
     args = parser.parse_args()
 
@@ -175,6 +210,9 @@ def main():
     ################################################################
     ppl_test = eval_ppl(args, model, tokenizer, device, single_gpu = single_gpu)
     print(f"wikitext perplexity {ppl_test}")
+
+    if args.output_csv_path:
+        add_result_to_csv(args, ppl_test)
 
     if not os.path.exists(args.save):
         os.makedirs(args.save)
