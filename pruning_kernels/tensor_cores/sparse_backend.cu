@@ -106,8 +106,8 @@ constexpr int EXIT_UNSUPPORTED = 2;
 
 cusparseLtHandle_t handle;
 
-int8_t alpha = 1;
-int8_t beta  = 0;
+float alpha = 1.0;
+float beta  = 0.0;
 
 
 typedef struct {
@@ -1019,13 +1019,7 @@ __global__ void update_sparse_matrix_kernel(
 void update_sparse_matrix_cuda(torch::Tensor new_data, torch::Tensor sparse_idx)
 {
     auto args = matmul_args[sparse_idx.item<int>()];
-    int row_size = new_data.size(1);
-    int batch_size = new_data.size(0);
     const int threads = 1024;
-    if(row_size % 8 != 0)
-    {
-        throw std::runtime_error("Pruning dimension should be a multiple of 8.");
-    }
     switch (new_data.type().scalarType()) {
         case torch::ScalarType::Float:
         {
@@ -1033,11 +1027,7 @@ void update_sparse_matrix_cuda(torch::Tensor new_data, torch::Tensor sparse_idx)
         }
         case torch::ScalarType::Half:
         {
-            const dim3 blocks(((row_size / 8) + threads - 1) / threads, batch_size);
-            update_sparse_matrix_kernel<<<blocks, threads>>>(
-                new_data.data<at::Half>(),
-                (at::Half*) args->dCompressed,
-                row_size);
+            cudaMemcpy(args->dCompressed, new_data.data<at::Half>(), new_data.size(0) * new_data.size(1) * sizeof(at::Half), cudaMemcpyDeviceToDevice);
         }
     }
 }
