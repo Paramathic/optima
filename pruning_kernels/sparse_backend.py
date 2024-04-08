@@ -59,23 +59,35 @@ else:
     init_flag = pruner.init_cusparse_lt()
     assert init_flag == 0, "Failed to initialize CuSparseLT"
 
+def prune_tensor(x):
+    # Prune tensor x 2:4 column wise (will be transposed)
+    print('pruning matrix ... ')
+    for col in range(0, x.shape[1], 4):
+        x[:,col:col+2] = 0
 
 if __name__ == "__main__":
     if torch.cuda.get_device_capability()[0] >= 8:
         print("SpMM Experiment - X W^T")
-        dtype = torch.float16
-        bs = 512
-        dim1 = 512
-        dim2 = 512
-        x = torch.randn(bs, dim1).to(dtype).cuda()
-        weight = torch.randn(dim2, dim1).to(dtype).cuda()
-        w_sparse_idx = pruner.setup_spmatmul(x, weight, False, True, False, True)
+        dtype = torch.int8
+        bs = 64
+        dim1 = 64
+        dim2 = 64
+        # x = torch.randn(bs, dim1).to(dtype).cuda()
+        # weight = torch.randn(dim2, dim1).to(dtype).cuda()
+
+        x = torch.randint(-1,1 ,(bs, dim1)).to(dtype).cuda()
+        weight = torch.randint(-1,1 , (dim2, dim1)).to(dtype).cuda()
+        prune_tensor(weight)
+        w_sparse_idx = pruner.setup_spmatmul(x, weight, False, True, False, True, True)
         y_sparse = pruner.spmatmul(x, w_sparse_idx, False)
         if dtype == torch.float16:
             y_dense = torch.matmul(x, weight.t()).cuda()
         elif dtype == torch.int8:
             y_dense = torch.matmul(x.float(), weight.t().float()).cuda()
             y_dense = y_dense.to(dtype)
+
+        print(y_dense)
+        print(y_sparse)
         print("SpMM Relative Error: ", ((y_dense - y_sparse).float().norm() / y_dense.float().norm()).item())
 
         mask = weight != 0
