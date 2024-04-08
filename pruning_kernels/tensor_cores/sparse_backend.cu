@@ -186,6 +186,7 @@ int setup_prune_matmul( const int                       m,
                         const bool                      transpose_B=false,
                         const bool                      sparseA=true,
                         const bool                      transposable_mask=false,
+                        const bool                      is_sparse_pruned = false,
                         cudaDataType_t                  type=CUDA_R_16F,
                         cusparseComputeType             compute_type=CUSPARSE_COMPUTE_16F)
 {
@@ -280,10 +281,18 @@ int setup_prune_matmul( const int                       m,
 
     //--------------------------------------------------------------------------
     // Prune the A matrix (in-place) and check the correctness
-    cusparseLtPruneAlg_t prune_alg = transposable_mask ? CUSPARSELT_PRUNE_SPMMA_TILE : CUSPARSELT_PRUNE_SPMMA_STRIP;
-    CHECK_CUSPARSE( cusparseLtSpMMAPrune(&handle, args->matmul, dSparse, dSparse,
-                                         prune_alg, args->stream) )
-
+    if (!is_sparse_pruned){
+        cusparseLtPruneAlg_t prune_alg = transposable_mask ? CUSPARSELT_PRUNE_SPMMA_TILE : CUSPARSELT_PRUNE_SPMMA_STRIP;
+        CHECK_CUSPARSE( cusparseLtSpMMAPrune(&handle, args->matmul, dSparse, dSparse,
+                                             prune_alg, args->stream) )
+    }
+    int is_valid = 0;
+    cusparseLtSpMMAPruneCheck(&handle, args->matmul, dSparse, &is_valid, args->stream);
+    if (is_valid != 0) {
+        std::printf("!!!! The matrix does not conform to the SpMMA sparsity pattern. "
+                    "cusparseLtMatmul does not provide correct results\n");
+        return EXIT_FAILURE;
+    }
 //     int    *d_valid;
 //     CHECK_CUDA( cudaMalloc((void**) &d_valid, sizeof(int)) )
 //     CHECK_CUSPARSE( cusparseLtSpMMAPruneCheck2(    &handle,
@@ -374,7 +383,8 @@ torch::Tensor setup_spmatmul_cuda(torch::Tensor A,
                                 const bool transpose_A=false,
                                 const bool transpose_B=false,
                                 const bool sparseA=true,
-                                const bool transposable_mask=false) {
+                                const bool transposable_mask=false,
+                                const bool is_sparse_pruned=false) {
    auto index = torch::zeros({1}, torch::kInt32);
    int result;
    int m, k, n;
@@ -414,6 +424,7 @@ torch::Tensor setup_spmatmul_cuda(torch::Tensor A,
                                              transpose_B,
                                              sparseA,
                                              transposable_mask,
+                                             is_sparse_pruned,
                                              CUDA_R_16F,
                                              CUSPARSE_COMPUTE_16F);
             break;
@@ -433,6 +444,7 @@ torch::Tensor setup_spmatmul_cuda(torch::Tensor A,
                                              transpose_B,
                                              sparseA,
                                              transposable_mask,
+                                             is_sparse_pruned,
                                              CUDA_R_8I,
                                              CUSPARSE_COMPUTE_32I);
             break;}
