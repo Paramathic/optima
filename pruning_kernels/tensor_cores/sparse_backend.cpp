@@ -12,7 +12,8 @@ torch::Tensor setup_spmatmul_cuda(torch::Tensor A,
                                 const bool transpose_A=false,
                                 const bool transpose_B=false,
                                 const bool sparseA=true,
-                                const bool transposable_mask=false);
+                                const bool transposable_mask=false,
+                                const bool is_sparse_pruned=false);
 
 
 torch::Tensor spmatmul_cuda(torch::Tensor       Dense,
@@ -38,7 +39,8 @@ torch::Tensor setup_spmatmul(torch::Tensor A,
                                 const bool transpose_A=false,
                                 const bool transpose_B=false,
                                 const bool sparseA=true,
-                                const bool transposable_mask=false) {
+                                const bool transposable_mask=false,
+                                const bool is_sparse_pruned=false) {
 
    CHECK_INPUT(A);
    CHECK_INPUT(B);
@@ -47,7 +49,8 @@ torch::Tensor setup_spmatmul(torch::Tensor A,
                               transpose_A,
                               transpose_B,
                               sparseA,
-                              transposable_mask);
+                              transposable_mask,
+                              is_sparse_pruned);
 }
 
 
