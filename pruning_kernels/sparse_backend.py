@@ -59,11 +59,38 @@ else:
     init_flag = pruner.init_cusparse_lt()
     assert init_flag == 0, "Failed to initialize CuSparseLT"
 
-def prune_tensor(x):
-    # Prune tensor x 2:4 column wise (will be transposed)
-    print('pruning matrix ... ')
-    for col in range(0, x.shape[1], 4):
-        x[:,col:col+2] = 0
+
+def prune_tensor(mat, N=2, M=4):
+    reshaped_mat = mat.clone().reshape(-1, M)
+    mask = torch.zeros_like(reshaped_mat, dtype=torch.bool)
+    if (N, M) == (1, 2):
+        _, indices = torch.topk(torch.abs(reshaped_mat), k=N, dim=1, sorted=False, largest=True)
+        rows = (indices == 1).sum(dim=1)
+        mask[:, 0] = rows
+        mask[:, 1] = torch.logical_not(rows)
+    elif (N, M) == (2, 4):
+        _, indices = torch.topk(torch.abs(reshaped_mat), k=N, dim=1, sorted=False, largest=True)
+        rows = torch.logical_not((indices == 0).sum(dim=1))
+        mask[:, 0] = rows
+        rows = torch.logical_not((indices == 1).sum(dim=1))
+        mask[:, 1] = rows
+        rows = torch.logical_not((indices == 2).sum(dim=1))
+        mask[:, 2] = rows
+        rows = torch.logical_not((indices == 3).sum(dim=1))
+        mask[:, 3] = rows
+    elif N < M / 2:
+        _, indices = torch.topk(torch.abs(reshaped_mat), k=N, dim=1, sorted=False, largest=True)
+        for i in range(M):
+            rows = torch.logical_not((indices == i).sum(dim=1))
+            mask[:, i] = rows
+    else:
+        _, indices = torch.topk(torch.abs(reshaped_mat), k=(M - N), dim=1, sorted=False, largest=False)
+        for i in range(M):
+            rows = (indices == i).sum(dim=1)
+            mask[:, i] = rows
+    reshaped_mat[mask] = 0.
+    return reshaped_mat.reshape(mat.shape), mask.reshape(mat.shape)
+
 
 if __name__ == "__main__":
     if torch.cuda.get_device_capability()[0] >= 8:
@@ -75,10 +102,11 @@ if __name__ == "__main__":
         # x = torch.randn(bs, dim1).to(dtype).cuda()
         # weight = torch.randn(dim2, dim1).to(dtype).cuda()
 
-        x = torch.randint(-1,1 ,(bs, dim1)).to(dtype).cuda()
-        weight = torch.randint(-1,1 , (dim2, dim1)).to(dtype).cuda()
-        prune_tensor(weight)
-        w_sparse_idx = pruner.setup_spmatmul(x, weight, False, True, False, True, True)
+        x = torch.randint(-1, 1, (bs, dim1)).to(dtype).cuda()
+        weight = torch.randint(-1, 1, (dim2, dim1)).to(dtype).cuda()
+        weight, mask = prune_tensor(weight)
+        print(weight[0:8, 0:8])
+        w_sparse_idx = pruner.setup_spmatmul(x, weight, False, True, False, False, True)
         y_sparse = pruner.spmatmul(x, w_sparse_idx, False)
         if dtype == torch.float16:
             y_dense = torch.matmul(x, weight.t()).cuda()
@@ -90,54 +118,54 @@ if __name__ == "__main__":
         print(y_sparse)
         print("SpMM Relative Error: ", ((y_dense - y_sparse).float().norm() / y_dense.float().norm()).item())
 
-        mask = weight != 0
-        grad = torch.randn_like(weight) * mask
-        compressed_grad = pruner.prune_and_compress(grad, mask)
-        compressed_grad2 = grad[mask]
-
-        reconstructed_grad = torch.zeros_like(grad)
-        reconstructed_grad[mask] = compressed_grad2
-        print(torch.norm(reconstructed_grad - grad).item())
-        pruner.update_sparse_matrix(compressed_grad, w_sparse_idx)
-
-        y_sparse = pruner.spmatmul(x, w_sparse_idx, False)
-        y_dense = torch.matmul(x, grad.t()).cuda()
-        print("SpMM Relative Error: ", ((y_dense - y_sparse).float().norm() / y_dense.float().norm()).item())
-
-        print("SpMM Experiment - X W - No Transposition")
-        dtype = torch.float16
-        bs = 512
-        dim1 = 1024
-        dim2 = 2048
-        x = torch.randn(bs, dim1).to(dtype).cuda()
-        weight = torch.randn(dim2, dim1).to(dtype).cuda()
-        w_sparse_idx = pruner.setup_spmatmul(x, weight, False, False, False, True)
-        y_sparse = pruner.spmatmul(x, w_sparse_idx, False)
-        if dtype == torch.float16:
-            y_dense = torch.matmul(x, weight).cuda()
-        elif dtype == torch.int8:
-            y_dense = torch.matmul(x.float(), weight.t().float()).cuda()
-            y_dense = y_dense.to(dtype)
-        print("SpMM Relative Error: ", ((y_dense - y_sparse).float().norm() / y_dense.float().norm()).item())
-
-        mask = weight != 0
-        grad = torch.randn_like(weight) * mask
-        start = torch.cuda.Event(enable_timing=True)
-        end = torch.cuda.Event(enable_timing=True)
-
-        start.record()
-        compressed_grad2 = (grad.t())[mask.t()].reshape(512, 256).t()
-        end.record()
-        torch.cuda.synchronize()
-        start.record()
-        compressed_grad = pruner.prune_and_compress(grad.t().contiguous(), mask.t().contiguous()).t().contiguous()
-        end.record()
-        torch.cuda.synchronize()
-        print(start.elapsed_time(end))
-        print(start.elapsed_time(end))
-        print(torch.norm(compressed_grad.flatten() - compressed_grad2.flatten()).item() / torch.norm(compressed_grad).item())
-        pruner.update_sparse_matrix(compressed_grad, w_sparse_idx)
-
-        y_sparse = pruner.spmatmul(x, w_sparse_idx, False)
-        y_dense = torch.matmul(x, grad).cuda()
-        print("SpMM Relative Error: ", ((y_dense - y_sparse).float().norm() / y_dense.float().norm()).item())
+        # mask = weight != 0
+        # grad = torch.randn_like(weight) * mask
+        # compressed_grad = pruner.prune_and_compress(grad, mask)
+        # compressed_grad2 = grad[mask]
+        #
+        # reconstructed_grad = torch.zeros_like(grad)
+        # reconstructed_grad[mask] = compressed_grad2
+        # print(torch.norm(reconstructed_grad - grad).item())
+        # pruner.update_sparse_matrix(compressed_grad, w_sparse_idx)
+        #
+        # y_sparse = pruner.spmatmul(x, w_sparse_idx, False)
+        # y_dense = torch.matmul(x, grad.t()).cuda()
+        # print("SpMM Relative Error: ", ((y_dense - y_sparse).float().norm() / y_dense.float().norm()).item())
+        #
+        # print("SpMM Experiment - X W - No Transposition")
+        # dtype = torch.float16
+        # bs = 512
+        # dim1 = 1024
+        # dim2 = 2048
+        # x = torch.randn(bs, dim1).to(dtype).cuda()
+        # weight = torch.randn(dim2, dim1).to(dtype).cuda()
+        # w_sparse_idx = pruner.setup_spmatmul(x, weight, False, False, False, True)
+        # y_sparse = pruner.spmatmul(x, w_sparse_idx, False)
+        # if dtype == torch.float16:
+        #     y_dense = torch.matmul(x, weight).cuda()
+        # elif dtype == torch.int8:
+        #     y_dense = torch.matmul(x.float(), weight.t().float()).cuda()
+        #     y_dense = y_dense.to(dtype)
+        # print("SpMM Relative Error: ", ((y_dense - y_sparse).float().norm() / y_dense.float().norm()).item())
+        #
+        # mask = weight != 0
+        # grad = torch.randn_like(weight) * mask
+        # start = torch.cuda.Event(enable_timing=True)
+        # end = torch.cuda.Event(enable_timing=True)
+        #
+        # start.record()
+        # compressed_grad2 = (grad.t())[mask.t()].reshape(512, 256).t()
+        # end.record()
+        # torch.cuda.synchronize()
+        # start.record()
+        # compressed_grad = pruner.prune_and_compress(grad.t().contiguous(), mask.t().contiguous()).t().contiguous()
+        # end.record()
+        # torch.cuda.synchronize()
+        # print(start.elapsed_time(end))
+        # print(start.elapsed_time(end))
+        # print(torch.norm(compressed_grad.flatten() - compressed_grad2.flatten()).item() / torch.norm(compressed_grad).item())
+        # pruner.update_sparse_matrix(compressed_grad, w_sparse_idx)
+        #
+        # y_sparse = pruner.spmatmul(x, w_sparse_idx, False)
+        # y_dense = torch.matmul(x, grad).cuda()
+        # print("SpMM Relative Error: ", ((y_dense - y_sparse).float().norm() / y_dense.float().norm()).item())
