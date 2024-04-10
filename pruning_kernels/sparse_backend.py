@@ -101,27 +101,28 @@ def prune_tensor(mat, N=2, M=4):
 if __name__ == "__main__":
     if torch.cuda.get_device_capability()[0] >= 8:
         print("SpMM Experiment - X W^T")
-        dtype = torch.float16
-        bs = 64
-        dim1 = 64
-        dim2 = 64
+        dtype = torch.int8
+        output_type = torch.int32
+        bs = 512
+        dim1 = 1024
+        dim2 = 2048
         # x = torch.randn(bs, dim1).to(dtype).cuda()
         # weight = torch.randn(dim2, dim1).to(dtype).cuda()
 
         x = torch.randint(-1, 1, (bs, dim1)).to(dtype).cuda()
         weight = torch.randint(-1, 1, (dim2, dim1)).to(dtype).cuda()
         weight, mask = prune_tensor(weight)
-        print(weight[0:8, 0:8])
         w_sparse_idx = pruner.setup_spmatmul(x, weight, False, True, False, False, True)
         y_sparse = pruner.spmatmul(x, w_sparse_idx, False)
         if dtype == torch.float16:
             y_dense = torch.matmul(x, weight.t()).cuda()
         elif dtype == torch.int8:
             y_dense = torch.matmul(x.float(), weight.t().float()).cuda()
-            y_dense = y_dense.to(dtype)
+            y_dense = y_dense.to(output_type)
 
         print(y_dense)
         print(y_sparse)
+
         print("SpMM Relative Error: ", ((y_dense - y_sparse).float().norm() / y_dense.float().norm()).item())
 
         # mask = weight != 0

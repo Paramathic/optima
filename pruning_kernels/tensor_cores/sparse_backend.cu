@@ -175,7 +175,7 @@ typedef struct cusparseLtMatmulArgs_t {
 std::vector<cusparseLtMatmulArgs*> matmul_args;
 
 
-template <class T>
+template <class T, class V>
 int setup_prune_matmul( const int                       m,
                         const int                       n,
                         const int                       k,
@@ -187,7 +187,8 @@ int setup_prune_matmul( const int                       m,
                         const bool                      sparseA=true,
                         const bool                      transposable_mask=false,
                         const bool                      is_sparse_pruned = false,
-                        cudaDataType_t                  type=CUDA_R_16F,
+                        cudaDataType_t                  input_type=CUDA_R_16F,
+                        cudaDataType_t                  output_type=CUDA_R_16F,
                         cusparseComputeType             compute_type=CUSPARSE_COMPUTE_16F)
 {
     matmul_args.push_back(new cusparseLtMatmulArgs_t);
@@ -217,7 +218,7 @@ int setup_prune_matmul( const int                       m,
     auto     ldb            = (is_rowmajor) ? num_B_cols : num_B_rows;
     auto     ldc            = (is_rowmajor) ? num_C_cols : num_C_rows;
     auto     C_height       = (is_rowmajor) ? num_C_rows : num_C_cols;
-    auto     C_size         = C_height * ldc * sizeof(T);
+    auto     C_size         = C_height * ldc * sizeof(V);
 
 
     cusparseLtMatDescriptor_t*      matA;
@@ -227,7 +228,7 @@ int setup_prune_matmul( const int                       m,
     matB = new cusparseLtMatDescriptor_t;
     matC = new cusparseLtMatDescriptor_t;
 
-    T *dC, *dD;
+    V *dC, *dD;
     CHECK_CUDA( cudaMalloc((void**) &dC, C_size) )
 
     int *d_valid;
@@ -244,31 +245,31 @@ int setup_prune_matmul( const int                       m,
         CHECK_CUSPARSE( cusparseLtStructuredDescriptorInit(
                                                 &handle, matA, num_A_rows,
                                                 num_A_cols, lda, alignment,
-                                                type, order,
+                                                input_type, order,
                                                 CUSPARSELT_SPARSITY_50_PERCENT) )
 
         CHECK_CUSPARSE( cusparseLtDenseDescriptorInit(
                                                 &handle, matB, num_B_rows,
                                                 num_B_cols, ldb, alignment,
-                                                type, order) )
+                                                input_type, order) )
     }
     else
     {
         CHECK_CUSPARSE( cusparseLtStructuredDescriptorInit(
                                                 &handle, matB, num_B_rows,
                                                 num_B_cols, ldb, alignment,
-                                                type, order,
+                                                input_type, order,
                                                 CUSPARSELT_SPARSITY_50_PERCENT) )
 
         CHECK_CUSPARSE( cusparseLtDenseDescriptorInit(
                                                 &handle, matA, num_A_rows,
                                                 num_A_cols, lda, alignment,
-                                                type, order) )
+                                                input_type, order) )
     }
     CHECK_CUSPARSE( cusparseLtDenseDescriptorInit(
                                             &handle, matC, num_C_rows,
                                             num_C_cols, ldc, alignment,
-                                            type, order) )
+                                            output_type, order) )
 
     // matmul, algorithm selection, and plan initialization
     CHECK_CUSPARSE( cusparseLtMatmulDescriptorInit(
@@ -416,7 +417,7 @@ torch::Tensor setup_spmatmul_cuda(torch::Tensor A,
             auto sparse_mat = sparseA ? A.data_ptr<at::Half>() : B.data_ptr<at::Half>();
             auto dense_mat = sparseA ? B.data_ptr<at::Half>() : A.data_ptr<at::Half>();
             at::Half *dCompressed;
-            result = setup_prune_matmul<at::Half>(     m,
+            result = setup_prune_matmul<at::Half, at::Half>(     m,
                                              n,
                                              k,
                                              sparse_mat,
@@ -428,6 +429,7 @@ torch::Tensor setup_spmatmul_cuda(torch::Tensor A,
                                              transposable_mask,
                                              is_sparse_pruned,
                                              CUDA_R_16F,
+                                             CUDA_R_16F,
                                              CUSPARSE_COMPUTE_16F);
             break;
         }
@@ -436,7 +438,7 @@ torch::Tensor setup_spmatmul_cuda(torch::Tensor A,
             auto sparse_mat = sparseA ? A.data_ptr<int8_t>() : B.data_ptr<int8_t>();
             auto dense_mat = sparseA ? B.data_ptr<int8_t>() : A.data_ptr<int8_t>();
             int8_t *dCompressed;
-            result = setup_prune_matmul<int8_t>(     m,
+            result = setup_prune_matmul<int8_t, int32_t>(     m,
                                              n,
                                              k,
                                              sparse_mat,
@@ -448,6 +450,7 @@ torch::Tensor setup_spmatmul_cuda(torch::Tensor A,
                                              transposable_mask,
                                              is_sparse_pruned,
                                              CUDA_R_8I,
+                                             CUDA_R_32I,
                                              CUSPARSE_COMPUTE_32I);
             break;}
         default:
@@ -464,7 +467,7 @@ torch::Tensor setup_spmatmul_cuda(torch::Tensor A,
 }
 
 
-template <class T>
+template <class T, class V>
 torch::Tensor matmul(   T* dDense,
                         int index,
                         bool sparseA,
@@ -474,7 +477,7 @@ torch::Tensor matmul(   T* dDense,
     auto args = matmul_args[index];
 
     torch::Tensor C = torch::zeros({args->m, args->n}, options);
-    auto dC = C.data_ptr<T>();
+    auto dC = C.data_ptr<V>();
     auto dD = dC;
     auto dA = sparseA ? (T*) args->dCompressed : dDense;
     auto dB = sparseA ? dDense : (T*) args->dCompressed;
@@ -496,11 +499,11 @@ torch::Tensor spmatmul_cuda(torch::Tensor   Dense,
     switch (Dense.type().scalarType()) {
         case torch::ScalarType::Half: {
             auto options = torch::TensorOptions().dtype(torch::kHalf).device(torch::kCUDA);
-            return matmul<at::Half>(Dense.data_ptr<at::Half>(), index, sparseA, options);
+            return matmul<at::Half, at::Half>(Dense.data_ptr<at::Half>(), index, sparseA, options);
         }
         case torch::ScalarType::Char: {
-            auto options = torch::TensorOptions().dtype(torch::kInt8).device(torch::kCUDA);
-            return matmul<int8_t>(Dense.data_ptr<int8_t>(), index, sparseA, options);
+            auto options = torch::TensorOptions().dtype(torch::kInt32).device(torch::kCUDA);
+            return matmul<int8_t, int32_t>(Dense.data_ptr<int8_t>(), index, sparseA, options);
         }
         default:
         {
