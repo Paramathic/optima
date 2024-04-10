@@ -230,6 +230,9 @@ int setup_prune_matmul( const int                       m,
     T *dC, *dD;
     CHECK_CUDA( cudaMalloc((void**) &dC, C_size) )
 
+    int *d_valid;
+    CHECK_CUDA( cudaMalloc((void**) &d_valid, sizeof(int)) )
+
 //     T hC[m * n] = {};
 //     CHECK_CUDA( cudaMemcpy(dC, hC, C_size, cudaMemcpyHostToDevice) )
     dD = dC;
@@ -286,13 +289,16 @@ int setup_prune_matmul( const int                       m,
         CHECK_CUSPARSE( cusparseLtSpMMAPrune(&handle, args->matmul, dSparse, dSparse,
                                              prune_alg, args->stream) )
     }
-    int is_valid = 0;
-    cusparseLtSpMMAPruneCheck(&handle, args->matmul, dSparse, &is_valid, args->stream);
+    CHECK_CUSPARSE( cusparseLtSpMMAPruneCheck(&handle, args->matmul, dSparse, d_valid, args->stream) )
+    int is_valid;
+    CHECK_CUDA( cudaMemcpyAsync(&is_valid, d_valid, sizeof(int), cudaMemcpyDeviceToHost, args->stream) )
+    CHECK_CUDA( cudaStreamSynchronize(args->stream) )
     if (is_valid != 0) {
         std::printf("!!!! The matrix does not conform to the SpMMA sparsity pattern. "
                     "cusparseLtMatmul does not provide correct results\n");
         return EXIT_FAILURE;
     }
+
 //     int    *d_valid;
 //     CHECK_CUDA( cudaMalloc((void**) &d_valid, sizeof(int)) )
 //     CHECK_CUSPARSE( cusparseLtSpMMAPruneCheck2(    &handle,
@@ -318,26 +324,22 @@ int setup_prune_matmul( const int                       m,
     // Compress the A matrix
     size_t compressed_size, compressed_buffer_size;
     void*  dCompressedBuffer;
-    CHECK_CUSPARSE( cusparseLtSpMMACompressedSize2(&handle, sparseA ? matA : matB,
+    CHECK_CUSPARSE( cusparseLtSpMMACompressedSize(&handle,
+                                                  args->plan,
                                                   &compressed_size,
                                                   &compressed_buffer_size) )
+
     CHECK_CUDA( cudaMalloc((void**) &args->dCompressed, compressed_size) )
     CHECK_CUDA( cudaMalloc((void**) &dCompressedBuffer,
                            compressed_buffer_size) )
-//     printf("compressed_size: %lu (MB)\n", compressed_size / 1024 / 1024);
-//     printf("compressed_buffer_size: %lu (MB)\n", compressed_buffer_size / 1024 / 1024);
 
-    CHECK_CUSPARSE( cusparseLtSpMMACompress2(   &handle,
-                                                sparseA ? matA : matB,
-                                                sparseA,
-                                                sparseA ? opA : opB,
-                                                dSparse,
-                                                (T*) args->dCompressed,
-                                                dCompressedBuffer,
-                                                args->stream) )
-
+    CHECK_CUSPARSE( cusparseLtSpMMACompress(&handle,
+                                            args->plan,
+                                            dSparse,
+                                            (T *) args->dCompressed,
+                                            dCompressedBuffer,
+                                            args->stream) )
     CHECK_CUDA( cudaFree(dCompressedBuffer) )
-
 
     //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     // Search the best kernel

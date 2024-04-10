@@ -20,12 +20,18 @@ else:
         os.makedirs(f"{base_path}/build")
 
     if not os.path.exists(base_path + "/libcusparse_lt"):
+        #os.system(
+        #    "wget https://developer.download.nvidia.com/compute/cusparselt/redist/libcusparse_lt/linux-x86_64/"
+        #    "libcusparse_lt-linux-x86_64-0.4.0.7-archive.tar.xz")
+        #os.system("tar -xf libcusparse_lt-linux-x86_64-0.4.0.7-archive.tar.xz")
+        #os.system(f"mv libcusparse_lt-linux-x86_64-0.4.0.7-archive {base_path}/libcusparse_lt")
+        #os.system("rm libcusparse_lt-linux-x86_64-0.4.0.7-archive.tar.xz")
+
         os.system(
-            "wget https://developer.download.nvidia.com/compute/cusparselt/redist/libcusparse_lt/linux-x86_64/"
-            "libcusparse_lt-linux-x86_64-0.4.0.7-archive.tar.xz")
-        os.system("tar -xf libcusparse_lt-linux-x86_64-0.4.0.7-archive.tar.xz")
-        os.system(f"mv libcusparse_lt-linux-x86_64-0.4.0.7-archive {base_path}/libcusparse_lt")
-        os.system("rm libcusparse_lt-linux-x86_64-0.4.0.7-archive.tar.xz")
+        "wget https://developer.download.nvidia.com/compute/cusparselt/redist/libcusparse_lt/linux-x86_64/libcusparse_lt-linux-x86_64-0.5.1.1-archive.tar.xz")
+        os.system("tar -xf libcusparse_lt-linux-x86_64-0.5.1.1-archive.tar.xz")
+        os.system(f"mv libcusparse_lt-linux-x86_64-0.5.1.1-archive {base_path}/libcusparse_lt")
+        os.system("rm libcusparse_lt-linux-x86_64-0.5.1.1-archive.tar.xz")
 
     pruner = load(name='pruner',
                   sources=[f'{base_path}/sparse_backend.cpp',
@@ -95,7 +101,7 @@ def prune_tensor(mat, N=2, M=4):
 if __name__ == "__main__":
     if torch.cuda.get_device_capability()[0] >= 8:
         print("SpMM Experiment - X W^T")
-        dtype = torch.int8
+        dtype = torch.float16
         bs = 64
         dim1 = 64
         dim2 = 64
