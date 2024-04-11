@@ -55,6 +55,11 @@
 #include <iostream>
 
 
+#define INT8_OUTPUT_TYPE at::Half //int8_t
+#define INT8_OUTPUT_TYPE_CUDA CUDA_R_16F //CUDA_R_32I
+#define INT8_OUTPUT_TYPE_TORCH torch::kHalf //torch::kInt32
+
+
 #define MAX(a, b) ((abs(a) > abs(b) ? (a) : (b)))
 #define MIN(a, b) ((abs(a) < abs(b) ? (a) : (b)))
 
@@ -186,7 +191,8 @@ int setup_prune_matmul( const int                       m,
                         const bool                      transpose_B=false,
                         const bool                      sparseA=true,
                         const bool                      transposable_mask=false,
-                        const bool                      is_sparse_pruned = false,
+                        const bool                      is_sparse_pruned=false,
+                        const bool                      check_sparsity=false,
                         cudaDataType_t                  input_type=CUDA_R_16F,
                         cudaDataType_t                  output_type=CUDA_R_16F,
                         cusparseComputeType             compute_type=CUSPARSE_COMPUTE_16F)
@@ -290,15 +296,19 @@ int setup_prune_matmul( const int                       m,
         CHECK_CUSPARSE( cusparseLtSpMMAPrune(&handle, args->matmul, dSparse, dSparse,
                                              prune_alg, args->stream) )
     }
-    CHECK_CUSPARSE( cusparseLtSpMMAPruneCheck(&handle, args->matmul, dSparse, d_valid, args->stream) )
-    int is_valid;
-    CHECK_CUDA( cudaMemcpyAsync(&is_valid, d_valid, sizeof(int), cudaMemcpyDeviceToHost, args->stream) )
-    CHECK_CUDA( cudaStreamSynchronize(args->stream) )
-    if (is_valid != 0) {
-        std::printf("!!!! The matrix does not conform to the SpMMA sparsity pattern. "
-                    "cusparseLtMatmul does not provide correct results\n");
-        return EXIT_FAILURE;
+    if (check_sparsity)
+    {
+        CHECK_CUSPARSE( cusparseLtSpMMAPruneCheck(&handle, args->matmul, dSparse, d_valid, args->stream) )
+        int is_valid;
+        CHECK_CUDA( cudaMemcpyAsync(&is_valid, d_valid, sizeof(int), cudaMemcpyDeviceToHost, args->stream) )
+        CHECK_CUDA( cudaStreamSynchronize(args->stream) )
+        if (is_valid != 0) {
+            std::printf("!!!! The matrix does not conform to the SpMMA sparsity pattern. "
+                        "cusparseLtMatmul does not provide correct results\n");
+            return EXIT_FAILURE;
+        }
     }
+    
 
 //     int    *d_valid;
 //     CHECK_CUDA( cudaMalloc((void**) &d_valid, sizeof(int)) )
@@ -387,7 +397,8 @@ torch::Tensor setup_spmatmul_cuda(torch::Tensor A,
                                 const bool transpose_B=false,
                                 const bool sparseA=true,
                                 const bool transposable_mask=false,
-                                const bool is_sparse_pruned=false) {
+                                const bool is_sparse_pruned=false,
+                                const bool check_sparsity=false) {
    auto index = torch::zeros({1}, torch::kInt32);
    int result;
    int m, k, n;
@@ -428,6 +439,7 @@ torch::Tensor setup_spmatmul_cuda(torch::Tensor A,
                                              sparseA,
                                              transposable_mask,
                                              is_sparse_pruned,
+                                             check_sparsity,
                                              CUDA_R_16F,
                                              CUDA_R_16F,
                                              CUSPARSE_COMPUTE_16F);
@@ -438,7 +450,7 @@ torch::Tensor setup_spmatmul_cuda(torch::Tensor A,
             auto sparse_mat = sparseA ? A.data_ptr<int8_t>() : B.data_ptr<int8_t>();
             auto dense_mat = sparseA ? B.data_ptr<int8_t>() : A.data_ptr<int8_t>();
             int8_t *dCompressed;
-            result = setup_prune_matmul<int8_t, int32_t>(     m,
+            result = setup_prune_matmul<int8_t, INT8_OUTPUT_TYPE>(     m,
                                              n,
                                              k,
                                              sparse_mat,
@@ -449,8 +461,9 @@ torch::Tensor setup_spmatmul_cuda(torch::Tensor A,
                                              sparseA,
                                              transposable_mask,
                                              is_sparse_pruned,
+                                             check_sparsity,
                                              CUDA_R_8I,
-                                             CUDA_R_32I,
+                                             INT8_OUTPUT_TYPE_CUDA,
                                              CUSPARSE_COMPUTE_32I);
             break;}
         default:
@@ -502,8 +515,8 @@ torch::Tensor spmatmul_cuda(torch::Tensor   Dense,
             return matmul<at::Half, at::Half>(Dense.data_ptr<at::Half>(), index, sparseA, options);
         }
         case torch::ScalarType::Char: {
-            auto options = torch::TensorOptions().dtype(torch::kInt32).device(torch::kCUDA);
-            return matmul<int8_t, int32_t>(Dense.data_ptr<int8_t>(), index, sparseA, options);
+            auto options = torch::TensorOptions().dtype(INT8_OUTPUT_TYPE_TORCH).device(torch::kCUDA);
+            return matmul<int8_t, INT8_OUTPUT_TYPE>(Dense.data_ptr<int8_t>(), index, sparseA, options);
         }
         default:
         {
