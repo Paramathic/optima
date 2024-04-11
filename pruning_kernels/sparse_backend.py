@@ -103,16 +103,16 @@ if __name__ == "__main__":
         print("SpMM Experiment - X W^T")
         dtype = torch.int8
         output_type = torch.int32
-        bs = 512
+        bs = 8192
         dim1 = 1024
-        dim2 = 2048
+        dim2 = 1024 * 4
         # x = torch.randn(bs, dim1).to(dtype).cuda()
         # weight = torch.randn(dim2, dim1).to(dtype).cuda()
 
         x = torch.randint(-1, 1, (bs, dim1)).to(dtype).cuda()
         weight = torch.randint(-1, 1, (dim2, dim1)).to(dtype).cuda()
         weight, mask = prune_tensor(weight)
-        w_sparse_idx = pruner.setup_spmatmul(x, weight, False, True, False, False, True)
+        w_sparse_idx = pruner.setup_spmatmul(x, weight, False, True, False, False, True, False)
         y_sparse = pruner.spmatmul(x, w_sparse_idx, False)
         if dtype == torch.float16:
             y_dense = torch.matmul(x, weight.t()).cuda()
@@ -120,10 +120,9 @@ if __name__ == "__main__":
             y_dense = torch.matmul(x.float(), weight.t().float()).cuda()
             y_dense = y_dense.to(output_type)
 
-        print(y_dense)
-        print(y_sparse)
 
         print("SpMM Relative Error: ", ((y_dense - y_sparse).float().norm() / y_dense.float().norm()).item())
+        
 
         # mask = weight != 0
         # grad = torch.randn_like(weight) * mask
@@ -176,3 +175,43 @@ if __name__ == "__main__":
         # y_sparse = pruner.spmatmul(x, w_sparse_idx, False)
         # y_dense = torch.matmul(x, grad).cuda()
         # print("SpMM Relative Error: ", ((y_dense - y_sparse).float().norm() / y_dense.float().norm()).item())
+
+        num_layers = 50
+        num_batches = 100
+        dtype = torch.int8
+
+        class MyLinear(torch.nn.Module):
+            def __init__(self, in_features, out_features):
+                super(MyLinear, self).__init__()
+                self.in_features = in_features
+                self.out_features = out_features
+                self.weight = torch.randint(-127, 128, (out_features, in_features)).to(dtype).cuda()
+                self.weight, self.mask = prune_tensor(self.weight)
+
+            def forward(self, x):
+                if self.weight.dtype == torch.float16:
+                    return torch.matmul(x, self.weight.t())
+                if self.weight.dim() != 1:
+                    self.weight = pruner.setup_spmatmul(x, self.weight, False, True, False, False, True, False)
+                return pruner.spmatmul(x, self.weight, False).to(dtype)
+            
+        layers = []
+        for i in range(num_layers):
+            layers += [MyLinear(dim1, dim2), MyLinear(dim2, dim1)]
+        model = torch.nn.Sequential(*layers).cuda()
+
+        model(x.to(dtype))
+        start = torch.cuda.Event(enable_timing=True)
+        end = torch.cuda.Event(enable_timing=True)
+        times = []
+        
+        with torch.no_grad():
+            for i in range(num_batches):
+                x = torch.randint(-127, 128, (bs, dim1)).to(dtype).cuda()
+                start.record()
+                y = model(x)
+                end.record()
+                torch.cuda.synchronize()
+                times.append(start.elapsed_time(end))
+        import numpy as np
+        print(f"Time: {np.mean(times)}+-{np.std(times)}")
