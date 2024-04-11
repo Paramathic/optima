@@ -16,6 +16,7 @@ BITWIDTH=4
 QUANTIZE_BEFORE_PRUNING='--quantize_before_pruning'
 MAX_BITWIDTH=8
 USE_STD_IN_QUANTIZATION='--use_std_in_quantization'
+BIAS_CORRECTION='--bias_correction'
 EVAL_BATCH_SIZE=1
 # RANDOMIZED_SVD='--randomized_svd'
 # LOCAL_CHECKPOINT_DIR='--local_checkpoint_dir local_checkpoints/flash_attn_gpt2_small_dense.pt'
@@ -36,6 +37,9 @@ python main_opt.py \
     $QUANTIZE_BEFORE_PRUNING \
     --bitwidth $BITWIDTH \
     --max_bitwidth $MAX_BITWIDTH \
+    $BIAS_CORRECTION \
+    --bias_alpha 0.3 \
+    --bias_correction_nsamples 16 \
     $USE_STD_IN_QUANTIZATION \
     --eval_batch_size $EVAL_BATCH_SIZE
 
