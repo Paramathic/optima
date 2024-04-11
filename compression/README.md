@@ -3,8 +3,7 @@
 In your main repo, add the current `compression` repository and pull as a subtree.
 
 ```bash
-git remote add compression https://github.com/Mohammad-Mozaffari/compression.git
-git subtree pull --prefix=compression/ compression main
+git subtree add --prefix=compression https://github.com/Mohammad-Mozaffari/compression.git main
 ```
 
 ## Instruction on Making Changes on Main Repository and This Repository

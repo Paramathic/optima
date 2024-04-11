@@ -7,21 +7,19 @@
 #define CHECK_INPUT(x) CHECK_CUDA_DEVICE(x); CHECK_CONTIGUOUS(x)
 
 int init_cusparse_lt_cuda();
-int setup_prune_matmul( const int                       m,
-                        const int                       n,
-                        const int                       k,
-                        at::Half                        *dSparse,
-                        at::Half                        *dDense,
-                        int                             *index,
-                        const bool                      transpose_A=false,
-                        const bool                      transpose_B=false,
-                        const bool                      sparseA=true,
-                        const bool                      transposable_mask=false);
+torch::Tensor setup_spmatmul_cuda(torch::Tensor A,
+                                torch::Tensor B,
+                                const bool transpose_A=false,
+                                const bool transpose_B=false,
+                                const bool sparseA=true,
+                                const bool transposable_mask=false,
+                                const bool is_sparse_pruned=false,
+                                const bool check_sparsity=false);
 
 
-torch::Tensor spmatmul_cuda(at::Half    *dDense,
-                            int         index,
-                            bool        sparseA);
+torch::Tensor spmatmul_cuda(torch::Tensor       Dense,
+                            int                 index,
+                            bool                sparseA);
 
 
 void save_grad_cuda(torch::Tensor grad, int index);
@@ -42,51 +40,20 @@ torch::Tensor setup_spmatmul(torch::Tensor A,
                                 const bool transpose_A=false,
                                 const bool transpose_B=false,
                                 const bool sparseA=true,
-                                const bool transposable_mask=false) {
+                                const bool transposable_mask=false,
+                                const bool is_sparse_pruned=false,
+                                const bool check_sparsity=false) {
 
    CHECK_INPUT(A);
    CHECK_INPUT(B);
-   auto index = torch::zeros({1}, torch::kInt32);
-   int result;
-   auto sparse_mat = sparseA ? A.data_ptr<at::Half>() : B.data_ptr<at::Half>();
-   auto dense_mat = sparseA ? B.data_ptr<at::Half>() : A.data_ptr<at::Half>();
-   at::Half *dCompressed;
-   int m, k, n;
-   if(transpose_A && transpose_B)
-   {
-        m = A.size(1);
-        k = A.size(0);
-        n = B.size(0);
-   } else if(transpose_A)
-   {
-        m = A.size(1);
-        k = A.size(0);
-        n = B.size(1);
-   } else if(transpose_B)
-   {
-        m = A.size(0);
-        k = A.size(1);
-        n = B.size(0);
-   } else {
-        m = A.size(0);
-        k = A.size(1);
-        n = B.size(1);
-   }
-   result = setup_prune_matmul(     m,
-                                    n,
-                                    k,
-                                    sparse_mat,
-                                    dense_mat,
-                                    index.data_ptr<int>(),
-                                    transpose_A,
-                                    transpose_B,
-                                    sparseA,
-                                    transposable_mask);
-   if(result == EXIT_SUCCESS) {
-     return index;
-   } else {
-     return -torch::ones({1}, torch::kInt32);
-   }
+   return setup_spmatmul_cuda(A,
+                              B,
+                              transpose_A,
+                              transpose_B,
+                              sparseA,
+                              transposable_mask,
+                              is_sparse_pruned,
+                              check_sparsity);
 }
 
 
@@ -95,7 +62,7 @@ torch::Tensor spmatmul( torch::Tensor Dense,
                         const bool sparseA=true) {
    CHECK_INPUT(Dense);
 //   std::cout << Dense.data_ptr<at::Half>()[0] << std::endl;
-   auto result = spmatmul_cuda(     Dense.data_ptr<at::Half>(),
+   auto result = spmatmul_cuda(     Dense,
                                     *index.data_ptr<int>(),
                                     sparseA);
    return result;

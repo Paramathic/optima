@@ -20,12 +20,18 @@ else:
         os.makedirs(f"{base_path}/build")
 
     if not os.path.exists(base_path + "/libcusparse_lt"):
+        #os.system(
+        #    "wget https://developer.download.nvidia.com/compute/cusparselt/redist/libcusparse_lt/linux-x86_64/"
+        #    "libcusparse_lt-linux-x86_64-0.4.0.7-archive.tar.xz")
+        #os.system("tar -xf libcusparse_lt-linux-x86_64-0.4.0.7-archive.tar.xz")
+        #os.system(f"mv libcusparse_lt-linux-x86_64-0.4.0.7-archive {base_path}/libcusparse_lt")
+        #os.system("rm libcusparse_lt-linux-x86_64-0.4.0.7-archive.tar.xz")
+
         os.system(
-            "wget https://developer.download.nvidia.com/compute/cusparselt/redist/libcusparse_lt/linux-x86_64/"
-            "libcusparse_lt-linux-x86_64-0.4.0.7-archive.tar.xz")
-        os.system("tar -xf libcusparse_lt-linux-x86_64-0.4.0.7-archive.tar.xz")
-        os.system(f"mv libcusparse_lt-linux-x86_64-0.4.0.7-archive {base_path}/libcusparse_lt")
-        os.system("rm libcusparse_lt-linux-x86_64-0.4.0.7-archive.tar.xz")
+        "wget https://developer.download.nvidia.com/compute/cusparselt/redist/libcusparse_lt/linux-x86_64/libcusparse_lt-linux-x86_64-0.5.1.1-archive.tar.xz")
+        os.system("tar -xf libcusparse_lt-linux-x86_64-0.5.1.1-archive.tar.xz")
+        os.system(f"mv libcusparse_lt-linux-x86_64-0.5.1.1-archive {base_path}/libcusparse_lt")
+        os.system("rm libcusparse_lt-linux-x86_64-0.5.1.1-archive.tar.xz")
 
     pruner = load(name='pruner',
                   sources=[f'{base_path}/sparse_backend.cpp',
@@ -60,3 +66,152 @@ else:
     assert init_flag == 0, "Failed to initialize CuSparseLT"
 
 
+def prune_tensor(mat, N=2, M=4):
+    reshaped_mat = mat.clone().reshape(-1, M)
+    mask = torch.zeros_like(reshaped_mat, dtype=torch.bool)
+    if (N, M) == (1, 2):
+        _, indices = torch.topk(torch.abs(reshaped_mat), k=N, dim=1, sorted=False, largest=True)
+        rows = (indices == 1).sum(dim=1)
+        mask[:, 0] = rows
+        mask[:, 1] = torch.logical_not(rows)
+    elif (N, M) == (2, 4):
+        _, indices = torch.topk(torch.abs(reshaped_mat), k=N, dim=1, sorted=False, largest=True)
+        rows = torch.logical_not((indices == 0).sum(dim=1))
+        mask[:, 0] = rows
+        rows = torch.logical_not((indices == 1).sum(dim=1))
+        mask[:, 1] = rows
+        rows = torch.logical_not((indices == 2).sum(dim=1))
+        mask[:, 2] = rows
+        rows = torch.logical_not((indices == 3).sum(dim=1))
+        mask[:, 3] = rows
+    elif N < M / 2:
+        _, indices = torch.topk(torch.abs(reshaped_mat), k=N, dim=1, sorted=False, largest=True)
+        for i in range(M):
+            rows = torch.logical_not((indices == i).sum(dim=1))
+            mask[:, i] = rows
+    else:
+        _, indices = torch.topk(torch.abs(reshaped_mat), k=(M - N), dim=1, sorted=False, largest=False)
+        for i in range(M):
+            rows = (indices == i).sum(dim=1)
+            mask[:, i] = rows
+    reshaped_mat[mask] = 0.
+    return reshaped_mat.reshape(mat.shape), mask.reshape(mat.shape)
+
+
+if __name__ == "__main__":
+    if torch.cuda.get_device_capability()[0] >= 8:
+        print("SpMM Experiment - X W^T")
+        dtype = torch.int8
+        output_type = torch.int32
+        bs = 8192
+        dim1 = 1024
+        dim2 = 1024 * 4
+        # x = torch.randn(bs, dim1).to(dtype).cuda()
+        # weight = torch.randn(dim2, dim1).to(dtype).cuda()
+
+        x = torch.randint(-1, 1, (bs, dim1)).to(dtype).cuda()
+        weight = torch.randint(-1, 1, (dim2, dim1)).to(dtype).cuda()
+        weight, mask = prune_tensor(weight)
+        w_sparse_idx = pruner.setup_spmatmul(x, weight, False, True, False, False, True, False)
+        y_sparse = pruner.spmatmul(x, w_sparse_idx, False)
+        if dtype == torch.float16:
+            y_dense = torch.matmul(x, weight.t()).cuda()
+        elif dtype == torch.int8:
+            y_dense = torch.matmul(x.float(), weight.t().float()).cuda()
+            y_dense = y_dense.to(output_type)
+
+
+        print("SpMM Relative Error: ", ((y_dense - y_sparse).float().norm() / y_dense.float().norm()).item())
+        
+
+        # mask = weight != 0
+        # grad = torch.randn_like(weight) * mask
+        # compressed_grad = pruner.prune_and_compress(grad, mask)
+        # compressed_grad2 = grad[mask]
+        #
+        # reconstructed_grad = torch.zeros_like(grad)
+        # reconstructed_grad[mask] = compressed_grad2
+        # print(torch.norm(reconstructed_grad - grad).item())
+        # pruner.update_sparse_matrix(compressed_grad, w_sparse_idx)
+        #
+        # y_sparse = pruner.spmatmul(x, w_sparse_idx, False)
+        # y_dense = torch.matmul(x, grad.t()).cuda()
+        # print("SpMM Relative Error: ", ((y_dense - y_sparse).float().norm() / y_dense.float().norm()).item())
+        #
+        # print("SpMM Experiment - X W - No Transposition")
+        # dtype = torch.float16
+        # bs = 512
+        # dim1 = 1024
+        # dim2 = 2048
+        # x = torch.randn(bs, dim1).to(dtype).cuda()
+        # weight = torch.randn(dim2, dim1).to(dtype).cuda()
+        # w_sparse_idx = pruner.setup_spmatmul(x, weight, False, False, False, True)
+        # y_sparse = pruner.spmatmul(x, w_sparse_idx, False)
+        # if dtype == torch.float16:
+        #     y_dense = torch.matmul(x, weight).cuda()
+        # elif dtype == torch.int8:
+        #     y_dense = torch.matmul(x.float(), weight.t().float()).cuda()
+        #     y_dense = y_dense.to(dtype)
+        # print("SpMM Relative Error: ", ((y_dense - y_sparse).float().norm() / y_dense.float().norm()).item())
+        #
+        # mask = weight != 0
+        # grad = torch.randn_like(weight) * mask
+        # start = torch.cuda.Event(enable_timing=True)
+        # end = torch.cuda.Event(enable_timing=True)
+        #
+        # start.record()
+        # compressed_grad2 = (grad.t())[mask.t()].reshape(512, 256).t()
+        # end.record()
+        # torch.cuda.synchronize()
+        # start.record()
+        # compressed_grad = pruner.prune_and_compress(grad.t().contiguous(), mask.t().contiguous()).t().contiguous()
+        # end.record()
+        # torch.cuda.synchronize()
+        # print(start.elapsed_time(end))
+        # print(start.elapsed_time(end))
+        # print(torch.norm(compressed_grad.flatten() - compressed_grad2.flatten()).item() / torch.norm(compressed_grad).item())
+        # pruner.update_sparse_matrix(compressed_grad, w_sparse_idx)
+        #
+        # y_sparse = pruner.spmatmul(x, w_sparse_idx, False)
+        # y_dense = torch.matmul(x, grad).cuda()
+        # print("SpMM Relative Error: ", ((y_dense - y_sparse).float().norm() / y_dense.float().norm()).item())
+
+        num_layers = 50
+        num_batches = 100
+        dtype = torch.int8
+
+        class MyLinear(torch.nn.Module):
+            def __init__(self, in_features, out_features):
+                super(MyLinear, self).__init__()
+                self.in_features = in_features
+                self.out_features = out_features
+                self.weight = torch.randint(-127, 128, (out_features, in_features)).to(dtype).cuda()
+                self.weight, self.mask = prune_tensor(self.weight)
+
+            def forward(self, x):
+                if self.weight.dtype == torch.float16:
+                    return torch.matmul(x, self.weight.t())
+                if self.weight.dim() != 1:
+                    self.weight = pruner.setup_spmatmul(x, self.weight, False, True, False, False, True, False)
+                return pruner.spmatmul(x, self.weight, False).to(dtype)
+            
+        layers = []
+        for i in range(num_layers):
+            layers += [MyLinear(dim1, dim2), MyLinear(dim2, dim1)]
+        model = torch.nn.Sequential(*layers).cuda()
+
+        model(x.to(dtype))
+        start = torch.cuda.Event(enable_timing=True)
+        end = torch.cuda.Event(enable_timing=True)
+        times = []
+        
+        with torch.no_grad():
+            for i in range(num_batches):
+                x = torch.randint(-127, 128, (bs, dim1)).to(dtype).cuda()
+                start.record()
+                y = model(x)
+                end.record()
+                torch.cuda.synchronize()
+                times.append(start.elapsed_time(end))
+        import numpy as np
+        print(f"Time: {np.mean(times)}+-{np.std(times)}")
