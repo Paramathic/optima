@@ -26,9 +26,9 @@ def eval_ppl(args, model, tokenizer, device=torch.device("cuda:0"), single_gpu =
     # Evaluate ppl in no grad context to avoid updating the model
     with torch.no_grad():
         if single_gpu:
-            ppl_test = eval_ppl_single_gpu_wikitext(model, testloader, 1, device)
+            ppl_test = eval_ppl_single_gpu_wikitext(model, testloader, args.eval_batch_size, device)
         else:
-            ppl_test = eval_ppl_wikitext(model, testloader, 1, device)
+            ppl_test = eval_ppl_wikitext(model, testloader, args.eval_batch_size, device)
     return ppl_test 
 
 # Function to evaluate perplexity (ppl) specifically on the wikitext dataset

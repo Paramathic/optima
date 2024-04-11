@@ -120,6 +120,7 @@ def main():
     parser.add_argument("--shift_zero_metrics", action="store_true")
     parser.add_argument("--use_std_in_quantization", action="store_true")
     parser.add_argument("--max_bitwidth", type=int, default=8)
+    parser.add_argument("--eval_batch_size", type=int, default=1)
 
     args = parser.parse_args()
 

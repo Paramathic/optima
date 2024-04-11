@@ -3,7 +3,7 @@ module load anaconda3 cuda/11.4.4 gcc/10.3.0 ninja
 source activate pytorch
 
 MODEL_PREFIX=facebook/opt-
-MODEL_SIZE=2.7b
+MODEL_SIZE=125m
 STRUCTURE=unstructured
 METHOD=wanda
 SPARSITY_RATIO=0.5
@@ -16,6 +16,7 @@ BITWIDTH=4
 QUANTIZE_BEFORE_PRUNING='--quantize_before_pruning'
 MAX_BITWIDTH=8
 USE_STD_IN_QUANTIZATION='--use_std_in_quantization'
+EVAL_BATCH_SIZE=1
 # RANDOMIZED_SVD='--randomized_svd'
 # LOCAL_CHECKPOINT_DIR='--local_checkpoint_dir local_checkpoints/flash_attn_gpt2_small_dense.pt'
 
@@ -35,6 +36,7 @@ python main_opt.py \
     $QUANTIZE_BEFORE_PRUNING \
     --bitwidth $BITWIDTH \
     --max_bitwidth $MAX_BITWIDTH \
-    $USE_STD_IN_QUANTIZATION
+    $USE_STD_IN_QUANTIZATION \
+    --eval_batch_size $EVAL_BATCH_SIZE
 
     
