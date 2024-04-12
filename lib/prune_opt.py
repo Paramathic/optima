@@ -256,7 +256,7 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
     use_cache = model.config.use_cache 
     model.config.use_cache = False 
 
-    print("loading calibdation data")
+    print("loading calibration data")
     dataloader, _ = get_loaders("c4",nsamples=args.nsamples,seed=args.seed,seqlen=model.seqlen,tokenizer=tokenizer)
     print("dataset loading complete")
     with torch.no_grad():
@@ -350,17 +350,27 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
 
             
             if args.lora_rank > 0.:
-                add_lora(subset[name], 
-                         W_mask=W_mask, 
-                         rank_ratio=args.lora_rank, 
-                         use_wanda=args.wanda_in_lora, 
-                         activations=wrapped_layers[name], 
-                         use_randomized_svd=args.randomized_svd, 
-                         quantizer=quantizer, 
+                add_lora(subset[name],
+                         W_mask=W_mask,
+                         rank_ratio=args.lora_rank,
+                         use_wanda=args.wanda_in_lora,
+                         activations=wrapped_layers[name],
+                         use_randomized_svd=args.randomized_svd,
+                         quantizer=quantizer,
                          bitwidth=args.bitwidth,
                          use_std=args.use_std_in_quantization,
                          max_bitwidth=args.max_bitwidth,
-                         pruned_L=args.pruned_l)
+                         pruned_L=args.pruned_l,
+                         separate_lora = args.separate_lora)
+
+                if args.separate_lora:
+                    def add_lora_hook(module, input, output):
+                        output += torch.matmul(torch.matmul(input[0], module.lora_left),
+                                                       module.lora_right)
+                        #output = output
+                    subset[name].register_forward_hook(add_lora_hook)
+
+
             else:
                 subset[name].weight.data[W_mask] = 0  ## set weights to zero
                 # print("Before Quantization: ", density_ratio(subset[name].weight.data))
@@ -371,7 +381,8 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
                                                                          max_bitwidth=args.max_bitwidth)
                     subset[name].weight.data = quantizer.dequantize_absmax(subset[name].weight.data)
                 # print("After Quantization", density_ratio(subset[name].weight.data))
-                    
+
+
 
         for j in range(args.nsamples):
             with torch.no_grad():

@@ -106,7 +106,8 @@ def add_lora(module,
              bitwidth=8,
              use_std=False,
              max_bitwidth=8,
-             pruned_L = False):
+             pruned_L = False,
+             separate_lora = True):
 
     if use_wanda and not any (activations.scaler_row == 0):
         if quantizer is None:
@@ -139,18 +140,38 @@ def add_lora(module,
         L = U[:, :rank].half()
         R = torch.diag_embed(S[:rank]).half() @ V[:, :rank].half().T
         sparse_L, R = optimize_pruned_l(L, R, error_mat)
-        low_rank_weight = sparse_L.half() @ R
+        if separate_lora:
+            lora_left = R.t()
+            lora_right = sparse_L.half().t()
+        else:
+            low_rank_weight = sparse_L.half() @ R
 
     else:
-        low_rank_weight = U[:, :rank].half() @ torch.diag_embed(S[:rank]).half() @ V[:, :rank].half().T
+        if separate_lora:
+            lora_left = (torch.diag_embed(S[:rank]).half() @ V[:, :rank].half().T).t()
+            lora_right = U[:, :rank].half().t()
+        else:
+            low_rank_weight = U[:, :rank].half() @ torch.diag_embed(S[:rank]).half() @ V[:, :rank].half().T
     if use_wanda and not any (activations.scaler_row == 0):
-        low_rank_weight = low_rank_weight / (torch.sqrt(activations.scaler_row.reshape((1,-1)))).half()
+        denom = (torch.sqrt(activations.scaler_row.reshape((1,-1)))).half()
+        if separate_lora:
+            lora_left = lora_left / (denom.t())
+        else:
+            low_rank_weight /= denom
+    if separate_lora:
+        low_rank_weight = lora_right.t() @ lora_left.t()
     new_weight = module.weight.data - low_rank_weight
     new_weight[W_mask] = 0
     if quantizer is not None:
         new_weight = quantizer.quantize_weight(new_weight, bitwidth, use_std=use_std, max_bitwidth=max_bitwidth)
         new_weight = quantizer.dequantize_absmax(new_weight)
-    module.weight.data = (new_weight + low_rank_weight).half()
+
+    if separate_lora:
+        module.lora_left = lora_left
+        module.lora_right = lora_right
+        module.weight.data = new_weight.half()
+    else:
+        module.weight.data = (new_weight + low_rank_weight).half()
 
 
 def randomized_svd(B, rank, redundancy=2):

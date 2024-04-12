@@ -145,6 +145,7 @@ def main():
 
     parser.add_argument("--wanda_in_lora", action="store_true")
     parser.add_argument("--lora_rank", type=float, default=0.0)
+    parser.add_argument("--separate_lora", action="store_true")
     parser.add_argument("--randomized_svd", action="store_true")
     parser.add_argument("--pruned_l", action="store_true")
     parser.add_argument("--bias_correction", action="store_true")
