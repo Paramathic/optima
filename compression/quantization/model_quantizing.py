@@ -23,8 +23,19 @@ class Quantizer:
         elif self.matrix_type == "input":
             return self.quantize_input(mat, num_bits)
 
+
+    def get_dtype(self, num_bits):
+        if num_bits <= 8:
+            dtype = torch.int8
+        elif num_bits <= 16:
+            dtype = torch.int16
+        else:
+            dtype = torch.int32
+        return dtype
+
     def quantize_weight(self, mat, num_bits=8, use_std=False, std_factor=3, max_bitwidth=8):
         """absmax quantization"""
+        dtype = self.get_dtype(num_bits)
         max_q = 2 ** (num_bits - 1) - 1
         if use_std:
             abs_max = std_factor * torch.sqrt((mat ** 2).mean())
@@ -38,7 +49,7 @@ class Quantizer:
 
         self.scaling_factor = scaling_factor
 
-        return quantized_mat
+        return quantized_mat.to(dtype)
 
     # doesn't change the original matrix
     def dequantize_absmax(self, quantized_mat, scaling_factor=None):
@@ -51,6 +62,7 @@ class Quantizer:
 
     def quantize_input(self, mat, num_bits=8):
         """ Zero-point quantization for inputs """
+        dtype = self.get_dtype(num_bits)
         max_q = 2 ** (num_bits - 1) - 1
         mat_max = mat.max(dim=1, keepdim=True)[0]
         mat_min = mat.min(dim=1, keepdim=True)[0]
@@ -62,7 +74,7 @@ class Quantizer:
         self.zero_point = zero_point
         self.scaling_factor = scale
 
-        return quantized_mat
+        return quantized_mat.to(dtype)
 
     def dequantize_output(self, output, quantized_weight, weight_sf):
         """ Dequantization of the output when input is quantized with the row-wise zero point algorithm and the weight matrix is quantized with absmax"""
