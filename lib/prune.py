@@ -128,7 +128,7 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
     use_cache = model.config.use_cache 
     model.config.use_cache = False 
 
-    print("loading calibdation data")
+    print("loading calibration data")
     dataloader, _ = get_loaders("c4",nsamples=args.nsamples,seed=args.seed,seqlen=model.seqlen,tokenizer=tokenizer)
     print("dataset loading complete")
     with torch.no_grad():
