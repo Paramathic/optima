@@ -55,9 +55,9 @@
 #include <iostream>
 
 
-#define INT8_OUTPUT_TYPE at::Half //int8_t
-#define INT8_OUTPUT_TYPE_CUDA CUDA_R_16F //CUDA_R_32I
-#define INT8_OUTPUT_TYPE_TORCH torch::kHalf //torch::kInt32
+#define INT8_OUTPUT_TYPE int32_t //at::Half //int8_t
+#define INT8_OUTPUT_TYPE_CUDA CUDA_R_32I //CUDA_R_32I
+#define INT8_OUTPUT_TYPE_TORCH torch::kInt32 //torch::kInt32
 
 
 #define MAX(a, b) ((abs(a) > abs(b) ? (a) : (b)))

@@ -1,4 +1,6 @@
 import torch
+from compression.model_compression import static_prune_weight_reduction_dim_forward
+from types import MethodType
 
 
 def density_ratio(x):
@@ -96,13 +98,13 @@ def optimize_pruned_l(L, R, error_mat):
 
     return sparse_L, R
 
-def add_lora(module, 
-             W_mask, 
-             rank_ratio=0.01, 
-             use_wanda=False, 
-             activations=None, 
-             use_randomized_svd=True, 
-             quantizer=None, 
+def add_lora(module,
+             W_mask,
+             rank_ratio=0.01,
+             use_wanda=False,
+             activations=None,
+             use_randomized_svd=True,
+             quantizer=None,
              bitwidth=8,
              use_std=False,
              max_bitwidth=8,
@@ -187,14 +189,55 @@ def randomized_svd(B, rank, redundancy=2):
     return U[:, :output_rank], S[0:output_rank], V[:, :output_rank]
 
 
+def accelerate_module(module, quantize=False, bitwidth=8):
+    module.forward = MethodType(static_prune_weight_reduction_dim_forward, module)
+    module.accelerate = True
+    module.quantization_en = quantize
+    module.weight.requires_grad = False
+    if quantize:
+        if bitwidth <= 8:
+            module.dtype = torch.int8
+        elif bitwidth <= 16:
+            module.dtype = torch.int16
+        else:
+            module.dtype = torch.int32
+        abs_max = module.weight.abs().max()
+        module.weight_scaling_factor = (2. ** (bitwidth - 1) - 1) / abs_max
+        module.weight.data = torch.round(module.weight.data * module.weight_scaling_factor).to(module.dtype)
+    else:
+        module.weight_scaling_factor = None
+    module.qbitwidth = bitwidth
+    module.sparse_index = None
+    module.mask = None
+    module.add_lora = False #TODO: Fix
+
+
 if __name__ == "__main__":
-    # Unit Test for randomized_svd
-    A = torch.randn(1000, 1000)
-    rank_ratio = 0.1
-    U, S, V = randomized_svd(A, rank_ratio)
-    error = A - U @ torch.diag_embed(S) @ V.T
-    print(error.norm() / A.norm())
-    U, S, V = torch.svd(A)
-    rank = int(rank_ratio * min(A.shape))
-    error = A - U[:, :rank] @ torch.diag_embed(S[:rank]) @ V[:, :rank].T
-    print(error.norm() / A.norm())
+    pass
+
+    # # Unit Test for randomized_svd
+    # A = torch.randn(1000, 1000)
+    # rank_ratio = 0.1
+    # U, S, V = randomized_svd(A, rank_ratio)
+    # error = A - U @ torch.diag_embed(S) @ V.T
+    # print(error.norm() / A.norm())
+    # U, S, V = torch.svd(A)
+    # rank = int(rank_ratio * min(A.shape))
+    # error = A - U[:, :rank] @ torch.diag_embed(S[:rank]) @ V[:, :rank].T
+    # print(error.norm() / A.norm())
+
+    # Unit test for acceleration
+    layer = torch.nn.Linear(1024, 4096).cuda()
+    input = torch.randn(512, 1024).cuda()
+    from compression.pruning_kernels.sparse_backend import prune_tensor
+    layer.weight.data = prune_tensor(layer.weight.data)[0]
+    weight_fp16 = layer.weight.data.clone().detach()
+    # print(layer.weight.data[0:8, 0:8])
+    accelerate_module(layer, quantize=True)
+    # print(layer.weight.data[0:8, 0:8])
+    y_sparse = layer(input)
+    y_dense = input @ weight_fp16.t()
+    print(y_sparse.dtype)
+    # print(y_dense[0:8, 0:8])
+    # print(y_sparse[0:8, 0:8])
+    print("SpMM Relative Error: ", ((y_dense - y_sparse).float().norm() / y_dense.float().norm()).item())

@@ -768,7 +768,16 @@ class ReductionDimStaticPruneWeightMatmul(torch.autograd.Function):
 class AcceleratedStaticPruneWeightMatmul(torch.autograd.Function):
     """Both forward and backward are static methods."""
     @staticmethod
-    def forward(ctx, input, weight, mask=None, sparse_index=None):
+    def forward(ctx,
+                input,
+                weight,
+                mask=None,
+                sparse_index=None,
+                weight_scaling_factor=None,
+                qbitwidth=8,
+                dtype=torch.float16,
+                inference_only=False):
+
         if input.dtype != torch.float16:
             input = input.half()
         if input.dim() == 3:
@@ -778,32 +787,49 @@ class AcceleratedStaticPruneWeightMatmul(torch.autograd.Function):
         else:
             batch_size = input.shape[0]
             sequence_length = -1
+
+        if weight_scaling_factor is not None:
+            input_abs_max = input.abs().max(dim=1)[0].reshape(-1, 1).float()
+            # input_abs_max = input.abs().max()
+            input_scaling_factor = (2.0 ** (qbitwidth - 1) - 1) / input_abs_max
+            input = torch.round(input * input_scaling_factor).to(dtype)
+
         if sparse_index is None and input.size(0) > 16:
-            weight = weight.half() + 1e-3
             transpose_A = False
             transpose_B = True
             sparse_A = False
             transposable_mask = True
+            is_sparse_pruned = True #TODO: Fix this
+            check_sparsity = False
             sparse_index = []
-            sparse_index.append(pruner.setup_spmatmul(input, weight, transpose_A, transpose_B, sparse_A, transposable_mask))
-            transpose_B = False
-            random_output = torch.randn(input.size(0), weight.size(0), dtype=torch.float16, device=input.device)
-            sparse_index.append(pruner.setup_spmatmul(random_output, weight, transpose_A, transpose_B, sparse_A, transposable_mask))
-            mask = weight != 0
+            sparse_index.append(pruner.setup_spmatmul(input, weight, transpose_A, transpose_B, sparse_A, transposable_mask, is_sparse_pruned, check_sparsity))
+            if not inference_only:
+                transpose_B = False
+                random_output = torch.randn(input.size(0), weight.size(0), dtype=torch.float16, device=input.device)
+                sparse_index.append(pruner.setup_spmatmul(random_output, weight, transpose_A, transpose_B, sparse_A, transposable_mask, is_sparse_pruned, check_sparsity))
+                mask = weight != 0
 
         if sparse_index is None:
             output = torch.matmul(input, weight.t())
-            ctx.save_for_backward(input, -torch.ones(1), mask, weight)
+            if not inference_only:
+                ctx.save_for_backward(input, -torch.ones(1), mask, weight)
         else:
             sparseA = False
             output = pruner.spmatmul(input, sparse_index[0], sparseA)
-            ctx.save_for_backward(input, sparse_index[1], mask, weight)
+            # print(weight_scaling_factor, input_scaling_factor)
+            # if torch.any(torch.isnan(input)):
+            #     print("INPUT NAN")
+            output = (output / (weight_scaling_factor * input_scaling_factor)).half()
+            # if torch.any(torch.isnan(output)):
+            #     print("OUTPUT NAN")
+            if not inference_only:
+                ctx.save_for_backward(input, sparse_index[1], mask, weight)
 
         if sequence_length != -1:
             output = output.reshape(batch_size, sequence_length, -1)
 
 
-        return output.clone(), mask, sparse_index
+        return output, mask, sparse_index
 
     @staticmethod
     def backward(ctx, grad_output, grad_mask, grad_sparse_index):
@@ -835,7 +861,7 @@ class AcceleratedStaticPruneWeightMatmul(torch.autograd.Function):
         if sequence_length != -1:
             grad_input = grad_input.reshape(batch_size, sequence_length, -1)
 
-        return grad_input, grad_weight, None, None
+        return grad_input, grad_weight, None, None, None
 
 
 class UnstructuredStaticPruneWeightMatmul(torch.autograd.Function):

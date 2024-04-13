@@ -89,14 +89,17 @@ def static_prune_weight_forward(module, input):
 
 def static_prune_weight_reduction_dim_forward(module, input):
     if module.accelerate:
-        if module.sparse_index is not None:
-            module.weight.data = torch.tensor(module.sparse_index[0]).to(module.weight.dtype).to(module.weight.device)
-            module.weight.grad = None
         output, module.mask, module.sparse_index = AcceleratedStaticPruneWeightMatmul.apply(input,
                                                                                             module.weight,
                                                                                             module.mask,
-                                                                                            module.sparse_index)
-        #TODO: Add quantization to the sparse backend.
+                                                                                            module.sparse_index,
+                                                                                            module.weight_scaling_factor,
+                                                                                            module.qbitwidth,
+                                                                                            module.dtype,
+                                                                                            not module.weight.requires_grad)
+
+        if not module.weight.requires_grad:
+            module.mask = None
     else:
         output, module.mask = ReductionDimStaticPruneWeightMatmul.apply(input,
                                                                         module.weight,

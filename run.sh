@@ -1,10 +1,12 @@
 
-module load anaconda3 cuda/11.4.4 gcc/10.3.0 ninja
-source activate pytorch
+#module load anaconda3 cuda/11.4.4 gcc/10.3.0 ninja
+#source activate pytorch
+
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$PWD/compression/pruning_kernels/tensor_cores/libcusparse_lt/lib
 
 MODEL_PREFIX=facebook/opt-
 MODEL_SIZE=125m
-STRUCTURE=unstructured
+STRUCTURE=2:4
 METHOD=wanda
 SPARSITY_RATIO=0.5
 LORA_RANK=0.1
@@ -12,12 +14,14 @@ WANDA_IN_LORA='--wanda_in_lora'
 SHIFT_ZERO_METRICS='--shift_zero_metrics'
 EVAL_DATASET='wikitext2'
 QUANTIZATION='--quantization'
-BITWIDTH=4
+BITWIDTH=8
 QUANTIZE_BEFORE_PRUNING='--quantize_before_pruning'
 MAX_BITWIDTH=8
-USE_STD_IN_QUANTIZATION='--use_std_in_quantization'
-BIAS_CORRECTION='--bias_correction'
+#USE_STD_IN_QUANTIZATION='--use_std_in_quantization'
+#BIAS_CORRECTION='--bias_correction'
 EVAL_BATCH_SIZE=1
+SEPARATE_LORA='--separate_lora'
+ACCELERATE='--accelerate'
 # RANDOMIZED_SVD='--randomized_svd'
 # LOCAL_CHECKPOINT_DIR='--local_checkpoint_dir local_checkpoints/flash_attn_gpt2_small_dense.pt'
 
@@ -41,6 +45,8 @@ python main_opt.py \
     --bias_alpha 0.3 \
     --bias_correction_nsamples 16 \
     $USE_STD_IN_QUANTIZATION \
-    --eval_batch_size $EVAL_BATCH_SIZE
+    --eval_batch_size $EVAL_BATCH_SIZE \
+    $SEPARATE_LORA \
+    $ACCELERATE
 
     

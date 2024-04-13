@@ -162,6 +162,7 @@ def main():
     parser.add_argument("--max_bitwidth", type=int, default=8)
     parser.add_argument("--eval_batch_size", type=int, default=1)
     parser.add_argument("--output_csv_path", type=str, default=None, help='Output CSV to accumulate experiment result')
+    parser.add_argument('--accelerate', action="store_true", help="Whether to use cuSparseLt backend")
 
     args = parser.parse_args()
 

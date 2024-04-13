@@ -8,7 +8,7 @@ from .data import get_loaders
 
 from .ablate import AblateGPT 
 
-from .utils import add_lora, get_layers_list, shift_zeros, density_ratio
+from .utils import add_lora, get_layers_list, shift_zeros, accelerate_module
 from compression.quantization.model_quantizing import Quantizer
 
 
@@ -312,15 +312,6 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
             if args.shift_zero_metrics:
                 wrapped_layers[name].scaler_row = shift_zeros(wrapped_layers[name].scaler_row)
             if args.quantize_before_pruning and quantizer is not None:
-                # print("Mean: ", subset[name].weight.data.flatten().mean().item())
-                # print("STD: ", subset[name].weight.data.flatten().std().item())
-                # weight = subset[name].weight.data.clone().detach().flatten()
-                # std = weight.std()
-                # print("Ratio 1x:" , (weight.abs() > std).sum().item() / weight.numel())
-                # print("Ratio 2x:" , (weight.abs() > 2*std).sum().item() / weight.numel())
-                # print("Ratio 3x:" , (weight.abs() > 3*std).sum().item() / weight.numel())
-
-                # print("Max", subset[name].weight.data.flatten().max().item())
                 quantized_weight = quantizer.dequantize_absmax(
                                         quantizer.quantize_weight(
                                             subset[name].weight.data, 
@@ -329,7 +320,6 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
                                             max_bitwidth=args.max_bitwidth
                                         )
                 )
-                # print("1- ", density_ratio(quantized_weight))
                 W_metric = torch.abs(quantized_weight) * torch.sqrt(wrapped_layers[name].scaler_row.reshape((1,-1)))
             else:
                 W_metric = torch.abs(subset[name].weight.data) * torch.sqrt(wrapped_layers[name].scaler_row.reshape((1,-1)))
@@ -350,18 +340,18 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
 
             
             if args.lora_rank > 0.:
-                add_lora(subset[name],
-                         W_mask=W_mask,
-                         rank_ratio=args.lora_rank,
-                         use_wanda=args.wanda_in_lora,
-                         activations=wrapped_layers[name],
-                         use_randomized_svd=args.randomized_svd,
-                         quantizer=quantizer,
+                add_lora(subset[name], 
+                         W_mask=W_mask, 
+                         rank_ratio=args.lora_rank, 
+                         use_wanda=args.wanda_in_lora, 
+                         activations=wrapped_layers[name], 
+                         use_randomized_svd=args.randomized_svd, 
+                         quantizer=quantizer, 
                          bitwidth=args.bitwidth,
                          use_std=args.use_std_in_quantization,
                          max_bitwidth=args.max_bitwidth,
                          pruned_L=args.pruned_l,
-                         separate_lora = args.separate_lora)
+                         separate_lora=args.separate_lora)
 
                 if args.separate_lora:
                     def add_lora_hook(module, input, output):
@@ -382,8 +372,6 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
                     subset[name].weight.data = quantizer.dequantize_absmax(subset[name].weight.data)
                 # print("After Quantization", density_ratio(subset[name].weight.data))
 
-
-
         for j in range(args.nsamples):
             with torch.no_grad():
                 outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask)[0]
@@ -397,7 +385,21 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
     if args.bias_correction:
         layers_inps_outs = update_outputs_for_bias_correction(model, layers, layers_inps_outs, single_gpu_en, device, args.bias_alpha, args.bias_correction_nsamples)
 
+    if args.accelerate:
+        for i in range(len(layers)):
+            if single_gpu_en:
+                layer = layers[i].to(device)
+            else:
+                layer = layers[i]
 
+            subset = find_layers(layer)
+            for name in subset:
+                accelerate_module(subset[name], args.quantization, args.bitwidth)
+
+            if single_gpu_en:
+                layers[i] = layer.cpu()
+                del layer
+                torch.cuda.empty_cache()
     model.config.use_cache = use_cache
     torch.cuda.empty_cache()
 
