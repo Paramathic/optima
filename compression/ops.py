@@ -816,12 +816,7 @@ class AcceleratedStaticPruneWeightMatmul(torch.autograd.Function):
         else:
             sparseA = False
             output = pruner.spmatmul(input, sparse_index[0], sparseA)
-            # print(weight_scaling_factor, input_scaling_factor)
-            # if torch.any(torch.isnan(input)):
-            #     print("INPUT NAN")
             output = (output / (weight_scaling_factor * input_scaling_factor)).half()
-            # if torch.any(torch.isnan(output)):
-            #     print("OUTPUT NAN")
             if not inference_only:
                 ctx.save_for_backward(input, sparse_index[1], mask, weight)
 
