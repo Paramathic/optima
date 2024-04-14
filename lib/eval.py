@@ -8,6 +8,8 @@ from .data import get_loaders
 
 from collections import defaultdict
 import fnmatch
+from lib.utils import remove_outlier
+import numpy as np
 
 
 # Function to evaluate perplexity (ppl) on a specified model and tokenizer
@@ -93,6 +95,9 @@ def eval_ppl_wikitext(model, testenc, bs=1, device=None):
     # List to store negative log likelihoods
     nlls = []
     print(f"nsamples {nsamples}")
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
+    times = []
 
     # Loop through each batch
     for i in range(0,nsamples,bs):
@@ -107,7 +112,13 @@ def eval_ppl_wikitext(model, testenc, bs=1, device=None):
         inputs = inputs.reshape(j-i, model.seqlen)
 
         # Forward pass through the model
+        # if inputs.shape[0] != bs:
+        #     continue
+        start.record()
         lm_logits = model(inputs).logits
+        end.record()
+        torch.cuda.synchronize()
+        times.append(start.elapsed_time(end))
 
         # Shift logits and labels for next token prediction
         shift_logits = lm_logits[:, :-1, :].contiguous()
@@ -125,6 +136,9 @@ def eval_ppl_wikitext(model, testenc, bs=1, device=None):
 
     # Compute perplexity
     ppl = torch.exp(torch.stack(nlls).sum() / (nsamples * model.seqlen))
+
+    times = remove_outlier(times)
+    print(f"Inference Time: ", np.mean(times), "+-", np.std(times))
 
     # # Empty CUDA cache to save memory
     # torch.cuda.empty_cache()
