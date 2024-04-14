@@ -3,7 +3,8 @@
 import numpy as np
 import random
 import torch
-from datasets import load_dataset
+from datasets import load_dataset, load_from_disk
+import os
 
 # Set seed for reproducibility
 def set_seed(seed):
@@ -18,8 +19,12 @@ class TokenizerWrapper:
 # Load and process wikitext2 dataset
 def get_wikitext2(nsamples, seed, seqlen, tokenizer, cache_dir='data'):
     # Load train and test datasets
-    traindata = load_dataset('wikitext', 'wikitext-2-raw-v1', split='train', cache_dir=cache_dir)
-    testdata = load_dataset('wikitext', 'wikitext-2-raw-v1', split='test', cache_dir=cache_dir)
+    if os.path.exists(f"{cache_dir}/wikitext-train.pt"):
+        traindata = load_from_disk(f"{cache_dir}/wikitext-train.pt")
+        testdata = load_from_disk(f"{cache_dir}/wikitext-test.pt")
+    else:
+        traindata = load_dataset('wikitext', 'wikitext-2-raw-v1', split='train', cache_dir=cache_dir)
+        testdata = load_dataset('wikitext', 'wikitext-2-raw-v1', split='test', cache_dir=cache_dir)
     # Encode datasets
     # trainenc = tokenizer(" ".join(traindata['text']), return_tensors='pt')
     testenc = tokenizer("\n\n".join(testdata['text']), return_tensors='pt')
@@ -39,8 +44,16 @@ def get_wikitext2(nsamples, seed, seqlen, tokenizer, cache_dir='data'):
 # Load and process c4 dataset
 def get_c4(nsamples, seed, seqlen, tokenizer, cache_dir='data'):
     # Load train and validation datasets
-    traindata = load_dataset('allenai/c4', 'allenai--c4', data_files={'train': 'en/c4-train.00000-of-01024.json.gz'}, split='train', cache_dir=cache_dir)
-    valdata = load_dataset('allenai/c4', 'allenai--c4', data_files={'validation': 'en/c4-validation.00000-of-00008.json.gz'}, split='validation', cache_dir=cache_dir)
+    if os.path.exists(f"{cache_dir}/c4-train.pt"):
+        traindata = load_from_disk(f"{cache_dir}/c4-train.pt")
+        valdata = load_from_disk(f"{cache_dir}/c4-val.pt")
+    else:
+        try:
+            traindata = load_dataset('allenai/c4', 'allenai--c4', data_files={'train': 'en/c4-train.00000-of-01024.json.gz'}, split='train', cache_dir=cache_dir)
+            valdata = load_dataset('allenai/c4', 'allenai--c4', data_files={'validation': 'en/c4-validation.00000-of-00008.json.gz'}, split='validation', cache_dir=cache_dir)
+        except:
+            traindata = load_dataset('allenai/c4', data_files={'train': 'en/c4-train.00000-of-01024.json.gz'}, split='train', cache_dir=cache_dir)
+            valdata = load_dataset('allenai/c4', data_files={'validation': 'en/c4-validation.00000-of-00008.json.gz'}, split='validation', cache_dir=cache_dir)
 
     # Generate samples from training set
     random.seed(seed)
