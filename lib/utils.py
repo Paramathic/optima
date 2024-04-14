@@ -1,6 +1,7 @@
 import torch
 from compression.model_compression import static_prune_weight_reduction_dim_forward
 from types import MethodType
+import numpy as np
 
 
 def density_ratio(x):
@@ -210,6 +211,13 @@ def accelerate_module(module, quantize=False, bitwidth=8):
     module.sparse_index = None
     module.mask = None
     module.add_lora = False #TODO: Fix
+
+
+def remove_outlier(x, std_factor=2):
+    """Remove outliers from a list."""
+    mean = np.mean(x)
+    std = np.std(x)
+    return [e for e in x if (mean - std_factor * std < e < mean + std_factor * std)]
 
 
 if __name__ == "__main__":
