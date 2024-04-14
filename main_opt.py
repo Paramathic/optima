@@ -185,7 +185,7 @@ def main():
         single_gpu = True
 
     model.eval()
-    tokenizer = AutoTokenizer.from_pretrained(args.model, use_fast=False)
+    tokenizer = AutoTokenizer.from_pretrained(args.model, use_fast=False, cache_dir="tokenizers")
 
     device = torch.device("cuda:0")
     try:
