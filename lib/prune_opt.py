@@ -10,7 +10,7 @@ from .ablate import AblateGPT
 
 from .utils import add_lora, get_layers_list, shift_zeros, accelerate_module
 from compression.quantization.model_quantizing import Quantizer
-
+from transformers import LlamaForCausalLM
 
 def find_layers(module, layers=[nn.Linear], name=''):
     """
@@ -85,7 +85,7 @@ def prepare_calibration_input(model, dataloader, device, single_gpu=False):
     inps = torch.zeros((128, model.seqlen, model.config.hidden_size), dtype=dtype, device=device)
     inps.requires_grad = False
     cache = {'i': 0, 'attention_mask': None, "position_ids": None}
-
+    is_llama = isinstance(model, LlamaForCausalLM)
     class Catcher(nn.Module):
         def __init__(self, module):
             super().__init__()
@@ -94,6 +94,8 @@ def prepare_calibration_input(model, dataloader, device, single_gpu=False):
             inps[cache['i']] = inp
             cache['i'] += 1
             cache['attention_mask'] = kwargs['attention_mask']
+            if is_llama:
+                cache['position_ids'] = kwargs['position_ids']
             raise ValueError
     layers[0] = Catcher(layers[0])
     for batch in dataloader:
@@ -115,8 +117,12 @@ def prepare_calibration_input(model, dataloader, device, single_gpu=False):
 
     outs = torch.zeros_like(inps)
     attention_mask = cache['attention_mask']
+    if is_llama:
+        position_ids = cache['position_ids']
     model.config.use_cache = use_cache
 
+    if is_llama:
+        return inps, outs, attention_mask, position_ids
     return inps, outs, attention_mask
 
 
@@ -254,13 +260,18 @@ def prune_magnitude(args, model, tokenizer, device=torch.device("cuda:0"), prune
 
 def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0, single_gpu_en = False):
     use_cache = model.config.use_cache 
-    model.config.use_cache = False 
+    model.config.use_cache = False
+
+    is_llama = isinstance(model, LlamaForCausalLM)
 
     print("loading calibration data")
     dataloader, _ = get_loaders("c4",nsamples=args.nsamples,seed=args.seed,seqlen=model.seqlen,tokenizer=tokenizer)
     print("dataset loading complete")
     with torch.no_grad():
-        inps, outs, attention_mask = prepare_calibration_input(model, dataloader, device, single_gpu_en)
+        if is_llama:
+            inps, outs, attention_mask, position_ids = prepare_calibration_input(model, dataloader, device, single_gpu_en)
+        else:
+            inps, outs, attention_mask = prepare_calibration_input(model, dataloader, device, single_gpu_en)
 
     if args.quantization:
         quantizer = Quantizer("weight")
@@ -273,7 +284,11 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
         layers_inps_outs = save_bias_correction_data(model, layers, inps, outs, attention_mask, single_gpu_en, device, args.bias_correction_nsamples)
 
         with torch.no_grad():
-            inps, outs, attention_mask = prepare_calibration_input(model, dataloader, device, single_gpu_en)
+            if is_llama:
+                inps, outs, attention_mask, position_ids = prepare_calibration_input(model, dataloader, device,
+                                                                                     single_gpu_en)
+            else:
+                inps, outs, attention_mask = prepare_calibration_input(model, dataloader, device, single_gpu_en)
 
 
     for i in range(len(layers)):
@@ -286,7 +301,11 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
         try:
             if f"model.layers.{i}" in model.hf_device_map:   ## handle the case for llama-30B and llama-65B, when the device map has multiple GPUs;
                 dev = model.hf_device_map[f"model.layers.{i}"]
-                inps, outs, attention_mask = inps.to(dev), outs.to(dev), attention_mask.to(dev)
+                if is_llama:
+                    inps, outs, attention_mask, position_ids = inps.to(dev), outs.to(dev), attention_mask.to(
+                        dev), position_ids.to(dev)
+                else:
+                    inps, outs, attention_mask = inps.to(dev), outs.to(dev), attention_mask.to(dev)
         except:
             pass
         wrapped_layers = {}
@@ -303,7 +322,10 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
             handles.append(subset[name].register_forward_hook(add_batch(name)))
         for j in range(args.nsamples):
             with torch.no_grad():
-                outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask)[0]
+                if is_llama:
+                    outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]
+                else:
+                    outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask)[0]
         for h in handles:
             h.remove()
 
@@ -374,7 +396,10 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
 
         for j in range(args.nsamples):
             with torch.no_grad():
-                outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask)[0]
+                if is_llama:
+                    outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]
+                else:
+                    outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask)[0]
         inps, outs = outs, inps
 
         if single_gpu_en:

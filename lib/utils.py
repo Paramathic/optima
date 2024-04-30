@@ -2,7 +2,7 @@ import torch
 from compression.model_compression import static_prune_weight_reduction_dim_forward
 from types import MethodType
 import numpy as np
-
+from transformers import LlamaForCausalLM
 
 def density_ratio(x):
     return (x != 0).sum().float() / x.numel()
@@ -10,7 +10,10 @@ def density_ratio(x):
 
 def get_layers_list(model):
     if hasattr(model, "model"):
-        layers = model.model.decoder.layers
+        if isinstance(model, LlamaForCausalLM):
+            layers = model.model.layers
+        else:
+            layers = model.model.decoder.layers
     elif hasattr(model, "transformer"):
         layers = model.transformer.h
     else:

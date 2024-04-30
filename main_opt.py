@@ -3,7 +3,7 @@ import os
 import numpy as np
 import pandas as pd
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, LlamaForCausalLM, LlamaTokenizer
 from importlib.metadata import version
 
 from lib.prune_opt import prune_wanda, prune_magnitude, prune_sparsegpt, prune_ablate, check_sparsity, find_layers
@@ -92,8 +92,10 @@ def get_llm(model_name, cache_dir="llm_weights", local_checkpoint_dir=""):
             layer.attn.c_attn = conv1d_to_linear(layer.attn.c_attn)
             layer.attn.c_proj = conv1d_to_linear(layer.attn.c_proj)
         if hasattr(layer, "mlp"):
-            layer.mlp.c_fc = conv1d_to_linear(layer.mlp.c_fc)
-            layer.mlp.c_proj = conv1d_to_linear(layer.mlp.c_proj)
+            if hasattr(layer.mlp, "c_fc"):
+                layer.mlp.c_fc = conv1d_to_linear(layer.mlp.c_fc)
+            if hasattr(layer.mlp, "c_proj"):
+                layer.mlp.c_proj = conv1d_to_linear(layer.mlp.c_proj)
 
     model.seqlen = model.config.max_position_embeddings 
     return model
