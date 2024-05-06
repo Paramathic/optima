@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 
 # Import get_loaders function from data module within the same directory
-from .data import get_loaders 
+from .data import get_loaders
 
 from collections import defaultdict
 import fnmatch
@@ -22,16 +22,16 @@ def eval_ppl(args, model, tokenizer, device=torch.device("cuda:0"), single_gpu =
 
     # Get the test loader
     _, testloader = get_loaders(
-        dataset, seed=0, seqlen=model.seqlen, tokenizer=tokenizer 
+        dataset, seed=0, seqlen=model.seqlen, tokenizer=tokenizer
     )
 
     # Evaluate ppl in no grad context to avoid updating the model
     with torch.no_grad():
         if single_gpu:
-            ppl_test = eval_ppl_single_gpu_wikitext(model, testloader, args.eval_batch_size, device)
+            ppl_test = eval_ppl_single_gpu_wikitext(model, testloader, args.eval_batch_size, device, args.num_sample_partition)
         else:
             ppl_test = eval_ppl_wikitext(model, testloader, args.eval_batch_size, device)
-    return ppl_test 
+    return ppl_test
 
 # Function to evaluate perplexity (ppl) specifically on the wikitext dataset
 def eval_ppl_wikitext_train(model, trainloader, bs=1, device=None):
@@ -203,7 +203,9 @@ def eval_ppl_single_gpu_wikitext(model, testenc, bs=1, dev=torch.device(0), num_
     outs = torch.zeros_like(inps[:batch_size, :, :])
     print("inps shape: " + str(inps.shape))
     print("outs shape: " + str(outs.shape))
-
+    if (nsamples - (num_partitions * batch_size)) > batch_size:
+        print("greater")
+        num_partitions += 1
     for batch in range(num_partitions + 1):
         if batch == num_partitions:
             old_batch_size = batch_size
@@ -223,7 +225,7 @@ def eval_ppl_single_gpu_wikitext(model, testenc, bs=1, dev=torch.device(0), num_
             for j in range(batch_size):
                  #    if j % 50 == 0 and j > 0:
                 #     print(f"sample {j}, Perplexity {torch.exp(torch.stack(nlls).sum() / (j * model.seqlen))}")
-                if batch == 8:
+                if batch == num_partitions:
                     outs[j] = layer(inps[(batch * old_batch_size)+j].unsqueeze(0), attention_mask=attention_mask)[0]
                 else:
                     outs[j] = layer(inps[(batch * batch_size)+j].unsqueeze(0), attention_mask=attention_mask)[0]
@@ -291,7 +293,7 @@ def eval_ppl_single_gpu_wikitext(model, testenc, bs=1, dev=torch.device(0), num_
 
 def eval_zero_shot(model_name, model, tokenizer, task_list=["boolq","rte","hellaswag","winogrande","arc_challenge","arc_easy","openbookqa"],
         num_fewshot=0, use_accelerate=False, add_special_tokens=False):
-    from lm_eval import tasks, evaluator 
+    from lm_eval import tasks, evaluator
     def pattern_match(patterns, source_list):
         task_names = set()
         for pattern in patterns:
@@ -300,7 +302,7 @@ def eval_zero_shot(model_name, model, tokenizer, task_list=["boolq","rte","hella
         return list(task_names)
     task_names = pattern_match(task_list, tasks.ALL_TASKS)
     model_args = f"pretrained={model_name},cache_dir=./llm_weights"
-    limit = None 
+    limit = None
     if "70b" in model_name or "65b" in model_name:
         limit = 2000
     if use_accelerate:
@@ -318,7 +320,7 @@ def eval_zero_shot(model_name, model, tokenizer, task_list=["boolq","rte","hella
         decontamination_ngrams_path=None,
         check_integrity=False,
         pretrained_model=model,
-        tokenizer=tokenizer, 
+        tokenizer=tokenizer,
         add_special_tokens=add_special_tokens
     )
 
