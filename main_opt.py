@@ -65,21 +65,25 @@ def convert_flashattn_checkpoint_to_hf(checkpoint):
 
 
 def get_llm(model_name, cache_dir="llm_weights", local_checkpoint_dir=""):
-
-    if '30b' in model_name or '66b' in model_name:
-        model = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        torch_dtype=torch.float16,
-        cache_dir=cache_dir,
-    )
-    else:
+    try:
+        print("Memory usage before loading model: ", torch.cuda.memory_allocated(0) / 1024 ** 3, "GB")
         model = AutoModelForCausalLM.from_pretrained(
             model_name,
             torch_dtype=torch.float16,
             cache_dir=cache_dir,
             low_cpu_mem_usage=True,
-            device_map='auto'
+            # device_map='auto'
+        ).cuda()
+    except:
+        torch.cuda.empty_cache()
+        print("Memory usage after failing loading model: ", torch.cuda.memory_allocated(0) / 1024 ** 3, "GB")
+        print("Model does not fit in GPUs. Loading model in CPU...")
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            torch_dtype=torch.float16,
+            cache_dir=cache_dir,
         )
+
 
     if local_checkpoint_dir != "":
         checkpoint = torch.load(local_checkpoint_dir, map_location="cpu")
@@ -97,8 +101,9 @@ def get_llm(model_name, cache_dir="llm_weights", local_checkpoint_dir=""):
             if hasattr(layer.mlp, "c_proj"):
                 layer.mlp.c_proj = conv1d_to_linear(layer.mlp.c_proj)
 
-    model.seqlen = model.config.max_position_embeddings 
+    model.seqlen = model.config.max_position_embeddings
     return model
+
 
 def add_result_to_csv(args, ppl):
     # Load CSV if it exists, otherwise create a new DataFrame with given columns
@@ -110,7 +115,7 @@ def add_result_to_csv(args, ppl):
     # Check if the row combination exists and update perplexity
     new_row_data = {column: getattr(args, column) for column in CSV_COLUMNS[:-1]}
     row_exists = df.index[(df[CSV_COLUMNS[:-1]] == pd.Series(new_row_data)).all(axis=1)]
-    
+
     # Now we don't mind adding perplexity
     new_row_data['perplexity'] = ppl
 
@@ -134,10 +139,12 @@ def main():
     parser.add_argument('--nsamples', type=int, default=128, help='Number of calibration samples.')
     parser.add_argument('--sparsity_ratio', type=float, default=0, help='Sparsity level')
     parser.add_argument("--sparsity_type", type=str, choices=["unstructured", "4:8", "2:4"])
-    parser.add_argument("--prune_method", type=str, choices=["magnitude", "wanda", "sparsegpt", 
-                        "ablate_mag_seq", "ablate_wanda_seq", "ablate_mag_iter", "ablate_wanda_iter", "search"])
-    parser.add_argument("--cache_dir", default="llm_weights", type=str )
-    parser.add_argument('--use_variant', action="store_true", help="whether to use the wanda variant described in the appendix")
+    parser.add_argument("--prune_method", type=str, choices=["magnitude", "wanda", "sparsegpt",
+                                                             "ablate_mag_seq", "ablate_wanda_seq", "ablate_mag_iter",
+                                                             "ablate_wanda_iter", "search"])
+    parser.add_argument("--cache_dir", default="llm_weights", type=str)
+    parser.add_argument('--use_variant', action="store_true",
+                        help="whether to use the wanda variant described in the appendix")
     parser.add_argument('--save', type=str, default=None, help='Path to save results.')
     parser.add_argument('--save_model', type=str, default=None, help='Path to save the pruned model.')
 
@@ -182,25 +189,17 @@ def main():
     print(f"loading llm model {args.model}")
     model = get_llm(args.model, args.cache_dir, args.local_checkpoint_dir)
 
-    single_gpu = False
-    if '30b' in args.model or '66b' in args.model:
-        single_gpu = True
 
     model.eval()
     tokenizer = AutoTokenizer.from_pretrained(args.model, use_fast=False, cache_dir="tokenizers")
 
     device = torch.device("cuda:0")
-    try:
-        if "30b" in args.model or "66b" in args.model: # for 30b and 65b we use device_map to load onto multiple A6000 GPUs, thus the processing here.
-            device = model.hf_device_map["lm_head"]
-    except:
-        pass
     print("use device ", device)
 
     if args.sparsity_ratio != 0:
         print("pruning starts")
         if args.prune_method == "wanda":
-            prune_wanda(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m, single_gpu_en = single_gpu)
+            prune_wanda(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
         elif args.prune_method == "magnitude":
             prune_magnitude(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
         elif args.prune_method == "sparsegpt":
@@ -209,12 +208,12 @@ def main():
             prune_ablate(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
 
     ################################################################
-    print("*"*30)
+    print("*" * 30)
     sparsity_ratio = check_sparsity(model)
     print(f"sparsity sanity check {sparsity_ratio:.4f}")
-    print("*"*30)
+    print("*" * 30)
     ################################################################
-    ppl_test = eval_ppl(args, model, tokenizer, device, single_gpu = single_gpu, num_partition = args.num_sample_partition)
+    ppl_test = eval_ppl(args, model, tokenizer, device, num_partition = args.num_sample_partition)
     print(f"wikitext perplexity {ppl_test}")
 
     if args.output_csv_path:
@@ -228,11 +227,11 @@ def main():
         print(f"{args.prune_method}\t{sparsity_ratio:.4f}\t{ppl_test:.4f}", file=f, flush=True)
 
     if args.eval_zero_shot:
-        accelerate=False
+        accelerate = False
         if "30b" in args.model or "66b" in args.model:
-            accelerate=True
+            accelerate = True
 
-        task_list = ["boolq", "rte","hellaswag","winogrande", "arc_easy","arc_challenge", "openbookqa"]
+        task_list = ["boolq", "rte", "hellaswag", "winogrande", "arc_easy", "arc_challenge", "openbookqa"]
         num_shot = 0
         results = eval_zero_shot(args.model, model, tokenizer, task_list, num_shot, accelerate)
         print("********************************")
@@ -242,6 +241,7 @@ def main():
     if args.save_model:
         model.save_pretrained(args.save_model)
         tokenizer.save_pretrained(args.save_model)
+
 
 if __name__ == '__main__':
     main()

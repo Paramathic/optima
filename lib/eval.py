@@ -13,7 +13,7 @@ import numpy as np
 
 
 # Function to evaluate perplexity (ppl) on a specified model and tokenizer
-def eval_ppl(args, model, tokenizer, device=torch.device("cuda:0"), single_gpu = False, num_partition=8):
+def eval_ppl(args, model, tokenizer, device=torch.device("cuda:0"), num_partition=8):
     # Set dataset
     dataset = args.eval_dataset
 
@@ -27,10 +27,7 @@ def eval_ppl(args, model, tokenizer, device=torch.device("cuda:0"), single_gpu =
 
     # Evaluate ppl in no grad context to avoid updating the model
     with torch.no_grad():
-        if single_gpu:
-            ppl_test = eval_ppl_single_gpu_wikitext(model, testloader, args.eval_batch_size, device, args.num_sample_partition)
-        else:
-            ppl_test = eval_ppl_wikitext(model, testloader, args.eval_batch_size, device)
+        ppl_test = eval_ppl_wikitext(model, testloader, args.eval_batch_size, model.device)
     return ppl_test
 
 # Function to evaluate perplexity (ppl) specifically on the wikitext dataset
@@ -86,6 +83,9 @@ def eval_ppl_wikitext_train(model, trainloader, bs=1, device=None):
 
 # Function to evaluate perplexity (ppl) specifically on the wikitext dataset
 def eval_ppl_wikitext(model, testenc, bs=1, device=None):
+    if model.device == torch.device("cpu"):
+        model = model.float()
+
     # Get input IDs
     testenc = testenc.input_ids
 
@@ -108,7 +108,7 @@ def eval_ppl_wikitext(model, testenc, bs=1, device=None):
         j = min(i+bs, nsamples)
 
         # Prepare inputs and move to device
-        inputs = testenc[:,(i * model.seqlen):(j * model.seqlen)].to(device)
+        inputs = testenc[:, (i * model.seqlen):(j * model.seqlen)].to(device)
         inputs = inputs.reshape(j-i, model.seqlen)
 
         # Forward pass through the model

@@ -1,16 +1,17 @@
-import time 
-import heapq 
-import torch 
-import torch.nn as nn 
-from .sparsegpt import SparseGPT 
+import time
+import heapq
+import torch
+import torch.nn as nn
+from .sparsegpt import SparseGPT
 from .layerwrapper import WrappedGPT
-from .data import get_loaders 
+from .data import get_loaders
 
-from .ablate import AblateGPT 
+from .ablate import AblateGPT
 
 from .utils import add_lora, get_layers_list, shift_zeros, accelerate_module
 from compression.quantization.model_quantizing import Quantizer
 from transformers import LlamaForCausalLM
+
 
 def find_layers(module, layers=[nn.Linear], name=''):
     """
@@ -49,18 +50,20 @@ def check_sparsity(model):
         sub_params = 0
         for name in subset:
             W = subset[name].weight.data
-            count += (W==0).sum().item()
+            count += (W == 0).sum().item()
             total_params += W.numel()
 
-            sub_count += (W==0).sum().item()
+            sub_count += (W == 0).sum().item()
             sub_params += W.numel()
 
-        print(f"layer {i} sparsity {float(sub_count)/sub_params:.6f}")
+        print(f"layer {i} sparsity {float(sub_count) / sub_params:.6f}")
 
-    model.config.use_cache = use_cache 
-    return float(count)/total_params 
+    model.config.use_cache = use_cache
+    return float(count) / total_params
 
-def prepare_calibration_input(model, dataloader, device, single_gpu=False):
+
+def prepare_calibration_input(model, dataloader, device):
+    use_cpu = model.device == torch.device("cpu")
     use_cache = model.config.use_cache
     model.config.use_cache = False
     layers = get_layers_list(model)
@@ -71,41 +74,52 @@ def prepare_calibration_input(model, dataloader, device, single_gpu=False):
     except:
         pass
 
-    if single_gpu:
-        dev = torch.device("cuda:0")
-        model.model.decoder.embed_tokens = model.model.decoder.embed_tokens.to(dev)
-        model.model.decoder.embed_positions = model.model.decoder.embed_positions.to(dev)
+    if use_cpu:
+        model.model.decoder.embed_tokens = model.model.decoder.embed_tokens.cuda()
+        model.model.decoder.embed_positions = model.model.decoder.embed_positions.cuda()
         if hasattr(model.model.decoder, 'project_out') and model.model.decoder.project_out:
-            model.model.decoder.project_out = model.model.decoder.project_out.to(dev)
+            model.model.decoder.project_out = model.model.decoder.project_out.cuda()
         if hasattr(model.model.decoder, 'project_in') and model.model.decoder.project_in:
-            model.model.decoder.project_in = model.model.decoder.project_in.to(dev)
-        layers[0] = layers[0].to(dev)
+            model.model.decoder.project_in = model.model.decoder.project_in.cuda()
+        layers[0] = layers[0].cuda()
 
     dtype = next(iter(model.parameters())).dtype
-    inps = torch.zeros((128, model.seqlen, model.config.hidden_size), dtype=dtype, device=device)
+    try:
+        print("Memory usage before loading inputs: ", torch.cuda.memory_allocated(device) / 1024 ** 3, "GB")
+        inps = torch.zeros((128, model.seqlen, model.config.hidden_size), dtype=dtype, device=device)
+        input_device = inps.device()
+    except:
+        torch.cuda.empty_cache()
+        print("Memory usage after failing loading inputs: ", torch.cuda.memory_allocated(device) / 1024 ** 3, "GB")
+        print("Inputs don't fit in the GPU. Storing them in CPU...")
+        inps = torch.zeros((128, model.seqlen, model.config.hidden_size), dtype=dtype, device="cpu")
+        input_device = "cpu"
     inps.requires_grad = False
     cache = {'i': 0, 'attention_mask': None, "position_ids": None}
     is_llama = isinstance(model, LlamaForCausalLM)
+
     class Catcher(nn.Module):
         def __init__(self, module):
             super().__init__()
             self.module = module
+
         def forward(self, inp, **kwargs):
-            inps[cache['i']] = inp
+            inps[cache['i']] = inp.to(input_device)
             cache['i'] += 1
             cache['attention_mask'] = kwargs['attention_mask']
             if is_llama:
                 cache['position_ids'] = kwargs['position_ids']
             raise ValueError
+
     layers[0] = Catcher(layers[0])
     for batch in dataloader:
         try:
             model(batch[0].to(device))
         except ValueError:
-            pass 
+            pass
     layers[0] = layers[0].module
 
-    if single_gpu:
+    if use_cpu:
         layers[0] = layers[0].cpu()
         model.model.decoder.embed_tokens = model.model.decoder.embed_tokens.cpu()
         model.model.decoder.embed_positions = model.model.decoder.embed_positions.cpu()
@@ -127,8 +141,7 @@ def prepare_calibration_input(model, dataloader, device, single_gpu=False):
 
 
 def save_bias_correction_data(model, layers, inps, outs, attention_mask, single_gpu_en, device, nsamples):
-
-    layers_inps_outs  = {}
+    layers_inps_outs = {}
 
     for i in range(len(layers)):
         if single_gpu_en:
@@ -137,9 +150,9 @@ def save_bias_correction_data(model, layers, inps, outs, attention_mask, single_
             layer = layers[i]
 
         subset = find_layers(layer)
-        sample_counter= 0
+        sample_counter = 0
         try:
-            if f"model.layers.{i}" in model.hf_device_map:   ## handle the case for llama-30B and llama-65B, when the device map has multiple GPUs;
+            if f"model.layers.{i}" in model.hf_device_map:  ## handle the case for llama-30B and llama-65B, when the device map has multiple GPUs;
                 dev = model.hf_device_map[f"model.layers.{i}"]
                 inps, outs, attention_mask = inps.to(dev), outs.to(dev), attention_mask.to(dev)
         except:
@@ -147,19 +160,24 @@ def save_bias_correction_data(model, layers, inps, outs, attention_mask, single_
 
         def save_layer_inp_out(module, input, output):
             if sample_counter == 0:
-                 layers_inps_outs[id(module)] = (torch.zeros((nsamples, input[0].squeeze().shape[0], input[0].squeeze().shape[1]), dtype=next(iter(model.parameters())).dtype, device=torch.device("cpu")) ,torch.zeros((nsamples, output.squeeze().shape[0], output.squeeze().shape[1]), dtype=next(iter(model.parameters())).dtype, device=torch.device("cpu")))
+                layers_inps_outs[id(module)] = (
+                torch.zeros((nsamples, input[0].squeeze().shape[0], input[0].squeeze().shape[1]),
+                            dtype=next(iter(model.parameters())).dtype, device=torch.device("cpu")),
+                torch.zeros((nsamples, output.squeeze().shape[0], output.squeeze().shape[1]),
+                            dtype=next(iter(model.parameters())).dtype, device=torch.device("cpu")))
 
-            layers_inps_outs[id(module)][0][sample_counter] =  input[0].detach().clone().squeeze().to(torch.device("cpu"))
-            layers_inps_outs[id(module)][1][sample_counter] =  output.detach().clone().squeeze().to(torch.device("cpu"))
+            layers_inps_outs[id(module)][0][sample_counter] = input[0].detach().clone().squeeze().to(
+                torch.device("cpu"))
+            layers_inps_outs[id(module)][1][sample_counter] = output.detach().clone().squeeze().to(torch.device("cpu"))
 
         handles = []
         for name in subset:
             handles.append(subset[name].register_forward_hook(save_layer_inp_out))
-        coeff = int(128/nsamples)
+        coeff = int(128 / nsamples)
         for j in range(nsamples):
             with torch.no_grad():
-                outs[coeff*j] = layer(inps[coeff*j].unsqueeze(0), attention_mask=attention_mask)[0]
-                sample_counter+=1
+                outs[coeff * j] = layer(inps[coeff * j].unsqueeze(0), attention_mask=attention_mask)[0]
+                sample_counter += 1
         for h in handles:
             h.remove()
 
@@ -172,10 +190,10 @@ def save_bias_correction_data(model, layers, inps, outs, attention_mask, single_
 
     return layers_inps_outs
 
-def update_outputs_for_bias_correction(model, layers, layers_inps_outs,  single_gpu_en, device, alpha, nsamples):
 
+def update_outputs_for_bias_correction(model, layers, layers_inps_outs, single_gpu_en, device, alpha, nsamples):
     def update_layer_inp_out(module, input, output):
-            layers_inps_outs[id(module)][1][sample_counter] -=  output.detach().clone().squeeze().to(torch.device("cpu"))
+        layers_inps_outs[id(module)][1][sample_counter] -= output.detach().clone().squeeze().to(torch.device("cpu"))
 
     for i in range(len(layers)):
         if single_gpu_en:
@@ -186,12 +204,11 @@ def update_outputs_for_bias_correction(model, layers, layers_inps_outs,  single_
         subset = find_layers(layer)
         sample_counter = 0
         try:
-            if f"model.layers.{i}" in model.hf_device_map:   ## handle the case for llama-30B and llama-65B, when the device map has multiple GPUs;
+            if f"model.layers.{i}" in model.hf_device_map:  ## handle the case for llama-30B and llama-65B, when the device map has multiple GPUs;
                 dev = model.hf_device_map[f"model.layers.{i}"]
                 inps, outs, attention_mask = inps.to(dev), outs.to(dev), attention_mask.to(dev)
         except:
             pass
-
 
         sample_counter = 0
         handles = []
@@ -201,11 +218,12 @@ def update_outputs_for_bias_correction(model, layers, layers_inps_outs,  single_
         for j in range(nsamples):
             for name in subset:
                 with torch.no_grad():
-                    layer_input = layers_inps_outs[id(subset[name])][0][sample_counter].to(subset[name].weight.data.device)
+                    layer_input = layers_inps_outs[id(subset[name])][0][sample_counter].to(
+                        subset[name].weight.data.device)
                     subset[name](layer_input)
                     del layer_input
                     torch.cuda.empty_cache()
-            sample_counter+=1
+            sample_counter += 1
 
         for h in handles:
             h.remove()
@@ -221,20 +239,21 @@ def update_outputs_for_bias_correction(model, layers, layers_inps_outs,  single_
 
 
 def correct_bias(subset, layers_outs, alpha):
-    print("bias correction alpha: "+ str(alpha))
+    print("bias correction alpha: " + str(alpha))
     for name in subset:
-       subset[name].bias.data += alpha*torch.mean(layers_outs[id(subset[name])][1].view(-1, layers_outs[id(subset[name])][1].shape[2]).to(subset[name].bias.data.device), dim=0)
-
-
+        subset[name].bias.data += alpha * torch.mean(
+            layers_outs[id(subset[name])][1].view(-1, layers_outs[id(subset[name])][1].shape[2]).to(
+                subset[name].bias.data.device), dim=0)
 
 
 def return_given_alpha(alpha, sort_res, W_metric, tmp_metric, sum_before):
-    thres_cumsum = sum_before * alpha 
-    sort_mask = tmp_metric <= thres_cumsum.reshape((-1,1))
-    thres = torch.gather(sort_res[0], dim=1, index=sort_mask.sum(dim=1, keepdims=True)-1)
+    thres_cumsum = sum_before * alpha
+    sort_mask = tmp_metric <= thres_cumsum.reshape((-1, 1))
+    thres = torch.gather(sort_res[0], dim=1, index=sort_mask.sum(dim=1, keepdims=True) - 1)
     W_mask = (W_metric <= thres)
-    cur_sparsity = (W_mask==True).sum() / W_mask.numel()
+    cur_sparsity = (W_mask == True).sum() / W_mask.numel()
     return W_mask, cur_sparsity
+
 
 def prune_magnitude(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
     layers = get_layers_list(model)
@@ -244,34 +263,35 @@ def prune_magnitude(args, model, tokenizer, device=torch.device("cuda:0"), prune
         subset = find_layers(layer)
 
         for name in subset:
-            W = subset[name].weight.data 
+            W = subset[name].weight.data
             W_metric = torch.abs(W)
             if prune_n != 0:
-                W_mask = (torch.zeros_like(W)==1)
+                W_mask = (torch.zeros_like(W) == 1)
                 for ii in range(W_metric.shape[1]):
                     if ii % prune_m == 0:
-                        tmp = W_metric[:,ii:(ii+prune_m)].float()
-                        W_mask.scatter_(1,ii+torch.topk(tmp, prune_n,dim=1, largest=False)[1], True)
+                        tmp = W_metric[:, ii:(ii + prune_m)].float()
+                        W_mask.scatter_(1, ii + torch.topk(tmp, prune_n, dim=1, largest=False)[1], True)
             else:
-                thresh = torch.sort(W_metric.flatten().cuda())[0][int(W.numel()*args.sparsity_ratio)].cpu()
-                W_mask = (W_metric<=thresh)
+                thresh = torch.sort(W_metric.flatten().cuda())[0][int(W.numel() * args.sparsity_ratio)].cpu()
+                W_mask = (W_metric <= thresh)
 
             W[W_mask] = 0
 
-def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0, single_gpu_en = False):
-    use_cache = model.config.use_cache 
+
+def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
+    use_cache = model.config.use_cache
     model.config.use_cache = False
 
     is_llama = isinstance(model, LlamaForCausalLM)
 
     print("loading calibration data")
-    dataloader, _ = get_loaders("c4",nsamples=args.nsamples,seed=args.seed,seqlen=model.seqlen,tokenizer=tokenizer)
+    dataloader, _ = get_loaders("c4", nsamples=args.nsamples, seed=args.seed, seqlen=model.seqlen, tokenizer=tokenizer)
     print("dataset loading complete")
     with torch.no_grad():
         if is_llama:
-            inps, outs, attention_mask, position_ids = prepare_calibration_input(model, dataloader, device, single_gpu_en)
+            inps, outs, attention_mask, position_ids = prepare_calibration_input(model, dataloader, device)
         else:
-            inps, outs, attention_mask = prepare_calibration_input(model, dataloader, device, single_gpu_en)
+            inps, outs, attention_mask = prepare_calibration_input(model, dataloader, device)
 
     if args.quantization:
         quantizer = Quantizer("weight")
@@ -281,25 +301,24 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
     layers = get_layers_list(model)
 
     if args.bias_correction:
-        layers_inps_outs = save_bias_correction_data(model, layers, inps, outs, attention_mask, single_gpu_en, device, args.bias_correction_nsamples)
+        raise NotImplementedError
+        # layers_inps_outs = save_bias_correction_data(model, layers, inps, outs, attention_mask, single_gpu_en, device, args.bias_correction_nsamples)
 
-        with torch.no_grad():
-            if is_llama:
-                inps, outs, attention_mask, position_ids = prepare_calibration_input(model, dataloader, device,
-                                                                                     single_gpu_en)
-            else:
-                inps, outs, attention_mask = prepare_calibration_input(model, dataloader, device, single_gpu_en)
-
+        # with torch.no_grad():
+        #     if is_llama:
+        #         inps, outs, attention_mask, position_ids = prepare_calibration_input(model, dataloader, device,
+        #                                                                              single_gpu_en)
+        #     else:
+        #         inps, outs, attention_mask = prepare_calibration_input(model, dataloader, device, single_gpu_en)
 
     for i in range(len(layers)):
-        if single_gpu_en:
-            layer = layers[i].to(device)
-        else:
-            layer = layers[i]
+        use_cpu = model.device == torch.device("cpu")
+        cpu_only = False
+        layer = layers[i].cuda() if use_cpu else layers[i]
 
         subset = find_layers(layer)
         try:
-            if f"model.layers.{i}" in model.hf_device_map:   ## handle the case for llama-30B and llama-65B, when the device map has multiple GPUs;
+            if f"model.layers.{i}" in model.hf_device_map:  ## handle the case for llama-30B and llama-65B, when the device map has multiple GPUs;
                 dev = model.hf_device_map[f"model.layers.{i}"]
                 if is_llama:
                     inps, outs, attention_mask, position_ids = inps.to(dev), outs.to(dev), attention_mask.to(
@@ -315,6 +334,7 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
         def add_batch(name):
             def tmp(_, inp, out):
                 wrapped_layers[name].add_batch(inp[0].data, out.data)
+
             return tmp
 
         handles = []
@@ -322,10 +342,48 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
             handles.append(subset[name].register_forward_hook(add_batch(name)))
         for j in range(args.nsamples):
             with torch.no_grad():
-                if is_llama:
-                    outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]
+                if not cpu_only:
+                    try:
+                        if is_llama:
+                            outs[j] = layer(inps[j].unsqueeze(0).cuda(), attention_mask=attention_mask,
+                                            position_ids=position_ids)[0].to(outs.device)
+                        else:
+                            outs[j] = layer(inps[j].unsqueeze(0).cuda(), attention_mask=attention_mask)[0].to(
+                                outs.device)
+                    except:
+                        print("Block does not fit in a single GPU. Doing all the computation in CPU.")
+                        cpu_only = True
+
+                        layer = layer.cpu().float()
+
+                        def layer_norm_input_cast_pre_hook(module, input):
+                            for i in range(len(input)):
+                                input[i].data = input[i].float()
+
+                        def layer_norm_input_cast_post_hook(module, input, output):
+                            output = output.half()
+
+                        # layer.self_attn_layer_norm.register_forward_pre_hook(layer_norm_input_cast_pre_hook)
+                        # layer.self_attn_layer_norm.register_forward_hook(layer_norm_input_cast_post_hook)
+                        # layer.final_layer_norm.register_forward_pre_hook(layer_norm_input_cast_pre_hook)
+                        # layer.final_layer_norm.register_forward_hook(layer_norm_input_cast_post_hook)
+                        #
+                        # layer.self_attn_layer_norm = layer.self_attn_layer_norm.float()
+                        # layer.final_layer_norm = layer.final_layer_norm.float()
+                        if is_llama:
+                            outs[j] = layer(inps[j].unsqueeze(0),
+                                            attention_mask=attention_mask,
+                                            position_ids=position_ids)[0]
+                        else:
+                            outs[j] = layer(inps[j].unsqueeze(0).float(), attention_mask=attention_mask.cpu())[0].half()
                 else:
-                    outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask)[0]
+                    if is_llama:
+                        outs[j] = layer(inps[j].unsqueeze(0),
+                                        attention_mask=attention_mask,
+                                        position_ids=position_ids)[0]
+                    else:
+                        outs[j] = layer(inps[j].unsqueeze(0).float(), attention_mask=attention_mask.cpu())[0].half()
+
         for h in handles:
             h.remove()
 
@@ -335,40 +393,40 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
                 wrapped_layers[name].scaler_row = shift_zeros(wrapped_layers[name].scaler_row)
             if args.quantize_before_pruning and quantizer is not None:
                 quantized_weight = quantizer.dequantize_absmax(
-                                        quantizer.quantize_weight(
-                                            subset[name].weight.data, 
-                                            args.bitwidth, 
-                                            use_std=args.use_std_in_quantization,
-                                            max_bitwidth=args.max_bitwidth
-                                        )
+                    quantizer.quantize_weight(
+                        subset[name].weight.data,
+                        args.bitwidth,
+                        use_std=args.use_std_in_quantization,
+                        max_bitwidth=args.max_bitwidth
+                    )
                 )
-                W_metric = torch.abs(quantized_weight) * torch.sqrt(wrapped_layers[name].scaler_row.reshape((1,-1)))
+                W_metric = torch.abs(quantized_weight) * torch.sqrt(wrapped_layers[name].scaler_row.reshape((1, -1)))
             else:
-                W_metric = torch.abs(subset[name].weight.data) * torch.sqrt(wrapped_layers[name].scaler_row.reshape((1,-1)))
+                W_metric = torch.abs(subset[name].weight.data) * torch.sqrt(
+                    wrapped_layers[name].scaler_row.reshape((1, -1)))
 
             W_mask = (torch.zeros_like(W_metric) == 1)  ## initialize a mask to be all False
             if prune_n != 0:
                 # structured n:m sparsity
                 for ii in range(W_metric.shape[1]):
                     if ii % prune_m == 0:
-                        tmp = W_metric[:,ii:(ii+prune_m)].float()
-                        W_mask.scatter_(1,ii+torch.topk(tmp, prune_n,dim=1, largest=False)[1], True)
+                        tmp = W_metric[:, ii:(ii + prune_m)].float()
+                        W_mask.scatter_(1, ii + torch.topk(tmp, prune_n, dim=1, largest=False)[1], True)
             else:
                 sort_res = torch.sort(W_metric, dim=-1, stable=True)
 
                 # unstructured pruning
-                indices = sort_res[1][:,:int(W_metric.shape[1]*args.sparsity_ratio)]
+                indices = sort_res[1][:, :int(W_metric.shape[1] * args.sparsity_ratio)]
                 W_mask.scatter_(1, indices, True)
 
-            
             if args.lora_rank > 0.:
-                add_lora(subset[name], 
-                         W_mask=W_mask, 
-                         rank_ratio=args.lora_rank, 
-                         use_wanda=args.wanda_in_lora, 
-                         activations=wrapped_layers[name], 
-                         use_randomized_svd=args.randomized_svd, 
-                         quantizer=quantizer, 
+                add_lora(subset[name],
+                         W_mask=W_mask,
+                         rank_ratio=args.lora_rank,
+                         use_wanda=args.wanda_in_lora,
+                         activations=wrapped_layers[name],
+                         use_randomized_svd=args.randomized_svd,
+                         quantizer=quantizer,
                          bitwidth=args.bitwidth,
                          use_std=args.use_std_in_quantization,
                          max_bitwidth=args.max_bitwidth,
@@ -378,61 +436,71 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
                 if args.separate_lora:
                     def add_lora_hook(module, input, output):
                         output += torch.matmul(torch.matmul(input[0], module.lora_left),
-                                                       module.lora_right)
-                        #output = output
+                                               module.lora_right)
+
                     subset[name].register_forward_hook(add_lora_hook)
 
 
             else:
                 subset[name].weight.data[W_mask] = 0  ## set weights to zero
-                # print("Before Quantization: ", density_ratio(subset[name].weight.data))
                 if (not args.quantize_before_pruning) and quantizer is not None:
-                    subset[name].weight.data = quantizer.quantize_weight(subset[name].weight.data, 
-                                                                         args.bitwidth, 
+                    subset[name].weight.data = quantizer.quantize_weight(subset[name].weight.data,
+                                                                         args.bitwidth,
                                                                          use_std=args.use_std_in_quantization,
                                                                          max_bitwidth=args.max_bitwidth)
                     subset[name].weight.data = quantizer.dequantize_absmax(subset[name].weight.data)
-                # print("After Quantization", density_ratio(subset[name].weight.data))
+
+        if cpu_only:
+            layer = layer.float()
 
         for j in range(args.nsamples):
             with torch.no_grad():
-                if is_llama:
-                    outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]
+                if not cpu_only:
+                    if is_llama:
+                        outs[j] = layer(inps[j].unsqueeze(0).cuda(),
+                                        attention_mask=attention_mask,
+                                        position_ids=position_ids)[0].to(outs[j].device)
+                    else:
+                        outs[j] = layer(inps[j].unsqueeze(0).cuda(),
+                                        attention_mask=attention_mask)[0].to(outs[j].device)
                 else:
-                    outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask)[0]
+                    if is_llama:
+                        outs[j] = layer(inps[j].unsqueeze(0).float(),
+                                        attention_mask=attention_mask.cpu(),
+                                        position_ids=position_ids)[0].half()
+                    else:
+                        outs[j] = layer(inps[j].unsqueeze(0).float(), attention_mask=attention_mask.cpu())[0].half()
         inps, outs = outs, inps
 
-        if single_gpu_en:
+        if use_cpu:
             layers[i] = layer.cpu()
             del layer
             torch.cuda.empty_cache()
 
     if args.bias_correction:
-        layers_inps_outs = update_outputs_for_bias_correction(model, layers, layers_inps_outs, single_gpu_en, device, args.bias_alpha, args.bias_correction_nsamples)
+        raise NotImplementedError
+        # layers_inps_outs = update_outputs_for_bias_correction(model, layers, layers_inps_outs, single_gpu_en, device, args.bias_alpha, args.bias_correction_nsamples)
 
     if args.accelerate:
         for i in range(len(layers)):
-            if single_gpu_en:
-                layer = layers[i].to(device)
-            else:
-                layer = layers[i]
+            if layer.device == torch.device("cpu"):
+                raise NotImplemented
+
+            layer = layers[i]
 
             subset = find_layers(layer)
             for name in subset:
                 accelerate_module(subset[name], args.quantization, args.bitwidth)
 
-            if single_gpu_en:
-                layers[i] = layer.cpu()
-                del layer
-                torch.cuda.empty_cache()
     model.config.use_cache = use_cache
     torch.cuda.empty_cache()
+
 
 @torch.no_grad()
 def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
     ## SparseGPT code available at: https://github.com/IST-DASLab/sparsegpt/tree/f5c25005a61f96a0933ca2f95705a963585aafaa
     print('Starting ...')
-    dataloader, _ = get_loaders("c4",nsamples=args.nsamples,seed=args.seed,seqlen=model.seqlen,tokenizer=tokenizer)
+    dataloader, _ = get_loaders("c4", nsamples=args.nsamples, seed=args.seed, seqlen=model.seqlen, tokenizer=tokenizer)
 
     use_cache = model.config.use_cache
     model.config.use_cache = False
@@ -451,12 +519,14 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
         def __init__(self, module):
             super().__init__()
             self.module = module
+
         def forward(self, inp, **kwargs):
             inps[cache['i']] = inp
             cache['i'] += 1
             cache['attention_mask'] = kwargs['attention_mask']
             # cache['position_ids'] = kwargs['position_ids']
             raise ValueError
+
     layers[0] = Catcher(layers[0])
     for batch in dataloader:
         try:
@@ -487,6 +557,7 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
         def add_batch(name):
             def tmp(_, inp, out):
                 gpts[name].add_batch(inp[0].data, out.data)
+
             return tmp
 
         handles = []
@@ -508,7 +579,7 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
         for j in range(args.nsamples):
             outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask)[0]
 
-        layers[i] = layer 
+        layers[i] = layer
         torch.cuda.empty_cache()
 
         inps, outs = outs, inps
@@ -516,11 +587,12 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
     model.config.use_cache = use_cache
     torch.cuda.empty_cache()
 
+
 @torch.no_grad()
 def prune_ablate(args, model, tokenizer, dev, prune_n=0, prune_m=0):
     ## SparseGPT code available at: https://github.com/IST-DASLab/sparsegpt/tree/f5c25005a61f96a0933ca2f95705a963585aafaa
     print('Starting ...')
-    dataloader, _ = get_loaders("c4",nsamples=args.nsamples,seed=args.seed,seqlen=model.seqlen,tokenizer=tokenizer)
+    dataloader, _ = get_loaders("c4", nsamples=args.nsamples, seed=args.seed, seqlen=model.seqlen, tokenizer=tokenizer)
 
     use_cache = model.config.use_cache
     model.config.use_cache = False
@@ -539,12 +611,14 @@ def prune_ablate(args, model, tokenizer, dev, prune_n=0, prune_m=0):
         def __init__(self, module):
             super().__init__()
             self.module = module
+
         def forward(self, inp, **kwargs):
             inps[cache['i']] = inp
             cache['i'] += 1
             cache['attention_mask'] = kwargs['attention_mask']
             # cache['position_ids'] = kwargs['position_ids']
             raise ValueError
+
     layers[0] = Catcher(layers[0])
     for batch in dataloader:
         try:
@@ -576,6 +650,7 @@ def prune_ablate(args, model, tokenizer, dev, prune_n=0, prune_m=0):
         def add_batch(name):
             def tmp(_, inp, out):
                 gpts[name].add_batch(inp[0].data, out.data)
+
             return tmp
 
         handles = []
@@ -596,16 +671,16 @@ def prune_ablate(args, model, tokenizer, dev, prune_n=0, prune_m=0):
             elif args.prune_method == "ablate_mag_seq":
                 prune_mask = gpts[name].get_mag_mask(args.sparsity_ratio, prune_n, prune_m)
             elif "iter" in args.prune_method:
-                prune_mask = None 
+                prune_mask = None
 
-            gpts[name].fasterprune(args, args.sparsity_ratio, mask=prune_mask, 
-                                        prune_n=prune_n, prune_m=prune_m, percdamp=0.01, blocksize=128)
+            gpts[name].fasterprune(args, args.sparsity_ratio, mask=prune_mask,
+                                   prune_n=prune_n, prune_m=prune_m, percdamp=0.01, blocksize=128)
             gpts[name].free()
 
         for j in range(args.nsamples):
             outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask)[0]
 
-        layers[i] = layer 
+        layers[i] = layer
         torch.cuda.empty_cache()
 
         inps, outs = outs, inps
