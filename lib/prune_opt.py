@@ -11,6 +11,7 @@ from .ablate import AblateGPT
 from .utils import add_lora, get_layers_list, shift_zeros, accelerate_module
 from compression.quantization.model_quantizing import Quantizer
 from transformers import LlamaForCausalLM
+from compression.ops import prune_row_wise
 
 
 def find_layers(module, layers=[nn.Linear], name=''):
@@ -56,7 +57,7 @@ def check_sparsity(model):
             sub_count += (W == 0).sum().item()
             sub_params += W.numel()
 
-        print(f"layer {i} sparsity {float(sub_count) / sub_params:.6f}")
+        print(f"Layer {i} Sparsity Ratio: {float(sub_count) / sub_params:.6f}")
 
     model.config.use_cache = use_cache
     return float(count) / total_params
@@ -293,7 +294,7 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
         else:
             inps, outs, attention_mask = prepare_calibration_input(model, dataloader, device)
 
-    if args.quantization:
+    if args.quantize:
         quantizer = Quantizer("weight")
     else:
         quantizer = None
@@ -408,6 +409,11 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
             W_mask = (torch.zeros_like(W_metric) == 1)  ## initialize a mask to be all False
             if prune_n != 0:
                 # structured n:m sparsity
+                # print(prune_n, prune_m)
+                # _, W_mask = prune_row_wise(W_metric, prune_n, prune_m)
+                # print("New: ", torch.mean(W_mask.float()))
+                # W_mask = W_mask == False
+                # print(torch.mean(W_mask.float()))
                 for ii in range(W_metric.shape[1]):
                     if ii % prune_m == 0:
                         tmp = W_metric[:, ii:(ii + prune_m)].float()
@@ -444,11 +450,11 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
             else:
                 subset[name].weight.data[W_mask] = 0  ## set weights to zero
                 if (not args.quantize_before_pruning) and quantizer is not None:
-                    subset[name].weight.data = quantizer.quantize_weight(subset[name].weight.data,
+                    quantized_weight = quantizer.quantize_weight(subset[name].weight.data,
                                                                          args.bitwidth,
                                                                          use_std=args.use_std_in_quantization,
                                                                          max_bitwidth=args.max_bitwidth)
-                    subset[name].weight.data = quantizer.dequantize_absmax(subset[name].weight.data)
+                    subset[name].weight.data = quantizer.dequantize_absmax(quantized_weight)
 
         if cpu_only:
             layer = layer.float()
@@ -490,7 +496,7 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
 
             subset = find_layers(layer)
             for name in subset:
-                accelerate_module(subset[name], args.quantization, args.bitwidth)
+                accelerate_module(subset[name], args.quantize, args.bitwidth)
 
     model.config.use_cache = use_cache
     torch.cuda.empty_cache()
@@ -687,3 +693,28 @@ def prune_ablate(args, model, tokenizer, dev, prune_n=0, prune_m=0):
 
     model.config.use_cache = use_cache
     torch.cuda.empty_cache()
+
+
+def quantize_model(args, model):
+    quantizer = Quantizer("weight")
+    layers = get_layers_list(model)
+    
+    for i in range(len(layers)):
+        layer = layers[i]
+
+        subset = find_layers(layer)
+        
+        for name in subset:
+            print(f"Quantizing layer {i} name {name}")
+            
+            quantized_weight = quantizer.dequantize_absmax(
+                quantizer.quantize_weight(
+                    subset[name].weight.data,
+                    args.bitwidth,
+                    use_std=args.use_std_in_quantization,
+                    max_bitwidth=args.max_bitwidth
+                )
+            )
+            
+            subset[name].weight.data = quantized_weight.to(subset[name].weight.dtype)
+

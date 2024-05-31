@@ -11,6 +11,39 @@ def quantize_two_matrices_sum_qbitwidth(A, B, qbitwidth, m):
     # Returns weight quantizer, just in case there is a need to dequantize back
     return quantized_a, quantized_b, weight_quantizer_a, weight_quantizer_b
 
+
+def find_optimal_quantiztion_cap(mat, num_bits=8, num_bins=4096):
+    pdf, val = torch.histogram(mat.data.abs().float().flatten().cpu(), bins=num_bins, density=True)
+    pdf, val = pdf.cuda(), val.cuda()
+    dx = val[1] - val[0]
+
+    val = (val[:-1] + val[1:]) / 2
+    q = num_bits
+    total_loss = torch.zeros(num_bins)
+    last_loss = torch.inf
+    for i in range(num_bins):
+        alpha = val[i]
+        # quantization_step = (alpha / (2 ** (q)))
+        # quantization_loss = (quantization_step ** 2) / 12 * torch.sum(pdf[:i]) * dx
+
+        pdf_quantization = pdf[:i]
+        accurate_val_quantization = val[:i]
+        quantized_val_quantization = (val[:i] // (alpha / (2 ** (q)))) * (alpha / (2 ** (q)))
+        quantization_loss = torch.sum(pdf_quantization * (accurate_val_quantization - quantized_val_quantization) ** 2) * dx
+
+        pdf_clip = pdf[i:]
+        val_clip = val[i:]
+        clipping_loss = torch.sum(pdf_clip * (val_clip - alpha) ** 2) * dx
+        total_loss[i] = quantization_loss + clipping_loss
+        # if total_loss[i] < last_loss:
+        #     last_loss = total_loss[i]
+        # else:
+        #     break
+
+    min_loss, idx = torch.min(total_loss, 0)
+    return val[idx]
+
+
 class Quantizer:
 
     def __init__(self, matrix_type):
@@ -33,19 +66,20 @@ class Quantizer:
             dtype = torch.int32
         return dtype
 
-    def quantize_weight(self, mat, num_bits=8, use_std=False, std_factor=3, max_bitwidth=8):
+    def quantize_weight(self, mat, num_bits=8, use_std=False, std_factor=5, max_bitwidth=8):
         """absmax quantization"""
         dtype = self.get_dtype(num_bits)
         max_q = 2 ** (num_bits - 1) - 1
         if use_std:
-            abs_max = std_factor * torch.sqrt((mat ** 2).mean())
+            # abs_max = std_factor * torch.sqrt((mat ** 2).mean())
+            abs_max = find_optimal_quantiztion_cap(mat, num_bits, num_bins=min(torch.numel(mat) // 1000, 16384))
         else:
             abs_max = mat.abs().max()
         scaling_factor = max_q / abs_max
         quantized_mat = torch.round(mat * scaling_factor)
         if use_std:
-            max_q = 2 ** max_bitwidth - 1
-        quantized_mat = torch.clamp(quantized_mat, -max_q, max_q)
+            max_q = 2 ** (max_bitwidth - 1) - 1
+        quantized_mat = torch.clamp(quantized_mat, -max_q - 1, max_q)
 
         self.scaling_factor = scaling_factor
 

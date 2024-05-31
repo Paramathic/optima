@@ -6,12 +6,12 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, LlamaForCausalLM, LlamaTokenizer
 from importlib.metadata import version
 
-from lib.prune_opt import prune_wanda, prune_magnitude, prune_sparsegpt, prune_ablate, check_sparsity, find_layers
+from lib.prune_opt import prune_wanda, prune_magnitude, prune_sparsegpt, prune_ablate, check_sparsity, quantize_model
 from lib.eval import eval_ppl, eval_zero_shot
 from lib.utils import get_layers_list
 
 CSV_COLUMNS = ["model", "prune_method", "sparsity_ratio", "sparsity_type", "lora_rank",
-               "wanda_in_lora", "shift_zero_metrics", "eval_dataset", "quantization", "quantize_before_pruning",
+               "wanda_in_lora", "randomized_svd", "shift_zero_metrics", "eval_dataset", "quantize", "quantize_before_pruning",
                "bitwidth", "max_bitwidth", "use_std_in_quantization", "bias_correction", "bias_alpha",
                "bias_correction_nsamples", "perplexity"]
 
@@ -138,7 +138,7 @@ def main():
     parser.add_argument('--seed', type=int, default=0, help='Seed for sampling the calibration data.')
     parser.add_argument('--nsamples', type=int, default=128, help='Number of calibration samples.')
     parser.add_argument('--sparsity_ratio', type=float, default=0, help='Sparsity level')
-    parser.add_argument("--sparsity_type", type=str, choices=["unstructured", "4:8", "2:4"])
+    parser.add_argument("--sparsity_type", type=str)
     parser.add_argument("--prune_method", type=str, choices=["magnitude", "wanda", "sparsegpt",
                                                              "ablate_mag_seq", "ablate_wanda_seq", "ablate_mag_iter",
                                                              "ablate_wanda_iter", "search"])
@@ -162,7 +162,7 @@ def main():
     parser.add_argument("--bias_correction_nsamples", type=int, default=128)
 
     parser.add_argument("--bitwidth", type=int, default=8)
-    parser.add_argument("--quantization", action="store_true")
+    parser.add_argument("--quantize", action="store_true")
     parser.add_argument("--quantize_before_pruning", action="store_true")
     parser.add_argument("--local_checkpoint_dir", type=str, default="")
     parser.add_argument("--eval_dataset", type=str, default="wikitext2", choices=["wikitext2", "c4", "openwebtext"])
@@ -179,14 +179,8 @@ def main():
     np.random.seed(args.seed)
     torch.random.manual_seed(args.seed)
 
-    # Handling n:m sparsity
-    prune_n, prune_m = 0, 0
-    if args.sparsity_type != "unstructured":
-        assert args.sparsity_ratio == 0.5, "sparsity ratio must be 0.5 for structured N:M sparsity"
-        prune_n, prune_m = map(int, args.sparsity_type.split(":"))
-
     model_name = args.model.split("/")[-1]
-    print(f"loading llm model {args.model}")
+    print(f"Loading model {model_name}")
     model = get_llm(args.model, args.cache_dir, args.local_checkpoint_dir)
 
 
@@ -194,10 +188,16 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(args.model, use_fast=False, cache_dir="tokenizers")
 
     device = torch.device("cuda:0")
-    print("use device ", device)
+    print("Device ", device)
 
     if args.sparsity_ratio != 0:
-        print("pruning starts")
+        # Handling n:m sparsity
+        prune_n, prune_m = 0, 0
+        if args.sparsity_type != "unstructured":
+            prune_n, prune_m = map(int, args.sparsity_type.split(":"))
+            prune_n = prune_m - prune_n
+            assert args.sparsity_ratio == prune_n / prune_m, "sparsity ratio must be 0.5 for structured N:M sparsity"
+        print("Pruning and quantizing the model:")
         if args.prune_method == "wanda":
             prune_wanda(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
         elif args.prune_method == "magnitude":
@@ -206,11 +206,15 @@ def main():
             prune_sparsegpt(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
         elif "ablate" in args.prune_method:
             prune_ablate(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
+    elif args.quantize:
+        print("Quantizing the dense model:")
+        quantize_model(args, model)
+
 
     ################################################################
     print("*" * 30)
     sparsity_ratio = check_sparsity(model)
-    print(f"sparsity sanity check {sparsity_ratio:.4f}")
+    print(f"Model Sparsity Ratio: {sparsity_ratio:.4f}")
     print("*" * 30)
     ################################################################
     ppl_test = eval_ppl(args, model, tokenizer, device, num_partition = args.num_sample_partition)
