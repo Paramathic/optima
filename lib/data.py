@@ -25,6 +25,9 @@ def get_wikitext2(nsamples, seed, seqlen, tokenizer, cache_dir='data'):
     else:
         traindata = load_dataset('wikitext', 'wikitext-2-raw-v1', split='train', cache_dir=cache_dir)
         testdata = load_dataset('wikitext', 'wikitext-2-raw-v1', split='test', cache_dir=cache_dir)
+
+        traindata.save_to_disk(f"{cache_dir}/wikitext-train.pt")
+        testdata.save_to_disk(f"{cache_dir}/wikitext-test.pt")
     # Encode datasets
     # trainenc = tokenizer(" ".join(traindata['text']), return_tensors='pt')
     testenc = tokenizer("\n\n".join(testdata['text']), return_tensors='pt')
@@ -54,6 +57,9 @@ def get_c4(nsamples, seed, seqlen, tokenizer, cache_dir='data'):
         except:
             traindata = load_dataset('allenai/c4', data_files={'train': 'en/c4-train.00000-of-01024.json.gz'}, split='train', cache_dir=cache_dir)
             valdata = load_dataset('allenai/c4', data_files={'validation': 'en/c4-validation.00000-of-00008.json.gz'}, split='validation', cache_dir=cache_dir)
+        
+        traindata.save_to_disk(f"{cache_dir}/c4-train.pt")
+        valdata.save_to_disk(f"{cache_dir}/c4-val.pt")
 
     # Generate samples from training set
     random.seed(seed)
