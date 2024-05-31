@@ -26,9 +26,12 @@ def prune_row_wise(input, n=0, m=0):
         m = 2 if input.dtype == torch.float32 else 4
     input = input.contiguous()
     input_shape = input.shape
-    sparse_input, mask = pruner.prune(input.reshape(-1, input.shape[-1]), n, m)  # sparsify(input, m, n)
-    sparse_input = sparse_input.reshape(input_shape)
-    mask = mask.reshape(input_shape)
+    if (n, m, input.dtype) in [(1, 2, torch.float32), (2, 4, torch.float16)]:
+        sparse_input, mask = pruner.prune(input.reshape(-1, input.shape[-1]), n, m)
+        sparse_input = sparse_input.reshape(input_shape)
+        mask = mask.reshape(input_shape)
+    else:
+        sparse_input, mask = prune_row_wise_python(input, n, m)
     return sparse_input, mask
 
 
@@ -932,36 +935,36 @@ class UnstructuredStaticPruneWeightMatmul(torch.autograd.Function):
         return grad_input, grad_weight, None, None, None, None, None, None
 
 
-# def sparsify(mat, m, n):
-#     reshaped_mat = mat.clone().reshape(-1, n)
-#     mask = torch.zeros_like(reshaped_mat, dtype=torch.bool)
-#     if (m, n) == (1, 2):
-#         _, indices = torch.topk(torch.abs(reshaped_mat), k=m, dim=1, sorted=False, largest=True)
-#         rows = (indices == 1).sum(dim=1)
-#         mask[:, 0] = rows
-#         mask[:, 1] = torch.logical_not(rows)
-#     elif (m, n) == (2, 4):
-#         _, indices = torch.topk(torch.abs(reshaped_mat), k=m, dim=1, sorted=False, largest=True)
-#         rows = torch.logical_not((indices == 0).sum(dim=1))
-#         mask[:, 0] = rows
-#         rows = torch.logical_not((indices == 1).sum(dim=1))
-#         mask[:, 1] = rows
-#         rows = torch.logical_not((indices == 2).sum(dim=1))
-#         mask[:, 2] = rows
-#         rows = torch.logical_not((indices == 3).sum(dim=1))
-#         mask[:, 3] = rows
-#     elif m < n / 2:
-#         _, indices = torch.topk(torch.abs(reshaped_mat), k=m, dim=1, sorted=False, largest=True)
-#         for i in range(n):
-#             rows = torch.logical_not((indices == i).sum(dim=1))
-#             mask[:, i] = rows
-#     else:
-#         _, indices = torch.topk(torch.abs(reshaped_mat), k=(n - m), dim=1, sorted=False, largest=False)
-#         for i in range(n):
-#             rows = (indices == i).sum(dim=1)
-#             mask[:, i] = rows
-#     reshaped_mat[mask] = 0.
-#     return reshaped_mat.reshape(mat.shape), mask.reshape(mat.shape)
+def prune_row_wise_python(mat, n, m):
+    reshaped_mat = mat.clone().reshape(-1, m)
+    mask = torch.zeros_like(reshaped_mat, dtype=torch.bool)
+    if (n, m) == (1, 2):
+        _, indices = torch.topk(torch.abs(reshaped_mat), k=n, dim=1, sorted=False, largest=True)
+        rows = (indices == 1).sum(dim=1)
+        mask[:, 0] = rows
+        mask[:, 1] = torch.logical_not(rows)
+    elif (n, m) == (2, 4):
+        _, indices = torch.topk(torch.abs(reshaped_mat), k=n, dim=1, sorted=False, largest=True)
+        rows = torch.logical_not((indices == 0).sum(dim=1))
+        mask[:, 0] = rows
+        rows = torch.logical_not((indices == 1).sum(dim=1))
+        mask[:, 1] = rows
+        rows = torch.logical_not((indices == 2).sum(dim=1))
+        mask[:, 2] = rows
+        rows = torch.logical_not((indices == 3).sum(dim=1))
+        mask[:, 3] = rows
+    elif n < m / 2:
+        _, indices = torch.topk(torch.abs(reshaped_mat), k=n, dim=1, sorted=False, largest=True)
+        for i in range(n):
+            rows = torch.logical_not((indices == i).sum(dim=1))
+            mask[:, i] = rows
+    else:
+        _, indices = torch.topk(torch.abs(reshaped_mat), k=(m - n), dim=1, sorted=False, largest=False)
+        for i in range(n):
+            rows = (indices == i).sum(dim=1)
+            mask[:, i] = rows
+    reshaped_mat[mask] = 0.
+    return reshaped_mat.reshape(mat.shape), mask.reshape(mat.shape)
 
 
 
