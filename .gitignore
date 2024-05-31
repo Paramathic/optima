@@ -6,3 +6,17 @@ out/*
 compression/quantization/quantization_kernels/int_matmul/build/*
 lib/__pycache__/*
 compression/quantization/__pycache__/*
+.cache/*
+.local/*
+figures/*
+lib/__pycache__
+tokenizers/*
+.bash_history
+.python_history
+.viminfo
+*.out
+compression/pruning_kernels/__pycache__
+compression/quantization/quantization_kernels/__pycache__
+compression/quantization/quantization_kernels/int_matmul/__pycache__
+results/*
+figures/*
