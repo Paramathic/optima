@@ -18,6 +18,7 @@ class TokenizerWrapper:
 
 # Load and process wikitext2 dataset
 def get_wikitext2(nsamples, seed, seqlen, tokenizer, cache_dir='data'):
+    print("Loading WikiText2 dataset:")
     # Load train and test datasets
     if os.path.exists(f"{cache_dir}/wikitext-train.pt"):
         traindata = load_from_disk(f"{cache_dir}/wikitext-train.pt")
@@ -46,6 +47,7 @@ def get_wikitext2(nsamples, seed, seqlen, tokenizer, cache_dir='data'):
 
 # Load and process c4 dataset
 def get_c4(nsamples, seed, seqlen, tokenizer, cache_dir='data'):
+    print("Loading C4 dataset:")
     # Load train and validation datasets
     if os.path.exists(f"{cache_dir}/c4-train.pt"):
         traindata = load_from_disk(f"{cache_dir}/c4-train.pt")
@@ -85,6 +87,7 @@ def get_c4(nsamples, seed, seqlen, tokenizer, cache_dir='data'):
 
 def get_openwebtext(nsamples, seed, seqlen, tokenizer, cache_dir='data'):
     # Load train and validation datasets
+    print("Loading OpenWebText dataset:")
     raw_datasets = load_dataset("openwebtext", cache_dir=cache_dir)
     raw_datasets = raw_datasets["train"].train_test_split(
         test_size=0.05, seed=seed,
