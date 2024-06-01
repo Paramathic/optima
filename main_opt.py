@@ -190,14 +190,20 @@ def main():
     device = torch.device("cuda:0")
     print("Device ", device)
 
-    if args.sparsity_ratio != 0:
+    if args.sparsity_ratio == 0. or args.sparsity_type == "dense":
+        if args.quantize:
+            print("Quantizing the dense model:")
+            quantize_model(args, model)
+        else:
+            print("Using original dense model:")
+    else:
         # Handling n:m sparsity
         prune_n, prune_m = 0, 0
         if args.sparsity_type != "unstructured":
             prune_n, prune_m = map(int, args.sparsity_type.split(":"))
             prune_n = prune_m - prune_n
             assert args.sparsity_ratio == prune_n / prune_m, "sparsity ratio must be 0.5 for structured N:M sparsity"
-        print("Pruning and quantizing the model:")
+        print(f"Pruning and quantizing the model using {args.prune_method}:")
         if args.prune_method == "wanda":
             prune_wanda(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
         elif args.prune_method == "magnitude":
@@ -206,9 +212,7 @@ def main():
             prune_sparsegpt(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
         elif "ablate" in args.prune_method:
             prune_ablate(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
-    elif args.quantize:
-        print("Quantizing the dense model:")
-        quantize_model(args, model)
+    
 
 
     ################################################################
