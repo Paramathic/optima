@@ -58,7 +58,7 @@ def find_optimal_quantiztion_cap(mat, num_bits=8, num_bins=4096):
 
     # if not (idx < end) and (idx > start):
     #     print(f"{(idx < end) and (idx > start)} - ({start}, {end}) => {idx}")
-    return val[idx]
+    return val[idx].to(mat.device)
 
 
 class Quantizer:
