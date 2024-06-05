@@ -10,6 +10,7 @@ from collections import defaultdict
 import fnmatch
 from lib.utils import remove_outlier
 import numpy as np
+import tqdm.auto as tqdm
 
 
 # Function to evaluate perplexity (ppl) on a specified model and tokenizer
@@ -84,7 +85,36 @@ def eval_ppl_wikitext_train(model, trainloader, bs=1, device=None):
 # Function to evaluate perplexity (ppl) specifically on the wikitext dataset
 def eval_ppl_wikitext(model, testenc, bs=1, device=None):
     if model.device == torch.device("cpu"):
+        torch.cuda.empty_cache()
         model = model.float()
+        layer_num_params = 0
+        for param in model.model.decoder.layers[0].parameters():
+            layer_num_params += param.numel()
+        layer_size = 2 * layer_num_params
+        free_mem, total_mem = torch.cuda.mem_get_info()
+        num_layers_per_gpu = free_mem // layer_size - 4
+        last_fit_layer = -1
+        print(f"Transfering {min(torch.cuda.device_count() * num_layers_per_gpu, len(model.model.decoder.layers))} "
+              f"layers out of {len(model.model.decoder.layers)} to GPU")
+
+        def move_to_gpu_pre_hook(module, input):
+            input[0].data = input[0].data.half().to(module.device)
+
+        def move_to_cpu_post_hook(module, input, output):
+            output[0].data = output[0].data.cpu().float()
+
+        for i in range(torch.cuda.device_count()):
+            for layer_num in range(num_layers_per_gpu):
+                last_fit_layer += 1
+                if last_fit_layer == len(model.model.decoder.layers):
+                    break
+                model.model.decoder.layers[last_fit_layer] = model.model.decoder.layers[last_fit_layer].half().cuda(i)
+                if layer_num == 0:
+                    model.model.decoder.layers[last_fit_layer].device = torch.device(i)
+                    model.model.decoder.layers[last_fit_layer].register_forward_pre_hook(move_to_gpu_pre_hook)
+                if layer_num == num_layers_per_gpu - 1:
+                    model.model.decoder.layers[last_fit_layer].register_forward_hook(move_to_cpu_post_hook)
+
 
     # Get input IDs
     testenc = testenc.input_ids
@@ -100,7 +130,8 @@ def eval_ppl_wikitext(model, testenc, bs=1, device=None):
     times = []
 
     # Loop through each batch
-    for i in range(0,nsamples,bs):
+    progress_bar = tqdm.tqdm(range(0, nsamples, bs))
+    for i in progress_bar:
         if i % 50 == 0 and i > 0:
             print(f"sample {i}, Perplexity {torch.exp(torch.stack(nlls).sum() / (i * model.seqlen))}")
 
@@ -133,6 +164,8 @@ def eval_ppl_wikitext(model, testenc, bs=1, device=None):
 
         # Append to list of negative log likelihoods
         nlls.append(neg_log_likelihood)
+
+        progress_bar.set_description(f"Perplexity: {torch.exp(torch.stack(nlls).sum() / (i * model.seqlen)).item()}")
 
     # Compute perplexity
     ppl = torch.exp(torch.stack(nlls).sum() / (nsamples * model.seqlen))
