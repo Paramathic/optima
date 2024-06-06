@@ -86,7 +86,7 @@ def eval_ppl_wikitext_train(model, trainloader, bs=1, device=None):
 def eval_ppl_wikitext(model, testenc, bs=1, device=None):
     if model.device == torch.device("cpu"):
         torch.cuda.empty_cache()
-        model = model.float()
+        # model = model.float()
         layer_num_params = 0
         for param in model.model.decoder.layers[0].parameters():
             layer_num_params += param.numel()
@@ -116,6 +116,27 @@ def eval_ppl_wikitext(model, testenc, bs=1, device=None):
                     model.model.decoder.layers[last_fit_layer].register_forward_pre_hook(move_to_gpu_pre_hook)
             if last_fit_layer == len(model.model.decoder.layers) - 1:
                 break
+
+        # def cast_input_to_float_pre_hook(module, input):
+        #     input[0].data = input[0].data.float()
+        #
+        # def cast_ouput_to_half_post_hook(module, input, output):
+        #     output_half = output[0].half()
+        #     if output_half.dim() == 2:
+        #         output_half = output_half.unsqueeze(0)
+        #     return output_half
+        #
+        for layer_num in range(last_fit_layer + 1, len(model.model.decoder.layers)):
+            model.model.decoder.layers[layer_num] = model.model.decoder.layers[layer_num].float()
+            # model.model.decoder.layers[layer_num].self_attn_layer_norm = model.model.decoder.layers[layer_num].self_attn_layer_norm.float()
+            # model.model.decoder.layers[layer_num].self_attn_layer_norm.register_forward_pre_hook(cast_input_to_float_pre_hook)
+            # model.model.decoder.layers[layer_num].self_attn_layer_norm.register_forward_hook(cast_ouput_to_half_post_hook)
+            # model.model.decoder.layers[layer_num].final_layer_norm = model.model.decoder.layers[layer_num].final_layer_norm.float()
+            # model.model.decoder.layers[layer_num].final_layer_norm.register_forward_pre_hook(cast_input_to_float_pre_hook)
+            # model.model.decoder.layers[layer_num].final_layer_norm.register_forward_hook(cast_ouput_to_half_post_hook)
+        if last_fit_layer != len(model.model.decoder.layers) - 1:
+            model.model.decoder.final_layer_norm = model.model.decoder.final_layer_norm.float()
+            model.lm_head = model.lm_head.float()
 
 
     # Get input IDs
