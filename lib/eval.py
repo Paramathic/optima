@@ -93,7 +93,6 @@ def eval_ppl_wikitext(model, testenc, bs=1, device=None):
         layer_size = 2 * layer_num_params
         free_mem, total_mem = torch.cuda.mem_get_info()
         num_layers_per_gpu = free_mem // layer_size - 4
-        last_fit_layer = -1
         print(f"Transfering {min(torch.cuda.device_count() * num_layers_per_gpu, len(model.model.decoder.layers))} "
               f"layers out of {len(model.model.decoder.layers)} to GPU")
 
@@ -103,17 +102,20 @@ def eval_ppl_wikitext(model, testenc, bs=1, device=None):
         def move_to_cpu_post_hook(module, input, output):
             output[0].data = output[0].data.cpu().float()
 
+        last_fit_layer = -1
         for i in range(torch.cuda.device_count()):
             for layer_num in range(num_layers_per_gpu):
                 last_fit_layer += 1
-                if last_fit_layer == len(model.model.decoder.layers):
+                if (last_fit_layer == len(model.model.decoder.layers) - 1) or ((i == torch.cuda.device_count() - 1) and (layer_num == num_layers_per_gpu - 1)):
+                    model.model.decoder.layers[last_fit_layer] = model.model.decoder.layers[last_fit_layer].half().cuda(i)
+                    model.model.decoder.layers[last_fit_layer].register_forward_hook(move_to_cpu_post_hook)
                     break
                 model.model.decoder.layers[last_fit_layer] = model.model.decoder.layers[last_fit_layer].half().cuda(i)
                 if layer_num == 0:
                     model.model.decoder.layers[last_fit_layer].device = torch.device(i)
                     model.model.decoder.layers[last_fit_layer].register_forward_pre_hook(move_to_gpu_pre_hook)
-                if layer_num == num_layers_per_gpu - 1:
-                    model.model.decoder.layers[last_fit_layer].register_forward_hook(move_to_cpu_post_hook)
+            if last_fit_layer == len(model.model.decoder.layers) - 1:
+                break
 
 
     # Get input IDs
@@ -132,8 +134,8 @@ def eval_ppl_wikitext(model, testenc, bs=1, device=None):
     # Loop through each batch
     progress_bar = tqdm.tqdm(range(0, nsamples, bs))
     for i in progress_bar:
-        if i % 50 == 0 and i > 0:
-            print(f"sample {i}, Perplexity {torch.exp(torch.stack(nlls).sum() / (i * model.seqlen))}")
+        # if i % 50 == 0 and i > 0:
+        #     print(f"sample {i}, Perplexity {torch.exp(torch.stack(nlls).sum() / (i * model.seqlen))}")
 
         # Calculate end index
         j = min(i+bs, nsamples)
