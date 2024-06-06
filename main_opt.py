@@ -65,24 +65,23 @@ def convert_flashattn_checkpoint_to_hf(checkpoint):
 
 
 def get_llm(model_name, cache_dir="llm_weights", local_checkpoint_dir=""):
-    try:
-        print("Memory usage before loading model: ", torch.cuda.memory_allocated(0) / 1024 ** 3, "GB")
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            torch_dtype=torch.float16,
-            cache_dir=cache_dir,
-            low_cpu_mem_usage=True,
-            # device_map='auto'
-        ).cuda()
-    except:
-        torch.cuda.empty_cache()
-        print("Memory usage after failing loading model: ", torch.cuda.memory_allocated(0) / 1024 ** 3, "GB")
-        print("Model does not fit in GPUs. Loading model in CPU...")
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            torch_dtype=torch.float16,
-            cache_dir=cache_dir,
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        torch_dtype=torch.float16,
+        cache_dir=cache_dir,
+        low_cpu_mem_usage=True,
+        # device_map='auto'
         )
+    layer_num_params = 0
+    for param in model.parameters():
+        layer_num_params += param.numel()
+    model_size = layer_num_params * 2
+    free_mem, total_mem = torch.cuda.mem_get_info()
+    if model_size < free_mem:
+        print("Loading model in GPU...")
+        model = model.cuda()
+    else:
+        print("Model does not fit in GPUs. Loading model in CPU...")
 
 
     if local_checkpoint_dir != "":
@@ -189,6 +188,10 @@ def main():
 
     device = torch.device("cuda:0")
     print("Device ", device)
+    print("Sparsity Ratio: ", args.sparsity_ratio)
+    print("Pruning Structure: ", args.sparsity_type)
+    print("Prune Method: ", args.prune_method)
+    print("Quantize: ", args.quantize)
 
     if args.sparsity_ratio == 0. or args.sparsity_type == "dense":
         if args.quantize:
