@@ -89,11 +89,11 @@ class Quantizer:
         max_q = 2 ** (num_bits - 1) - 1
         if use_std:
             # abs_max = std_factor * torch.sqrt((mat ** 2).mean())
-            abs_max = find_optimal_quantiztion_cap(mat, num_bits, num_bins=torch.numel(mat) // 1000)
+            abs_max = find_optimal_quantiztion_cap(mat, num_bits, num_bins=min(torch.numel(mat) // 1000, 20000))
         else:
             abs_max = mat.abs().max()
         scaling_factor = max_q / abs_max
-        quantized_mat = torch.round(mat * scaling_factor)
+        quantized_mat = torch.round((mat * scaling_factor).float())
         if use_std:
             max_q = 2 ** (max_bitwidth - 1) - 1
         quantized_mat = torch.clamp(quantized_mat, -max_q - 1, max_q)
