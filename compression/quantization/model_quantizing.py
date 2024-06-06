@@ -1,21 +1,21 @@
 import torch
 from torch.nn.parameter import Parameter
 
+
 def quantize_two_matrices_sum_qbitwidth(A, B, qbitwidth, m):
     # Quantize A into m-bits and B into (qbitwidth - m)-bits
     weight_quantizer_a = Quantizer("weight")
     weight_quantizer_b = Quantizer("weight")
     quantized_a = weight_quantizer_a.quantize(a, m)
     quantized_b = weight_quantizer_b.quantize(b, qbitwidth - m)
-    
+
     # Returns weight quantizer, just in case there is a need to dequantize back
     return quantized_a, quantized_b, weight_quantizer_a, weight_quantizer_b
 
 
-
 def compute_average_error(pdf, val, index, q):
     alpha = val[index]
-    
+
     dx = val[1] - val[0]
 
     pdf_quantization = pdf[:index]
@@ -29,36 +29,70 @@ def compute_average_error(pdf, val, index, q):
     total_loss = quantization_loss + clipping_loss
     return total_loss
 
-def find_optimal_quantiztion_cap(mat, num_bits=8, num_bins=4096):
-    pdf, val = torch.histogram(mat.data.abs().float().flatten().cpu(), bins=num_bins, density=True)
-    pdf, val = pdf.cuda(), val.cuda()
 
-    val = (val[:-1] + val[1:]) / 2
-    q = num_bits
-    total_loss = torch.zeros(num_bins) + torch.inf
-
-
-    losses = torch.zeros(11) + torch.inf
-    indices = torch.zeros(11).to(torch.int)
-    j = 0
-    for i in range(0, num_bins, num_bins//10):
-        losses[j] = compute_average_error(pdf, val, i, q)
-        indices[j] = i
-        j += 1
-    
-    _, turning_point = torch.min(losses, 0)
-    start = indices[max(turning_point - 1, 0)]
-    end = indices[min(turning_point + 1, 10)]
+def compute_error(mat, alpha, num_bits):
+    max_q = 2 ** (num_bits - 1) - 1
+    abs_max = alpha
+    scaling_factor = max_q / abs_max
+    quantized_mat = torch.round(mat * scaling_factor)
+    quantized_mat = torch.clamp(quantized_mat, -max_q - 1, max_q)
+    dequantized_mat = quantized_mat / scaling_factor
+    norm = torch.norm(dequantized_mat - mat)
+    return norm.item() if not torch.isnan(norm) else torch.inf
 
 
-    for i in range(start, end):
-        total_loss[i] = compute_average_error(pdf, val, i, q)
+def find_optimal_quantiztion_cap(mat, num_bits=8, num_bins=4096, integrate=True):
+    if integrate:
+        pdf, val = torch.histogram(mat.data.abs().float().flatten().cpu(), bins=num_bins, density=True)
+        pdf, val = pdf.cuda(), val.cuda()
 
-    min_loss, idx = torch.min(total_loss, 0)
+        val = (val[:-1] + val[1:]) / 2
+        q = num_bits
+        total_loss = torch.zeros(num_bins) + torch.inf
 
-    # if not (idx < end) and (idx > start):
-    #     print(f"{(idx < end) and (idx > start)} - ({start}, {end}) => {idx}")
-    return val[idx].to(mat.device)
+        losses = torch.zeros(11) + torch.inf
+        indices = torch.zeros(11).to(torch.int)
+        j = 0
+        for i in range(0, num_bins, num_bins // 10):
+            losses[j] = compute_average_error(pdf, val, i, q)
+            indices[j] = i
+            j += 1
+
+        _, turning_point = torch.min(losses, 0)
+        start = indices[max(turning_point - 1, 0)]
+        end = indices[min(turning_point + 1, 10)]
+
+        for i in range(start, end):
+            total_loss[i] = compute_average_error(pdf, val, i, q)
+
+        min_loss, idx = torch.min(total_loss, 0)
+
+        # if not (idx < end) and (idx > start):
+        #     print(f"{(idx < end) and (idx > start)} - ({start}, {end}) => {idx}")
+        return val[idx].to(mat.device)
+    else:
+        max_val = mat.abs().max()
+        val = torch.linspace(0, max_val, num_bins).to(mat.device)
+        total_loss = torch.zeros(num_bins) + torch.inf
+
+        losses = torch.zeros(11) + torch.inf
+        indices = torch.zeros(11).to(torch.int)
+        j = 0
+        for i in range(0, num_bins, num_bins // 10):
+            losses[j] = compute_error(mat, val[i], num_bits)
+            indices[j] = i
+            j += 1
+
+        _, turning_point = torch.min(losses, 0)
+
+        start = indices[max(turning_point - 1, 0)]
+        end = indices[min(turning_point + 1, 10)]
+
+        for i in range(start, end):
+            total_loss[i] = compute_error(mat, val[i], num_bits)
+
+        min_loss, idx = torch.min(total_loss, 0)
+        return val[idx].to(mat.device)
 
 
 class Quantizer:
@@ -72,7 +106,6 @@ class Quantizer:
 
         elif self.matrix_type == "input":
             return self.quantize_input(mat, num_bits)
-
 
     def get_dtype(self, num_bits):
         if num_bits <= 8:
@@ -165,7 +198,6 @@ def quantize_model(model,
                    update_lora=False,
                    accelerate_en=False,
                    is_main_process=lambda: True):
-
     if is_main_process() and quantization_en:
         print(f"Quantizing the model's weights")
     known_modules = {"Linear", "LinearActivation"}
@@ -186,7 +218,7 @@ def quantize_model(model,
                 module.quantizer = weight_quantizer
                 module.accelerate = accelerate_en
                 # print("weightbeforequant: "+str(module.weight))
-                
+
                 # Preserve weight for later if needed
                 update_lora_with_error = update_lora and torch.all(module.lora_right.data == 0)
                 if update_lora_with_error:
@@ -197,11 +229,12 @@ def quantize_model(model,
                 # if hasattr(module, 'weight'):
                 module.weight.requires_grad = False
                 module.bias.requires_grad = False
-                
+
                 # Update LoRA left and right's weight based on quantization error if it's initialized to zeros
                 if update_lora_with_error:
-                    quantization_error = original_weight_data - weight_quantizer.dequantize_absmax(module.weight.data, weight_quantizer.scaling_factor)
-                    
+                    quantization_error = original_weight_data - weight_quantizer.dequantize_absmax(module.weight.data,
+                                                                                                   weight_quantizer.scaling_factor)
+
                     # Use SVD to decompose Error to left and right, and combine diagonal to both of them. TODO: Should n_iter be a parameter?
                     U, S, V = torch.svd_lowrank(quantization_error, q=module.lora_rank, niter=5, M=None)
                     sqrt_S = torch.sqrt(torch.diag(S))
