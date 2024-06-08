@@ -3,13 +3,14 @@ import heapq
 import torch
 import torch.nn as nn
 from .sparsegpt import SparseGPT
+from .sparsegpt import Quantizer as SparseGPTQuantizer
 from .layerwrapper import WrappedGPT
 from .data import get_loaders
 
 from .ablate import AblateGPT
 
 from .utils import add_lora, get_layers_list, shift_zeros, accelerate_module
-from compression.quantization.model_quantizing import Quantizer
+from compression.quantization.model_quantizing import Quantizer as AutoQuantizer
 from transformers import LlamaForCausalLM
 from compression.ops import prune_row_wise
 
@@ -88,7 +89,7 @@ def prepare_calibration_input(model, dataloader, device):
     try:
         print("Memory usage before loading inputs: ", torch.cuda.memory_allocated(device) / 1024 ** 3, "GB")
         inps = torch.zeros((128, model.seqlen, model.config.hidden_size), dtype=dtype, device=device)
-        input_device = inps.device()
+        input_device = inps.device
     except:
         torch.cuda.empty_cache()
         print("Memory usage after failing loading inputs: ", torch.cuda.memory_allocated(device) / 1024 ** 3, "GB")
@@ -285,9 +286,7 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
 
     is_llama = isinstance(model, LlamaForCausalLM)
 
-    print("loading calibration data")
     dataloader, _ = get_loaders("c4", nsamples=args.nsamples, seed=args.seed, seqlen=model.seqlen, tokenizer=tokenizer)
-    print("dataset loading complete")
     with torch.no_grad():
         if is_llama:
             inps, outs, attention_mask, position_ids = prepare_calibration_input(model, dataloader, device)
@@ -295,7 +294,7 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
             inps, outs, attention_mask = prepare_calibration_input(model, dataloader, device)
 
     if args.quantize:
-        quantizer = Quantizer("weight")
+        quantizer = AutoQuantizer("weight")
     else:
         quantizer = None
 
@@ -356,21 +355,6 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
                         cpu_only = True
 
                         layer = layer.cpu().float()
-
-                        def layer_norm_input_cast_pre_hook(module, input):
-                            for i in range(len(input)):
-                                input[i].data = input[i].float()
-
-                        def layer_norm_input_cast_post_hook(module, input, output):
-                            output = output.half()
-
-                        # layer.self_attn_layer_norm.register_forward_pre_hook(layer_norm_input_cast_pre_hook)
-                        # layer.self_attn_layer_norm.register_forward_hook(layer_norm_input_cast_post_hook)
-                        # layer.final_layer_norm.register_forward_pre_hook(layer_norm_input_cast_pre_hook)
-                        # layer.final_layer_norm.register_forward_hook(layer_norm_input_cast_post_hook)
-                        #
-                        # layer.self_attn_layer_norm = layer.self_attn_layer_norm.float()
-                        # layer.final_layer_norm = layer.final_layer_norm.float()
                         if is_llama:
                             outs[j] = layer(inps[j].unsqueeze(0),
                                             attention_mask=attention_mask,
@@ -506,59 +490,38 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
 def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
     ## SparseGPT code available at: https://github.com/IST-DASLab/sparsegpt/tree/f5c25005a61f96a0933ca2f95705a963585aafaa
     print('Starting ...')
-    dataloader, _ = get_loaders("c4", nsamples=args.nsamples, seed=args.seed, seqlen=model.seqlen, tokenizer=tokenizer)
-
     use_cache = model.config.use_cache
     model.config.use_cache = False
+
+    is_llama = isinstance(model, LlamaForCausalLM)
+
+    dataloader, _ = get_loaders("c4", nsamples=args.nsamples, seed=args.seed, seqlen=model.seqlen, tokenizer=tokenizer)
+    with torch.no_grad():
+        if is_llama:
+            inps, outs, attention_mask, position_ids = prepare_calibration_input(model, dataloader, dev)
+        else:
+            inps, outs, attention_mask = prepare_calibration_input(model, dataloader, dev)
+
     layers = get_layers_list(model)
 
-    if "model.embed_tokens" in model.hf_device_map:
-        dev = model.hf_device_map["model.embed_tokens"]
-
-    dtype = next(iter(model.parameters())).dtype
-    inps = torch.zeros(
-        (args.nsamples, model.seqlen, model.config.hidden_size), dtype=dtype, device=dev
-    )
-    cache = {'i': 0, 'attention_mask': None, "position_ids": None}
-
-    class Catcher(nn.Module):
-        def __init__(self, module):
-            super().__init__()
-            self.module = module
-
-        def forward(self, inp, **kwargs):
-            inps[cache['i']] = inp
-            cache['i'] += 1
-            cache['attention_mask'] = kwargs['attention_mask']
-            # cache['position_ids'] = kwargs['position_ids']
-            raise ValueError
-
-    layers[0] = Catcher(layers[0])
-    for batch in dataloader:
-        try:
-            model(batch[0].to(dev))
-        except ValueError:
-            pass
-    layers[0] = layers[0].module
-    torch.cuda.empty_cache()
-
-    outs = torch.zeros_like(inps)
-    attention_mask = cache['attention_mask']
 
     print('Ready.')
 
     for i in range(len(layers)):
-        layer = layers[i]
-        if f"model.layers.{i}" in model.hf_device_map:
-            dev = model.hf_device_map[f"model.layers.{i}"]
-            print(f"layer {i} device {dev}")
-            inps, outs, attention_mask = inps.to(dev), outs.to(dev), attention_mask.to(dev)
+        use_cpu = model.device == torch.device("cpu")
+        cpu_only = False
+        layer = layers[i].cuda() if use_cpu else layers[i]
 
         subset = find_layers(layer)
 
         gpts = {}
         for name in subset:
             gpts[name] = SparseGPT(subset[name])
+            if args.quantize < 16:
+                gpts[name].quantizer = SparseGPTQuantizer()
+                gpts[name].quantizer.configure(
+                    args.bitwidth, perchannel=False, sym=True, mse=False
+                )
 
         def add_batch(name):
             def tmp(_, inp, out):
@@ -571,7 +534,34 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
             handles.append(subset[name].register_forward_hook(add_batch(name)))
 
         for j in range(args.nsamples):
-            outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask)[0]
+            if not cpu_only:
+                try:
+                    if is_llama:
+                        outs[j] = layer(inps[j].unsqueeze(0).cuda(), attention_mask=attention_mask,
+                                        position_ids=position_ids)[0].to(outs.device)
+                    else:
+                        outs[j] = layer(inps[j].unsqueeze(0).cuda(), attention_mask=attention_mask)[0].to(
+                            outs.device)
+                except:
+                    print("Block does not fit in a single GPU. Doing all the computation in CPU.")
+                    cpu_only = True
+
+                    layer = layer.cpu().float()
+
+                    if is_llama:
+                        outs[j] = layer(inps[j].unsqueeze(0),
+                                        attention_mask=attention_mask,
+                                        position_ids=position_ids)[0]
+                    else:
+                        outs[j] = layer(inps[j].unsqueeze(0).float(), attention_mask=attention_mask.cpu())[0].half()
+            else:
+                if is_llama:
+                    outs[j] = layer(inps[j].unsqueeze(0),
+                                    attention_mask=attention_mask,
+                                    position_ids=position_ids)[0]
+                else:
+                    outs[j] = layer(inps[j].unsqueeze(0).float(), attention_mask=attention_mask.cpu())[0].half()
+
         for h in handles:
             h.remove()
 
@@ -582,8 +572,27 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
             gpts[name].fasterprune(args.sparsity_ratio, prune_n=prune_n, prune_m=prune_m, percdamp=0.01, blocksize=128)
             gpts[name].free()
 
+
+        if cpu_only:
+            layer = layer.float()
+
         for j in range(args.nsamples):
-            outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask)[0]
+            with torch.no_grad():
+                if not cpu_only:
+                    if is_llama:
+                        outs[j] = layer(inps[j].unsqueeze(0).cuda(),
+                                        attention_mask=attention_mask,
+                                        position_ids=position_ids)[0].to(outs[j].device)
+                    else:
+                        outs[j] = layer(inps[j].unsqueeze(0).cuda(),
+                                        attention_mask=attention_mask)[0].to(outs[j].device)
+                else:
+                    if is_llama:
+                        outs[j] = layer(inps[j].unsqueeze(0).float(),
+                                        attention_mask=attention_mask.cpu(),
+                                        position_ids=position_ids)[0].half()
+                    else:
+                        outs[j] = layer(inps[j].unsqueeze(0).float(), attention_mask=attention_mask.cpu())[0].half()
 
         layers[i] = layer
         torch.cuda.empty_cache()
@@ -696,7 +705,7 @@ def prune_ablate(args, model, tokenizer, dev, prune_n=0, prune_m=0):
 
 
 def quantize_model(args, model):
-    quantizer = Quantizer("weight")
+    quantizer = AutoQuantizer("weight")
     layers = get_layers_list(model)
     
     for i in range(len(layers)):
