@@ -80,7 +80,7 @@ def get_llm(model_name, cache_dir="llm_weights", local_checkpoint_dir=""):
         layer_num_params += param.numel()
     model_size = layer_num_params * 2
     free_mem, total_mem = torch.cuda.mem_get_info()
-    if model_size < 0.1 * free_mem:
+    if model_size < 0.75 * free_mem:
         print("Loading model in GPU...")
         model = model.cuda()
     else:
