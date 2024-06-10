@@ -20,6 +20,8 @@ print('transformers', version('transformers'))
 print('accelerate', version('accelerate'))
 print('# of gpus: ', torch.cuda.device_count())
 
+hf_token = "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"
+
 
 def conv1d_to_linear(conv1d):
     input_dim = conv1d.weight.shape[0]
@@ -70,6 +72,7 @@ def get_llm(model_name, cache_dir="llm_weights", local_checkpoint_dir=""):
         torch_dtype=torch.float16,
         cache_dir=cache_dir,
         low_cpu_mem_usage=True,
+        token=hf_token,
         # device_map='auto'
         )
     layer_num_params = 0
@@ -77,7 +80,7 @@ def get_llm(model_name, cache_dir="llm_weights", local_checkpoint_dir=""):
         layer_num_params += param.numel()
     model_size = layer_num_params * 2
     free_mem, total_mem = torch.cuda.mem_get_info()
-    if model_size < free_mem:
+    if model_size < 0.1 * free_mem:
         print("Loading model in GPU...")
         model = model.cuda()
     else:
@@ -184,7 +187,7 @@ def main():
 
 
     model.eval()
-    tokenizer = AutoTokenizer.from_pretrained(args.model, use_fast=False, cache_dir="tokenizers")
+    tokenizer = AutoTokenizer.from_pretrained(args.model, use_fast=False, cache_dir="tokenizers", token=hf_token)
 
     device = torch.device("cuda:0")
     print("Device ", device)
