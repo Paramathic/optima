@@ -1,5 +1,5 @@
 import argparse
-import os 
+import os
 import numpy as np
 import pandas as pd
 import torch
@@ -11,7 +11,8 @@ from lib.eval import eval_ppl, eval_zero_shot
 from lib.utils import get_layers_list
 
 CSV_COLUMNS = ["model", "prune_method", "sparsity_ratio", "sparsity_type", "lora_rank",
-               "wanda_in_lora", "randomized_svd", "shift_zero_metrics", "eval_dataset", "quantize", "quantize_before_pruning",
+               "wanda_in_lora", "randomized_svd", "shift_zero_metrics", "eval_dataset", "quantize",
+               "quantize_before_pruning",
                "bitwidth", "max_bitwidth", "use_std_in_quantization", "bias_correction", "bias_alpha",
                "bias_correction_nsamples", "perplexity", "mmlu"]
 
@@ -36,33 +37,33 @@ def conv1d_to_linear(conv1d):
 
 def convert_flashattn_checkpoint_to_hf(checkpoint):
     if "state_dict" in checkpoint:
-            checkpoint = checkpoint["state_dict"]
-            for key in list(checkpoint.keys()):
-                new_key = key.replace('model.', '')
-                if "embeddings.word_embeddings.weight" in new_key:
-                    new_key = "transformer.wte.weight"
-                if "embeddings.position_embeddings.weight" in new_key:
-                    new_key = "transformer.wpe.weight"
-                if "layers" in new_key:
-                    new_key = new_key.replace("layers", "h")
-                if "mixer" in new_key:
-                    new_key = new_key.replace("mixer", "attn")
-                if "Wqkv" in new_key:
-                    new_key = new_key.replace("Wqkv", "c_attn")
-                if "out_proj" in new_key:
-                    new_key = new_key.replace("out_proj", "c_proj")
-                if "norm" in new_key:
-                    new_key = new_key.replace("norm", "ln_")
-                if "fc1" in new_key:
-                    new_key = new_key.replace("fc1",  "c_fc")
-                if "fc2" in new_key:
-                    new_key = new_key.replace("fc2", "c_proj")
-                if "wte" in new_key or "wpe" in new_key or "weight" not in new_key or "lora" in new_key or "lm_head" in new_key:
-                    checkpoint[new_key] = checkpoint.pop(key)
-                else:
-                    checkpoint[new_key] = checkpoint.pop(key).T
-                if "num-tokens" in new_key:
-                    del checkpoint[new_key]
+        checkpoint = checkpoint["state_dict"]
+        for key in list(checkpoint.keys()):
+            new_key = key.replace('model.', '')
+            if "embeddings.word_embeddings.weight" in new_key:
+                new_key = "transformer.wte.weight"
+            if "embeddings.position_embeddings.weight" in new_key:
+                new_key = "transformer.wpe.weight"
+            if "layers" in new_key:
+                new_key = new_key.replace("layers", "h")
+            if "mixer" in new_key:
+                new_key = new_key.replace("mixer", "attn")
+            if "Wqkv" in new_key:
+                new_key = new_key.replace("Wqkv", "c_attn")
+            if "out_proj" in new_key:
+                new_key = new_key.replace("out_proj", "c_proj")
+            if "norm" in new_key:
+                new_key = new_key.replace("norm", "ln_")
+            if "fc1" in new_key:
+                new_key = new_key.replace("fc1", "c_fc")
+            if "fc2" in new_key:
+                new_key = new_key.replace("fc2", "c_proj")
+            if "wte" in new_key or "wpe" in new_key or "weight" not in new_key or "lora" in new_key or "lm_head" in new_key:
+                checkpoint[new_key] = checkpoint.pop(key)
+            else:
+                checkpoint[new_key] = checkpoint.pop(key).T
+            if "num-tokens" in new_key:
+                del checkpoint[new_key]
     return checkpoint
 
 
@@ -74,7 +75,7 @@ def get_llm(model_name, cache_dir="llm_weights", local_checkpoint_dir=""):
         low_cpu_mem_usage=True,
         token=hf_token,
         # device_map='auto'
-        )
+    )
     layer_num_params = 0
     for param in model.parameters():
         layer_num_params += param.numel()
@@ -85,7 +86,6 @@ def get_llm(model_name, cache_dir="llm_weights", local_checkpoint_dir=""):
         model = model.cuda()
     else:
         print("Model does not fit in GPUs. Loading model in CPU...")
-
 
     if local_checkpoint_dir != "":
         checkpoint = torch.load(local_checkpoint_dir, map_location="cpu")
@@ -188,7 +188,6 @@ def main():
     print(f"Loading model {model_name}")
     model = get_llm(args.model, args.cache_dir, args.local_checkpoint_dir)
 
-
     model.eval()
     tokenizer = AutoTokenizer.from_pretrained(args.model, use_fast=False, cache_dir="tokenizers", token=hf_token)
 
@@ -221,8 +220,6 @@ def main():
             prune_sparsegpt(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
         elif "ablate" in args.prune_method:
             prune_ablate(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
-    
-
 
     ################################################################
     print("*" * 30)
@@ -231,7 +228,8 @@ def main():
     print("*" * 30)
     ################################################################
     ppl_test = eval_ppl(args, model, tokenizer, device, num_partition = args.num_sample_partition)
-    print(f"wikitext perplexity {ppl_test}")
+    print(f"WikiText2 Perplexity: {ppl_test}")
+
 
     if args.test_mmlu:
         import lm_eval
@@ -241,7 +239,7 @@ def main():
         tokenizer.save_pretrained(checkpoint_dir)
         results = lm_eval.simple_evaluate(
             model="hf",
-            model_args=f"pretrained={checkpoint_dir},dtype=half",
+            model_args=f"pretrained={checkpoint_dir},dtype=half,parallelize=True,device_map_option=auto",
             tasks="mmlu",
             verbosity="ERROR"
         )
@@ -273,10 +271,6 @@ def main():
     if args.save_model:
         model.save_pretrained(args.save_model)
         tokenizer.save_pretrained(args.save_model)
-
-
-
-
 
 
 if __name__ == '__main__':
