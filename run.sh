@@ -6,15 +6,15 @@ export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$PWD/compression/pruning_kernels/tensor_
 
 MODEL_PREFIX=facebook/opt-
 
-for MODEL_SIZE in 13b
+for MODEL_SIZE in 125m #6.7b
 do
-    for STRUCTURE in "2:4"
+    for STRUCTURE in dense #"2:4"
     do
-        rm -rf data
-        METHOD=wanda
-        SPARSITY_RATIO=0.
+#        rm -rf data
+        METHOD=sparsegpt #wanda
+        SPARSITY_RATIO=0.5
         LORA_RANK=0.1
-        WANDA_IN_LORA='--wanda_in_lora'
+#        WANDA_IN_LORA='--wanda_in_lora'
         SHIFT_ZERO_METRICS='--shift_zero_metrics'
         EVAL_DATASET='wikitext2'
         QUANTIZE='--quantize'
@@ -28,6 +28,7 @@ do
         # ACCELERATE='--accelerate'
         # RANDOMIZED_SVD='--randomized_svd'
         # LOCAL_CHECKPOINT_DIR='--local_checkpoint_dir local_checkpoints/flash_attn_gpt2_small_dense.pt'
+        TEST_MMLU='--test_mmlu'
 
         python main_opt.py \
             --model ${MODEL_PREFIX}${MODEL_SIZE} \
@@ -52,6 +53,7 @@ do
             --eval_batch_size $EVAL_BATCH_SIZE \
             $SEPARATE_LORA \
             $ACCELERATE \
+            $TEST_MMLU \
             --output_csv_path results/perplexity.csv
 
             

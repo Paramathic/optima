@@ -13,7 +13,7 @@ from lib.utils import get_layers_list
 CSV_COLUMNS = ["model", "prune_method", "sparsity_ratio", "sparsity_type", "lora_rank",
                "wanda_in_lora", "randomized_svd", "shift_zero_metrics", "eval_dataset", "quantize", "quantize_before_pruning",
                "bitwidth", "max_bitwidth", "use_std_in_quantization", "bias_correction", "bias_alpha",
-               "bias_correction_nsamples", "perplexity"]
+               "bias_correction_nsamples", "perplexity", "mmlu"]
 
 print('torch', version('torch'))
 print('transformers', version('transformers'))
@@ -107,7 +107,7 @@ def get_llm(model_name, cache_dir="llm_weights", local_checkpoint_dir=""):
     return model
 
 
-def add_result_to_csv(args, ppl):
+def add_result_to_csv(args, ppl, mmlu):
     # Load CSV if it exists, otherwise create a new DataFrame with given columns
     if os.path.exists(args.output_csv_path):
         df = pd.read_csv(args.output_csv_path)
@@ -115,11 +115,12 @@ def add_result_to_csv(args, ppl):
         df = pd.DataFrame(columns=CSV_COLUMNS)
 
     # Check if the row combination exists and update perplexity
-    new_row_data = {column: getattr(args, column) for column in CSV_COLUMNS[:-1]}
-    row_exists = df.index[(df[CSV_COLUMNS[:-1]] == pd.Series(new_row_data)).all(axis=1)]
+    new_row_data = {column: getattr(args, column) for column in CSV_COLUMNS[:-2]}
+    row_exists = df.index[(df[CSV_COLUMNS[:-2]] == pd.Series(new_row_data)).all(axis=1)]
 
     # Now we don't mind adding perplexity
     new_row_data['perplexity'] = ppl
+    new_row_data['mmlu'] = mmlu
 
     if row_exists.empty:
         # Row combination does not exist, add a new row
@@ -129,6 +130,7 @@ def add_result_to_csv(args, ppl):
         # Row combination exists, modify perplexity
         index_to_update = row_exists.values[0]
         df.at[index_to_update, 'perplexity'] = new_row_data['perplexity']
+        df.at[index_to_update, 'mmlu'] = mmlu
 
     # Save to CSV
     df.to_csv(args.output_csv_path, index=False)
@@ -174,6 +176,7 @@ def main():
     parser.add_argument("--eval_batch_size", type=int, default=1)
     parser.add_argument("--output_csv_path", type=str, default=None, help='Output CSV to accumulate experiment result')
     parser.add_argument('--accelerate', action="store_true", help="Whether to use cuSparseLt backend")
+    parser.add_argument('--test_mmlu', action="store_true", help="Whether to test mmlu")
 
     args = parser.parse_args()
 
@@ -230,8 +233,23 @@ def main():
     ppl_test = eval_ppl(args, model, tokenizer, device, num_partition = args.num_sample_partition)
     print(f"wikitext perplexity {ppl_test}")
 
+    if args.test_mmlu:
+        import lm_eval
+        randint = np.random.randint(0, 1000)
+        checkpoint_dir = "llm_weights/tmp_ckpt{}".format(randint)
+        model.save_pretrained(checkpoint_dir)
+        tokenizer.save_pretrained(checkpoint_dir)
+        results = lm_eval.simple_evaluate(
+            model="hf",
+            model_args=f"pretrained={checkpoint_dir},dtype=half",
+            tasks="mmlu",
+            verbosity="ERROR"
+        )
+        mmlu = results['results']["mmlu"]["acc,none"]
+        print("MMLU: ", mmlu)
+
     if args.output_csv_path:
-        add_result_to_csv(args, ppl_test)
+        add_result_to_csv(args, ppl_test, mmlu)
 
     if not os.path.exists(args.save):
         os.makedirs(args.save)
@@ -255,6 +273,10 @@ def main():
     if args.save_model:
         model.save_pretrained(args.save_model)
         tokenizer.save_pretrained(args.save_model)
+
+
+
+
 
 
 if __name__ == '__main__':
