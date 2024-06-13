@@ -4,9 +4,10 @@
 
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$PWD/compression/pruning_kernels/tensor_cores/libcusparse_lt/lib
 
-MODEL_PREFIX=facebook/opt-
+MODEL_PREFIX=meta-llama/Llama-2- #facebook/opt-
+MODEL_POSTFIX=-hf
 
-for MODEL_SIZE in 125m #6.7b
+for MODEL_SIZE in 7b #6.7b
 do
     for STRUCTURE in dense #"2:4"
     do
@@ -17,7 +18,7 @@ do
 #        WANDA_IN_LORA='--wanda_in_lora'
         SHIFT_ZERO_METRICS='--shift_zero_metrics'
         EVAL_DATASET='wikitext2'
-        QUANTIZE='--quantize'
+#        QUANTIZE='--quantize'
         BITWIDTH=4
         # QUANTIZE_BEFORE_PRUNING='--quantize_before_pruning'
         MAX_BITWIDTH=4
@@ -31,7 +32,7 @@ do
         TEST_MMLU='--test_mmlu'
 
         python main_opt.py \
-            --model ${MODEL_PREFIX}${MODEL_SIZE} \
+            --model ${MODEL_PREFIX}${MODEL_SIZE}${MODEL_POSTFIX} \
             --prune_method $METHOD \
             --sparsity_ratio $SPARSITY_RATIO \
             --sparsity_type $STRUCTURE \
