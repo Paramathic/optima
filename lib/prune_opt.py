@@ -9,32 +9,14 @@ from .data import get_loaders
 
 from .ablate import AblateGPT
 
-from .utils import add_lora, get_layers_list, shift_zeros, accelerate_module
+from .utils import add_lora, get_layers_list, shift_zeros, accelerate_module, find_layers
 from compression.quantization.model_quantizing import Quantizer as AutoQuantizer
 from transformers import LlamaForCausalLM
 from compression.ops import prune_row_wise
+import tqdm.auto as tqdm
 
 
-def find_layers(module, layers=[nn.Linear], name=''):
-    """
-    Recursively find the layers of a certain type in a module.
 
-    Args:
-        module (nn.Module): PyTorch module.
-        layers (list): List of layer types to find.
-        name (str): Name of the module.
-
-    Returns:
-        dict: Dictionary of layers of the given type(s) within the module.
-    """
-    if type(module) in layers:
-        return {name: module}
-    res = {}
-    for name1, child in module.named_children():
-        res.update(find_layers(
-            child, layers=layers, name=name + '.' + name1 if name != '' else name1
-        ))
-    return res
 
 
 def check_sparsity(model):
@@ -77,18 +59,22 @@ def prepare_calibration_input(model, dataloader, device):
         pass
 
     if use_cpu:
-        model.model.decoder.embed_tokens = model.model.decoder.embed_tokens.cuda()
-        model.model.decoder.embed_positions = model.model.decoder.embed_positions.cuda()
-        if hasattr(model.model.decoder, 'project_out') and model.model.decoder.project_out:
-            model.model.decoder.project_out = model.model.decoder.project_out.cuda()
-        if hasattr(model.model.decoder, 'project_in') and model.model.decoder.project_in:
-            model.model.decoder.project_in = model.model.decoder.project_in.cuda()
+        if hasattr(model.model, "decoder"): #OPT
+            model.model.decoder.embed_tokens = model.model.decoder.embed_tokens.cuda()
+            model.model.decoder.embed_positions = model.model.decoder.embed_positions.cuda()
+            if hasattr(model.model.decoder, 'project_out') and model.model.decoder.project_out:
+                model.model.decoder.project_out = model.model.decoder.project_out.cuda()
+            if hasattr(model.model.decoder, 'project_in') and model.model.decoder.project_in:
+                model.model.decoder.project_in = model.model.decoder.project_in.cuda()
+        if hasattr(model.model, "layers"): #LLaMA
+            model.model.embed_tokens = model.model.embed_tokens.cuda()
+
         layers[0] = layers[0].cuda()
 
     dtype = next(iter(model.parameters())).dtype
     try:
         print("Memory usage before loading inputs: ", torch.cuda.memory_allocated(device) / 1024 ** 3, "GB")
-        inps = torch.zeros((128, model.seqlen, model.config.hidden_size), dtype=dtype, device=device)
+        # inps = torch.zeros((128, model.seqlen, model.config.hidden_size), dtype=dtype, device=device)
         input_device = inps.device
     except:
         torch.cuda.empty_cache()
@@ -123,12 +109,15 @@ def prepare_calibration_input(model, dataloader, device):
 
     if use_cpu:
         layers[0] = layers[0].cpu()
-        model.model.decoder.embed_tokens = model.model.decoder.embed_tokens.cpu()
-        model.model.decoder.embed_positions = model.model.decoder.embed_positions.cpu()
-        if hasattr(model.model.decoder, 'project_out') and model.model.decoder.project_out:
-            model.model.decoder.project_out = model.model.decoder.project_out.cpu()
-        if hasattr(model.model.decoder, 'project_in') and model.model.decoder.project_in:
-            model.model.decoder.project_in = model.model.decoder.project_in.cpu()
+        if hasattr(model.model, "decoder"): #OPT
+            model.model.decoder.embed_tokens = model.model.decoder.embed_tokens.cpu()
+            model.model.decoder.embed_positions = model.model.decoder.embed_positions.cpu()
+            if hasattr(model.model.decoder, 'project_out') and model.model.decoder.project_out:
+                model.model.decoder.project_out = model.model.decoder.project_out.cpu()
+            if hasattr(model.model.decoder, 'project_in') and model.model.decoder.project_in:
+                model.model.decoder.project_in = model.model.decoder.project_in.cpu()
+        if hasattr(model.model, "layers"): #LLaMA
+            model.model.embed_tokens = model.model.embed_tokens.cpu()
         torch.cuda.empty_cache()
 
     outs = torch.zeros_like(inps)
@@ -311,7 +300,10 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
         #     else:
         #         inps, outs, attention_mask = prepare_calibration_input(model, dataloader, device, single_gpu_en)
 
-    for i in range(len(layers)):
+    progress_bar = tqdm.tqdm(range(len(layers)))
+
+    for i in progress_bar:
+        progress_bar.set_description(f"Layer {i} - Gathering data")
         use_cpu = model.device == torch.device("cpu")
         cpu_only = False
         layer = layers[i].cuda() if use_cpu else layers[i]
@@ -373,7 +365,7 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
             h.remove()
 
         for name in subset:
-            print(f"pruning layer {i} name {name}")
+            progress_bar.set_description(f"Layer {i} - Pruning and Quantizing {name}")
             if args.shift_zero_metrics:
                 wrapped_layers[name].scaler_row = shift_zeros(wrapped_layers[name].scaler_row)
             if args.quantize_before_pruning and quantizer is not None:
@@ -438,10 +430,12 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
                                                                          args.bitwidth,
                                                                          use_std=args.use_std_in_quantization,
                                                                          max_bitwidth=args.max_bitwidth)
-                    subset[name].weight.data = quantizer.dequantize_absmax(quantized_weight)
+                    subset[name].weight.data = quantizer.dequantize_absmax(quantized_weight).half()
 
         if cpu_only:
             layer = layer.float()
+
+        progress_bar.set_description(f"Layer {i} - Evaluating Output")
 
         for j in range(args.nsamples):
             with torch.no_grad():
@@ -507,7 +501,10 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
 
     print('Ready.')
 
-    for i in range(len(layers)):
+    progress_bar = tqdm.tqdm(range(len(layers)))
+
+    for i in progress_bar:
+        progress_bar.set_description(f"Layer {i} - Gathering data")
         use_cpu = model.device == torch.device("cpu")
         cpu_only = False
         layer = layers[i].cuda() if use_cpu else layers[i]
@@ -566,16 +563,14 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
             h.remove()
 
         for name in gpts:
-            print(i, name)
-            print('Pruning ...')
-
+            progress_bar.set_description(f"Layer {i} - Pruning and Quantizing {name}")
             gpts[name].fasterprune(args.sparsity_ratio, prune_n=prune_n, prune_m=prune_m, percdamp=0.01, blocksize=128)
             gpts[name].free()
 
 
         if cpu_only:
             layer = layer.float()
-
+        progress_bar.set_description(f"Layer {i} - Evaluating Output")
         for j in range(args.nsamples):
             with torch.no_grad():
                 if not cpu_only:
@@ -598,6 +593,11 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
         torch.cuda.empty_cache()
 
         inps, outs = outs, inps
+
+        if use_cpu:
+            layers[i] = layer.cpu()
+            del layer
+            torch.cuda.empty_cache()
 
     model.config.use_cache = use_cache
     torch.cuda.empty_cache()
@@ -707,14 +707,16 @@ def prune_ablate(args, model, tokenizer, dev, prune_n=0, prune_m=0):
 def quantize_model(args, model):
     quantizer = AutoQuantizer("weight")
     layers = get_layers_list(model)
+
+    progress_bar = tqdm.tqdm(range(len(layers)))
     
-    for i in range(len(layers)):
+    for i in progress_bar:
         layer = layers[i]
 
         subset = find_layers(layer)
         
         for name in subset:
-            print(f"Quantizing layer {i} name {name}")
+            progress_bar.set_description(f"Layer {i} - Quantizing {name}")
             
             quantized_weight = quantizer.dequantize_absmax(
                 quantizer.quantize_weight(

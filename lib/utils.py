@@ -3,6 +3,8 @@ from compression.model_compression import static_prune_weight_reduction_dim_forw
 from types import MethodType
 import numpy as np
 from transformers import LlamaForCausalLM
+from compression.quantization.model_quantizing import Quantizer as AutoQuantizer
+
 
 def density_ratio(x):
     return (x != 0).sum().float() / x.numel()
@@ -252,3 +254,43 @@ if __name__ == "__main__":
     # print(y_dense[0:8, 0:8])
     # print(y_sparse[0:8, 0:8])
     print("SpMM Relative Error: ", ((y_dense - y_sparse).float().norm() / y_dense.float().norm()).item())
+
+
+def find_layers(module, layers=[torch.nn.Linear], name=''):
+    """
+    Recursively find the layers of a certain type in a module.
+
+    Args:
+        module (nn.Module): PyTorch module.
+        layers (list): List of layer types to find.
+        name (str): Name of the module.
+
+    Returns:
+        dict: Dictionary of layers of the given type(s) within the module.
+    """
+    if type(module) in layers:
+        return {name: module}
+    res = {}
+    for name1, child in module.named_children():
+        res.update(find_layers(
+            child, layers=layers, name=name + '.' + name1 if name != '' else name1
+        ))
+    return res
+
+
+def attach_input_quantization_hooks(model, num_bits=8):
+    def input_quantization_pre_hook(module, input):
+        quantized_input = module.quantizer.quantize(input[0])
+        dequantized_input = module.quantizer.dequantize_input(quantized_input)
+        print("Relative Error:", (torch.norm(input[0] - dequantized_input) / torch.norm(input[0])).item(), module.weight.shape)
+        # input.data = module.quantizer.dequantize_input(quantized_input)
+
+
+    layers = get_layers_list(model)
+    for i in range(len(layers)):
+        layer = layers[i]
+        subset = find_layers(layer)
+
+        for name in subset:
+            subset[name].quantizer = AutoQuantizer("input", num_bits=num_bits)
+            subset[name].register_forward_pre_hook(input_quantization_pre_hook)

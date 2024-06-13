@@ -97,15 +97,16 @@ def find_optimal_quantiztion_cap(mat, num_bits=8, num_bins=4096, integrate=True)
 
 class Quantizer:
 
-    def __init__(self, matrix_type):
+    def __init__(self, matrix_type, num_bits=8):
         self.matrix_type = matrix_type
+        self.num_bits = num_bits
 
     def quantize(self, mat, num_bits=8):
         if self.matrix_type == "weight":
             return self.quantize_weight(mat, num_bits)
 
         elif self.matrix_type == "input":
-            return self.quantize_input(mat, num_bits)
+            return self.quantize_input(mat)
 
     def get_dtype(self, num_bits):
         if num_bits <= 8:
@@ -144,21 +145,22 @@ class Quantizer:
 
         return deq_mat
 
-    def quantize_input(self, mat, num_bits=8):
+    def quantize_input(self, mat):
         """ Zero-point quantization for inputs """
-        dtype = self.get_dtype(num_bits)
-        max_q = 2 ** (num_bits - 1) - 1
+        max_q = 2 ** (self.num_bits - 1) - 1
         mat_max = mat.max(dim=1, keepdim=True)[0]
         mat_min = mat.min(dim=1, keepdim=True)[0]
-        scale = (2 * max_q) / (mat_max - mat_min)
-        zero_point = -1 * torch.round(scale * mat_min) - max_q
-        quantized_mat = torch.round(scale * mat + zero_point)
-        quantized_mat = torch.clamp(quantized_mat, -max_q, max_q)
+        range = (mat_max - mat_min)
+        mid_point = (mat_max + mat_min) / 2
+        #TODO: Fix the asymmetric issue
+        scale = (2 * max_q + 1) / range 
+        quantized_mat = torch.round((mat - mid_point) * scale)
+        quantized_mat = torch.clamp(quantized_mat, -max_q - 1, max_q)
 
-        self.zero_point = zero_point
+        self.zero_point = mid_point
         self.scaling_factor = scale
 
-        return quantized_mat.to(dtype)
+        return quantized_mat
 
     def dequantize_output(self, output, quantized_weight, weight_sf):
         """ Dequantization of the output when input is quantized with the row-wise zero point algorithm and the weight matrix is quantized with absmax"""
@@ -187,6 +189,12 @@ class Quantizer:
     def dequantize_rowwise_absmax(self, mat, sf_tensor):
         """Row-wise dequantization using absmax algorithm"""
         dequantized_mat = mat / sf_tensor
+
+        return dequantized_mat
+    
+    def dequantize_input(self, mat):
+        """ Zero-point dequantization for inputs """
+        dequantized_mat = mat / self.scaling_factor + self.zero_point
 
         return dequantized_mat
 
@@ -240,3 +248,18 @@ def quantize_model(model,
                     sqrt_S = torch.sqrt(torch.diag(S))
                     module.lora_left = torch.nn.Parameter(torch.mm(U, sqrt_S)).to(module.weight.device)
                     module.lora_right = torch.nn.Parameter(torch.mm(sqrt_S, V.t())).to(module.weight.device)
+
+
+if __name__ == "__main__":
+    quantizer = Quantizer("input", num_bits=4)
+    input = torch.randn(1024, 2048)
+    quantized_input = quantizer.quantize(input)
+    dequantized_input = quantizer.dequantize_input(quantized_input)
+    print(torch.norm(input - dequantized_input) / torch.norm(input))
+    print(torch.max(quantized_input), torch.min(quantized_input))
+
+    quantizer = Quantizer("weight", num_bits=4)
+    weight = torch.randn(2048, 1024)
+    quantized_weight = quantizer.quantize(weight, num_bits=4)
+    dequantized_weight = quantizer.dequantize_absmax(quantized_weight)
+    print(torch.norm(weight - dequantized_weight) / torch.norm(weight))

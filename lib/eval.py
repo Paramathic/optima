@@ -11,6 +11,7 @@ import fnmatch
 from lib.utils import remove_outlier
 import numpy as np
 import tqdm.auto as tqdm
+from .utils import get_layers_list
 
 
 # Function to evaluate perplexity (ppl) on a specified model and tokenizer
@@ -82,19 +83,23 @@ def eval_ppl_wikitext_train(model, trainloader, bs=1, device=None):
 
     return ppl.item()
 
+
+@torch.no_grad()
 # Function to evaluate perplexity (ppl) specifically on the wikitext dataset
 def eval_ppl_wikitext(model, testenc, bs=1, device=None):
     if model.device == torch.device("cpu"):
         torch.cuda.empty_cache()
         # model = model.float()
+        input_size = 4 if model.seqlen == 2048 else 20 if model.seqlen == 4096 else 58
         layer_num_params = 0
-        for param in model.model.decoder.layers[0].parameters():
+        layers = get_layers_list(model)
+        for param in layers[0].parameters():
             layer_num_params += param.numel()
         layer_size = 2 * layer_num_params
         free_mem, total_mem = torch.cuda.mem_get_info()
-        num_layers_per_gpu = free_mem // layer_size - 4
-        print(f"Transfering {min(torch.cuda.device_count() * num_layers_per_gpu, len(model.model.decoder.layers))} "
-              f"layers out of {len(model.model.decoder.layers)} to GPU")
+        num_layers_per_gpu = free_mem // layer_size - input_size
+        print(f"Transfering {min(torch.cuda.device_count() * num_layers_per_gpu, len(layers))} "
+              f"layers out of {len(layers)} to GPU. Each GPU will hold {num_layers_per_gpu} layers.")
 
         def move_to_gpu_pre_hook(module, input):
             input[0].data = input[0].data.half().to(module.device)
@@ -106,15 +111,15 @@ def eval_ppl_wikitext(model, testenc, bs=1, device=None):
         for i in range(torch.cuda.device_count()):
             for layer_num in range(num_layers_per_gpu):
                 last_fit_layer += 1
-                if (last_fit_layer == len(model.model.decoder.layers) - 1) or ((i == torch.cuda.device_count() - 1) and (layer_num == num_layers_per_gpu - 1)):
-                    model.model.decoder.layers[last_fit_layer] = model.model.decoder.layers[last_fit_layer].half().cuda(i)
-                    model.model.decoder.layers[last_fit_layer].register_forward_hook(move_to_cpu_post_hook)
+                if (last_fit_layer == len(layers) - 1) or ((i == torch.cuda.device_count() - 1) and (layer_num == num_layers_per_gpu - 1)):
+                    layers[last_fit_layer] = layers[last_fit_layer].half().cuda(i)
+                    layers[last_fit_layer].register_forward_hook(move_to_cpu_post_hook)
                     break
-                model.model.decoder.layers[last_fit_layer] = model.model.decoder.layers[last_fit_layer].half().cuda(i)
+                layers[last_fit_layer] = layers[last_fit_layer].half().cuda(i)
                 if layer_num == 0:
-                    model.model.decoder.layers[last_fit_layer].device = torch.device(i)
-                    model.model.decoder.layers[last_fit_layer].register_forward_pre_hook(move_to_gpu_pre_hook)
-            if last_fit_layer == len(model.model.decoder.layers) - 1:
+                    layers[last_fit_layer].device = torch.device(i)
+                    layers[last_fit_layer].register_forward_pre_hook(move_to_gpu_pre_hook)
+            if last_fit_layer == len(layers) - 1:
                 break
 
         # def cast_input_to_float_pre_hook(module, input):
@@ -126,17 +131,20 @@ def eval_ppl_wikitext(model, testenc, bs=1, device=None):
         #         output_half = output_half.unsqueeze(0)
         #     return output_half
         #
-        for layer_num in range(last_fit_layer + 1, len(model.model.decoder.layers)):
-            model.model.decoder.layers[layer_num] = model.model.decoder.layers[layer_num].float()
+        for layer_num in range(last_fit_layer + 1, len(layers)):
+            layers[layer_num] = layers[layer_num].float()
             # model.model.decoder.layers[layer_num].self_attn_layer_norm = model.model.decoder.layers[layer_num].self_attn_layer_norm.float()
             # model.model.decoder.layers[layer_num].self_attn_layer_norm.register_forward_pre_hook(cast_input_to_float_pre_hook)
             # model.model.decoder.layers[layer_num].self_attn_layer_norm.register_forward_hook(cast_ouput_to_half_post_hook)
             # model.model.decoder.layers[layer_num].final_layer_norm = model.model.decoder.layers[layer_num].final_layer_norm.float()
             # model.model.decoder.layers[layer_num].final_layer_norm.register_forward_pre_hook(cast_input_to_float_pre_hook)
             # model.model.decoder.layers[layer_num].final_layer_norm.register_forward_hook(cast_ouput_to_half_post_hook)
-        if last_fit_layer != len(model.model.decoder.layers) - 1:
+        if hasattr(model.model, "decoder"): #OPT
             model.model.decoder.final_layer_norm = model.model.decoder.final_layer_norm.float()
-            model.lm_head = model.lm_head.float()
+        elif hasattr(model.model, "layers"): #LLaMA
+            model.model.norm = model.model.norm.float()
+        model.lm_head = model.lm_head.float()
+        
 
 
     # Get input IDs
@@ -152,49 +160,51 @@ def eval_ppl_wikitext(model, testenc, bs=1, device=None):
     end = torch.cuda.Event(enable_timing=True)
     times = []
 
-    # Loop through each batch
-    progress_bar = tqdm.tqdm(range(0, nsamples, bs))
-    for i in progress_bar:
-        # if i % 50 == 0 and i > 0:
-        #     print(f"sample {i}, Perplexity {torch.exp(torch.stack(nlls).sum() / (i * model.seqlen))}")
+    model.eval()
+    with torch.no_grad():
+        # Loop through each batch
+        progress_bar = tqdm.tqdm(range(0, nsamples, bs))
+        for i in progress_bar:
+            # if i % 50 == 0 and i > 0:
+            #     print(f"sample {i}, Perplexity {torch.exp(torch.stack(nlls).sum() / (i * model.seqlen))}")
 
-        # Calculate end index
-        j = min(i+bs, nsamples)
+            # Calculate end index
+            j = min(i+bs, nsamples)
 
-        # Prepare inputs and move to device
-        inputs = testenc[:, (i * model.seqlen):(j * model.seqlen)].to(device)
-        inputs = inputs.reshape(j-i, model.seqlen)
+            # Prepare inputs and move to device
+            inputs = testenc[:, (i * model.seqlen):(j * model.seqlen)].to(device)
+            inputs = inputs.reshape(j-i, model.seqlen)
 
-        # Forward pass through the model
-        # if inputs.shape[0] != bs:
-        #     continue
-        start.record()
-        lm_logits = model(inputs).logits
-        end.record()
-        torch.cuda.synchronize()
-        times.append(start.elapsed_time(end))
+            # Forward pass through the model
+            # if inputs.shape[0] != bs:
+            #     continue
+            start.record()
+            lm_logits = model(inputs).logits
+            end.record()
+            torch.cuda.synchronize()
+            times.append(start.elapsed_time(end))
 
-        # Shift logits and labels for next token prediction
-        shift_logits = lm_logits[:, :-1, :].contiguous()
-        shift_labels = inputs[:, 1:]
+            # Shift logits and labels for next token prediction
+            shift_logits = lm_logits[:, :-1, :].contiguous()
+            shift_labels = inputs[:, 1:]
 
-        # Compute loss
-        loss_fct = nn.CrossEntropyLoss()
-        loss = loss_fct(shift_logits.reshape(-1, shift_logits.size(-1)), shift_labels.reshape(-1))
+            # Compute loss
+            loss_fct = nn.CrossEntropyLoss()
+            loss = loss_fct(shift_logits.reshape(-1, shift_logits.size(-1)), shift_labels.reshape(-1))
 
-        # Calculate negative log likelihood
-        neg_log_likelihood = loss.float() * model.seqlen * (j-i)
+            # Calculate negative log likelihood
+            neg_log_likelihood = loss.float() * model.seqlen * (j-i)
 
-        # Append to list of negative log likelihoods
-        nlls.append(neg_log_likelihood)
+            # Append to list of negative log likelihoods
+            nlls.append(neg_log_likelihood)
 
-        progress_bar.set_description(f"Perplexity: {torch.exp(torch.stack(nlls).sum() / (i * model.seqlen)).item()}")
+            progress_bar.set_description(f"Perplexity: {torch.exp(torch.stack(nlls).sum() / (i * model.seqlen)).item()}")
 
-    # Compute perplexity
-    ppl = torch.exp(torch.stack(nlls).sum() / (nsamples * model.seqlen))
+        # Compute perplexity
+        ppl = torch.exp(torch.stack(nlls).sum() / (nsamples * model.seqlen))
 
-    times = remove_outlier(times)
-    print(f"Inference Time: ", np.mean(times), "+-", np.std(times))
+        times = remove_outlier(times)
+        print(f"Inference Time: ", np.mean(times), "+-", np.std(times))
 
     # # Empty CUDA cache to save memory
     # torch.cuda.empty_cache()
