@@ -5,6 +5,7 @@ import random
 import torch
 from datasets import load_dataset, load_from_disk
 import os
+import tqdm.auto as tqdm
 
 # Set seed for reproducibility
 def set_seed(seed):
@@ -66,7 +67,8 @@ def get_c4(nsamples, seed, seqlen, tokenizer, cache_dir='data'):
     # Generate samples from training set
     random.seed(seed)
     trainloader = []
-    for _ in range(nsamples):
+    progress_bar = tqdm.tqdm(range(nsamples))
+    for _ in progress_bar:
         while True:
             i = random.randint(0, len(traindata) - 1)
             trainenc = tokenizer(traindata[i]['text'], return_tensors='pt')
@@ -78,6 +80,7 @@ def get_c4(nsamples, seed, seqlen, tokenizer, cache_dir='data'):
         tar = inp.clone()
         tar[:, :-1] = -100
         trainloader.append((inp, tar))
+        progress_bar.set_description("Generating Samples")
 
     # Prepare validation dataset
     valenc = tokenizer(' '.join(valdata[:1100]['text']), return_tensors='pt')
