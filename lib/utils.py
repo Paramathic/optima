@@ -12,10 +12,13 @@ def density_ratio(x):
 
 def get_layers_list(model):
     if hasattr(model, "model"):
-        if isinstance(model, LlamaForCausalLM):
+        if hasattr(model.model, "layers"):
             layers = model.model.layers
         else:
-            layers = model.model.decoder.layers
+            if hasattr(model.model, "decoder"):
+                layers = model.model.decoder.layers
+            else:
+                raise NotImplementedError
     elif hasattr(model, "transformer"):
         layers = model.transformer.h
     else:
