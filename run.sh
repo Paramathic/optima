@@ -4,12 +4,12 @@
 
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$PWD/compression/pruning_kernels/tensor_cores/libcusparse_lt/lib
 
-MODEL_PREFIX=meta-llama/Llama-2- #facebook/opt-
-MODEL_POSTFIX=-hf
+MODEL_PREFIX=facebook/opt- #meta-llama/Llama-2- #facebook/opt-
+#MODEL_POSTFIX=-hf
 
-for MODEL_SIZE in 7B #6.7b
+for MODEL_SIZE in 1.3b #7B #6.7b
 do
-    for STRUCTURE in dense #"2:4"
+    for STRUCTURE in "2:4"
     do
         for METHOD in wanda #sparsegpt
         do
@@ -19,18 +19,20 @@ do
             WANDA_IN_LORA='--wanda_in_lora'
             SHIFT_ZERO_METRICS='--shift_zero_metrics'
             EVAL_DATASET='wikitext2'
-            # QUANTIZE='--quantize'
+            QUANTIZE='--quantize'
             BITWIDTH=4
             # QUANTIZE_BEFORE_PRUNING='--quantize_before_pruning'
             MAX_BITWIDTH=4
             USE_STD_IN_QUANTIZATION='--use_std_in_quantization'
             #BIAS_CORRECTION='--bias_correction'
             EVAL_BATCH_SIZE=1
-            # SEPARATE_LORA='--separate_lora'
+             SEPARATE_LORA='--separate_lora'
             # ACCELERATE='--accelerate'
             # RANDOMIZED_SVD='--randomized_svd'
             # LOCAL_CHECKPOINT_DIR='--local_checkpoint_dir local_checkpoints/flash_attn_gpt2_small_dense.pt'
-            TEST_LMEHARNESS='--test_lmeharness'
+            TEST_LMHARNESS='--test_lmharness'
+            FINE_TUNE='--fine_tune'
+            EVALUATE_PERPLEXITY='--evaluate_perplexity'
 
             python main_opt.py \
                 --model ${MODEL_PREFIX}${MODEL_SIZE}${MODEL_POSTFIX} \
@@ -55,8 +57,10 @@ do
                 --eval_batch_size $EVAL_BATCH_SIZE \
                 $SEPARATE_LORA \
                 $ACCELERATE \
-                $TEST_LMEHARNESS \
-                --output_csv_path results/perplexity.csv
+                $TEST_LMHARNESS \
+                --output_csv_path results/perplexity.csv \
+                $FINE_TUNE \
+                $EVALUATE_PERPLEXITY
 
             
         done

@@ -11,6 +11,8 @@ from lib.eval import eval_ppl, eval_zero_shot
 from lib.utils import get_layers_list
 import time
 import shutil
+from lib.fine_tune import fine_tune
+
 
 CSV_COLUMNS = ["model", "prune_method", "sparsity_ratio", "sparsity_type", "lora_rank",
                "wanda_in_lora", "randomized_svd", "shift_zero_metrics", "eval_dataset", "quantize",
@@ -110,7 +112,7 @@ def get_llm(model_name, cache_dir="llm_weights", local_checkpoint_dir=""):
     return model
 
 
-def add_result_to_csv(args, ppl, lmeharness_results):
+def add_result_to_csv(args, ppl, lmharness_results):
     # Load CSV if it exists, otherwise create a new DataFrame with given columns
     if os.path.exists(args.output_csv_path):
         df = pd.read_csv(args.output_csv_path)
@@ -125,8 +127,8 @@ def add_result_to_csv(args, ppl, lmeharness_results):
 
     # Now we don't mind adding perplexity
     new_row_data['perplexity'] = ppl
-    for task in lmeharness_results:
-        new_row_data[task] = lmeharness_results[task]
+    for task in lmharness_results:
+        new_row_data[task] = lmharness_results[task]
 
     if row_exists.empty:
         # Row combination does not exist, add a new row
@@ -136,8 +138,8 @@ def add_result_to_csv(args, ppl, lmeharness_results):
         # Row combination exists, modify perplexity
         index_to_update = row_exists.values[0]
         df.at[index_to_update, 'perplexity'] = new_row_data['perplexity']
-        for task in lmeharness_results:
-            df.at[index_to_update, task] = lmeharness_results[task]
+        for task in lmharness_results:
+            df.at[index_to_update, task] = lmharness_results[task]
 
     # Save to CSV
     df.to_csv(args.output_csv_path, index=False)
@@ -183,7 +185,9 @@ def main():
     parser.add_argument("--eval_batch_size", type=int, default=1)
     parser.add_argument("--output_csv_path", type=str, default=None, help='Output CSV to accumulate experiment result')
     parser.add_argument('--accelerate', action="store_true", help="Whether to use cuSparseLt backend")
-    parser.add_argument('--test_lmeharness', action="store_true", help="Whether to test LMEHarness tasks")
+    parser.add_argument('--test_lmharness', action="store_true", help="Whether to test LMEHarness tasks")
+    parser.add_argument('--fine_tune', action="store_true", help="Whether to fine-tune the model after pruning")
+    parser.add_argument('--evaluate_perplexity', action="store_true", help="Whether to evaluate the model perplexity")
 
     args = parser.parse_args()
 
@@ -234,12 +238,22 @@ def main():
     print(f"Model Sparsity Ratio: {sparsity_ratio:.4f}")
     print("*" * 30)
     ################################################################
-    ppl_test = eval_ppl(args, model, tokenizer, device, num_partition = args.num_sample_partition)
-    print(f"WikiText2 Perplexity: {ppl_test}")
+    if args.fine_tune:
+        fine_tune(model, tokenizer, block_size=tokenizer.model_max_length)
+        print("*" * 30)
+    ################################################################
+    ppl_test = 0.
+    if args.evaluate_perplexity:
+        ppl_test = eval_ppl(args, model, tokenizer, device, num_partition=args.num_sample_partition)
+        print(f"WikiText2 Perplexity: {ppl_test}")
+        print("*" * 30)
+    ################################################################
+
+
 
     
-    lmeharness_results = {}
-    if args.test_lmeharness:
+    lmharness_results = {}
+    if args.test_lmharness:
         import lm_eval
         np.random.seed(np.int64(time.time()))
         randint = np.random.randint(0, 1000)
@@ -255,22 +269,22 @@ def main():
             verbosity="ERROR"
         )
         shutil.rmtree(checkpoint_dir)
-        lmeharness_results["mmlu"] = results['results']["mmlu"]["acc,none"]
-        lmeharness_results["piqa"] = results['results']["piqa"]["acc,none"]
-        lmeharness_results["arc_easy"] = results['results']["arc_easy"]["acc,none"]
-        lmeharness_results["arc_challenge"] = results['results']["arc_challenge"]["acc,none"]
-        lmeharness_results["winogrande"] = results['results']["winogrande"]["acc,none"]
-        lmeharness_results["openbookqa"] = results['results']["openbookqa"]["acc,none"]
+        lmharness_results["mmlu"] = results['results']["mmlu"]["acc,none"]
+        lmharness_results["piqa"] = results['results']["piqa"]["acc,none"]
+        lmharness_results["arc_easy"] = results['results']["arc_easy"]["acc,none"]
+        lmharness_results["arc_challenge"] = results['results']["arc_challenge"]["acc,none"]
+        lmharness_results["winogrande"] = results['results']["winogrande"]["acc,none"]
+        lmharness_results["openbookqa"] = results['results']["openbookqa"]["acc,none"]
         average = []
-        for task in lmeharness_results:
-            average.append(lmeharness_results[task])
+        for task in lmharness_results:
+            average.append(lmharness_results[task])
         average = np.mean(average)
-        lmeharness_results["average"] = average
+        lmharness_results["average"] = average
 
         
 
     if args.output_csv_path:
-        add_result_to_csv(args, ppl_test, lmeharness_results)
+        add_result_to_csv(args, ppl_test, lmharness_results)
 
     if not os.path.exists(args.save):
         os.makedirs(args.save)
