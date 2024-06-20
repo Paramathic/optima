@@ -8,7 +8,7 @@ from importlib.metadata import version
 
 from lib.prune_opt import prune_wanda, prune_magnitude, prune_sparsegpt, prune_ablate, check_sparsity, quantize_model
 from lib.eval import eval_ppl, eval_zero_shot
-from lib.utils import get_layers_list
+from lib.utils import get_layers_list, merge_lora
 import time
 import shutil
 from lib.fine_tune import fine_tune
@@ -239,8 +239,9 @@ def main():
     print("*" * 30)
     ################################################################
     if args.fine_tune:
-        fine_tune(model, tokenizer, block_size=tokenizer.model_max_length)
+        fine_tune(model, tokenizer)#, block_size=tokenizer.model_max_length)
         print("*" * 30)
+
     ################################################################
     ppl_test = 0.
     if args.evaluate_perplexity:
@@ -249,7 +250,7 @@ def main():
         print("*" * 30)
     ################################################################
 
-
+    merge_lora(model)
 
     
     lmharness_results = {}
@@ -280,6 +281,7 @@ def main():
             average.append(lmharness_results[task])
         average = np.mean(average)
         lmharness_results["average"] = average
+        print("LM Harness Results: ", lmharness_results)
 
         
 

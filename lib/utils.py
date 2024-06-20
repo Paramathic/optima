@@ -297,3 +297,11 @@ def attach_input_quantization_hooks(model, num_bits=8):
         for name in subset:
             subset[name].quantizer = AutoQuantizer("input", num_bits=num_bits)
             subset[name].register_forward_pre_hook(input_quantization_pre_hook)
+
+
+def merge_lora(model):
+    for name, module in model.named_modules():
+        if hasattr(module, "lora_left") and hasattr(module, "lora_right"):
+            module.weight.data += (module.lora_right.t() @ module.lora_left.t()).to(module.weight.device).to(module.weight.dtype)
+            del module.lora_left
+            del module.lora_right
