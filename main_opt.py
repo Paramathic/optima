@@ -8,7 +8,7 @@ from importlib.metadata import version
 
 from lib.prune_opt import prune_wanda, prune_magnitude, prune_sparsegpt, prune_ablate, check_sparsity, quantize_model
 from lib.eval import eval_ppl, eval_zero_shot
-from lib.utils import get_layers_list, merge_lora
+from lib.utils import get_layers_list, merge_lora, get_llm, hf_token
 import time
 import shutil
 from lib.fine_tune import fine_tune
@@ -26,90 +26,7 @@ print('transformers', version('transformers'))
 print('accelerate', version('accelerate'))
 print('# of gpus: ', torch.cuda.device_count())
 
-hf_token = "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"
 
-
-def conv1d_to_linear(conv1d):
-    input_dim = conv1d.weight.shape[0]
-    output_dim = conv1d.weight.shape[1]
-    bias = conv1d.bias is not None
-    layer = torch.nn.Linear(input_dim, output_dim, bias=bias)
-    layer.weight.data = conv1d.weight.data.T
-    if bias:
-        layer.bias.data = conv1d.bias.data
-    return layer
-
-
-def convert_flashattn_checkpoint_to_hf(checkpoint):
-    if "state_dict" in checkpoint:
-        checkpoint = checkpoint["state_dict"]
-        for key in list(checkpoint.keys()):
-            new_key = key.replace('model.', '')
-            if "embeddings.word_embeddings.weight" in new_key:
-                new_key = "transformer.wte.weight"
-            if "embeddings.position_embeddings.weight" in new_key:
-                new_key = "transformer.wpe.weight"
-            if "layers" in new_key:
-                new_key = new_key.replace("layers", "h")
-            if "mixer" in new_key:
-                new_key = new_key.replace("mixer", "attn")
-            if "Wqkv" in new_key:
-                new_key = new_key.replace("Wqkv", "c_attn")
-            if "out_proj" in new_key:
-                new_key = new_key.replace("out_proj", "c_proj")
-            if "norm" in new_key:
-                new_key = new_key.replace("norm", "ln_")
-            if "fc1" in new_key:
-                new_key = new_key.replace("fc1", "c_fc")
-            if "fc2" in new_key:
-                new_key = new_key.replace("fc2", "c_proj")
-            if "wte" in new_key or "wpe" in new_key or "weight" not in new_key or "lora" in new_key or "lm_head" in new_key:
-                checkpoint[new_key] = checkpoint.pop(key)
-            else:
-                checkpoint[new_key] = checkpoint.pop(key).T
-            if "num-tokens" in new_key:
-                del checkpoint[new_key]
-    return checkpoint
-
-
-def get_llm(model_name, cache_dir="llm_weights", local_checkpoint_dir=""):
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        torch_dtype=torch.float16,
-        cache_dir=cache_dir,
-        low_cpu_mem_usage=True,
-        token=hf_token,
-        # device_map='auto'
-    )
-    layer_num_params = 0
-    for param in model.parameters():
-        layer_num_params += param.numel()
-    model_size = layer_num_params * 2
-    free_mem, total_mem = torch.cuda.mem_get_info()
-    if model_size < 0.75 * free_mem:
-        print("Loading model in GPU...")
-        model = model.cuda()
-    else:
-        print("Model does not fit in GPUs. Loading model in CPU...")
-
-    if local_checkpoint_dir != "":
-        checkpoint = torch.load(local_checkpoint_dir, map_location="cpu")
-        if "gpt" in model_name:
-            checkpoint = convert_flashattn_checkpoint_to_hf(checkpoint)
-        model.load_state_dict(checkpoint)
-
-    for i, layer in enumerate(get_layers_list(model)):
-        if hasattr(layer, "attn"):
-            layer.attn.c_attn = conv1d_to_linear(layer.attn.c_attn)
-            layer.attn.c_proj = conv1d_to_linear(layer.attn.c_proj)
-        if hasattr(layer, "mlp"):
-            if hasattr(layer.mlp, "c_fc"):
-                layer.mlp.c_fc = conv1d_to_linear(layer.mlp.c_fc)
-            if hasattr(layer.mlp, "c_proj"):
-                layer.mlp.c_proj = conv1d_to_linear(layer.mlp.c_proj)
-
-    model.seqlen = model.config.max_position_embeddings
-    return model
 
 
 def add_result_to_csv(args, ppl, lmharness_results):
@@ -245,7 +162,7 @@ def main():
     ################################################################
     ppl_test = 0.
     if args.evaluate_perplexity:
-        ppl_test = eval_ppl(args, model, tokenizer, device, num_partition=args.num_sample_partition)
+        ppl_test = eval_ppl(args, model, tokenizer, args.model,  device, num_partition=args.num_sample_partition)
         print(f"WikiText2 Perplexity: {ppl_test}")
         print("*" * 30)
     ################################################################

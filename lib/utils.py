@@ -2,8 +2,11 @@ import torch
 from compression.model_compression import static_prune_weight_reduction_dim_forward
 from types import MethodType
 import numpy as np
-from transformers import LlamaForCausalLM
+from transformers import AutoModelForCausalLM
 from compression.quantization.model_quantizing import Quantizer as AutoQuantizer
+
+
+hf_token = "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"
 
 
 def density_ratio(x):
@@ -178,8 +181,8 @@ def add_lora(module,
         new_weight = quantizer.dequantize_absmax(new_weight)
 
     if separate_lora:
-        module.lora_left = lora_left
-        module.lora_right = lora_right
+        module.lora_left = torch.nn.Parameter(lora_left).half()
+        module.lora_right = torch.nn.Parameter(lora_right).half()
         module.weight.data = new_weight.half()
     else:
         module.weight.data = (new_weight + low_rank_weight).half()
@@ -305,3 +308,105 @@ def merge_lora(model):
             module.weight.data += (module.lora_right.t() @ module.lora_left.t()).to(module.weight.device).to(module.weight.dtype)
             del module.lora_left
             del module.lora_right
+
+
+def add_empty_lora(model, rank):
+    for layer in get_layers_list(model):
+        subset = find_layers(layer)
+        for name in subset:
+            layer_rank = int(min(subset[name].weight.shape) * rank)
+            subset[name].lora_left = torch.nn.Parameter(torch.zeros((subset[name].weight.shape[1], layer_rank), device=subset[name].weight.device).half())
+            subset[name].lora_right = torch.nn.Parameter(torch.zeros((layer_rank, subset[name].weight.shape[0]), device=subset[name].weight.device).half())
+
+        def add_lora_hook(module, input, output):
+            output += torch.matmul(torch.matmul(input[0], module.lora_left),
+                                   module.lora_right)
+
+        subset[name].register_forward_hook(add_lora_hook)
+
+
+def conv1d_to_linear(conv1d):
+    input_dim = conv1d.weight.shape[0]
+    output_dim = conv1d.weight.shape[1]
+    bias = conv1d.bias is not None
+    layer = torch.nn.Linear(input_dim, output_dim, bias=bias)
+    layer.weight.data = conv1d.weight.data.T
+    if bias:
+        layer.bias.data = conv1d.bias.data
+    return layer
+
+
+def convert_flashattn_checkpoint_to_hf(checkpoint):
+    if "state_dict" in checkpoint:
+        checkpoint = checkpoint["state_dict"]
+        for key in list(checkpoint.keys()):
+            new_key = key.replace('model.', '')
+            if "embeddings.word_embeddings.weight" in new_key:
+                new_key = "transformer.wte.weight"
+            if "embeddings.position_embeddings.weight" in new_key:
+                new_key = "transformer.wpe.weight"
+            if "layers" in new_key:
+                new_key = new_key.replace("layers", "h")
+            if "mixer" in new_key:
+                new_key = new_key.replace("mixer", "attn")
+            if "Wqkv" in new_key:
+                new_key = new_key.replace("Wqkv", "c_attn")
+            if "out_proj" in new_key:
+                new_key = new_key.replace("out_proj", "c_proj")
+            if "norm" in new_key:
+                new_key = new_key.replace("norm", "ln_")
+            if "fc1" in new_key:
+                new_key = new_key.replace("fc1", "c_fc")
+            if "fc2" in new_key:
+                new_key = new_key.replace("fc2", "c_proj")
+            if "wte" in new_key or "wpe" in new_key or "weight" not in new_key or "lora" in new_key or "lm_head" in new_key:
+                checkpoint[new_key] = checkpoint.pop(key)
+            else:
+                checkpoint[new_key] = checkpoint.pop(key).T
+            if "num-tokens" in new_key:
+                del checkpoint[new_key]
+    return checkpoint
+
+
+def get_llm(model_name, cache_dir="llm_weights", local_checkpoint_dir="", device_map=None):
+    kwargs = {}
+    if device_map is not None:
+        kwargs["device_map"] = device_map
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        torch_dtype=torch.float16,
+        cache_dir=cache_dir,
+        low_cpu_mem_usage=True,
+        token=hf_token,
+        **kwargs
+    )
+    if device_map == None:
+        layer_num_params = 0
+        for param in model.parameters():
+            layer_num_params += param.numel()
+        model_size = layer_num_params * 2
+        free_mem, total_mem = torch.cuda.mem_get_info()
+        if model_size < 0.75 * free_mem:
+            print("Loading model in GPU...")
+            model = model.cuda()
+        else:
+            print("Model does not fit in GPUs. Loading model in CPU...")
+
+    if local_checkpoint_dir != "":
+        checkpoint = torch.load(local_checkpoint_dir, map_location="cpu")
+        if "gpt" in model_name:
+            checkpoint = convert_flashattn_checkpoint_to_hf(checkpoint)
+        model.load_state_dict(checkpoint)
+
+    for i, layer in enumerate(get_layers_list(model)):
+        if hasattr(layer, "attn"):
+            layer.attn.c_attn = conv1d_to_linear(layer.attn.c_attn)
+            layer.attn.c_proj = conv1d_to_linear(layer.attn.c_proj)
+        if hasattr(layer, "mlp"):
+            if hasattr(layer.mlp, "c_fc"):
+                layer.mlp.c_fc = conv1d_to_linear(layer.mlp.c_fc)
+            if hasattr(layer.mlp, "c_proj"):
+                layer.mlp.c_proj = conv1d_to_linear(layer.mlp.c_proj)
+
+    model.seqlen = model.config.max_position_embeddings
+    return model

@@ -8,14 +8,16 @@ from .data import get_loaders
 
 from collections import defaultdict
 import fnmatch
-from lib.utils import remove_outlier
+from lib.utils import remove_outlier, add_empty_lora, get_llm
 import numpy as np
 import tqdm.auto as tqdm
-from .utils import get_layers_list
+import shutil
+
+hf_token = "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"
 
 
 # Function to evaluate perplexity (ppl) on a specified model and tokenizer
-def eval_ppl(args, model, tokenizer, device=torch.device("cuda:0"), num_partition=8):
+def eval_ppl(args, model, tokenizer, model_name, device=torch.device("cuda:0"), num_partition=8):
     # Set dataset
     dataset = args.eval_dataset
 
@@ -27,9 +29,14 @@ def eval_ppl(args, model, tokenizer, device=torch.device("cuda:0"), num_partitio
         dataset, seed=0, seqlen=model.seqlen, tokenizer=tokenizer
     )
 
+    has_lora = (args.prune_method == "wanda"
+                and args.lora_rank > 0
+                and args.separate_lora
+                and args.sparsity_type != "dense")
+
     # Evaluate ppl in no grad context to avoid updating the model
     with torch.no_grad():
-        ppl_test = eval_ppl_wikitext(model, testloader, args.eval_batch_size, model.device)
+        ppl_test = eval_ppl_wikitext(model, testloader, model_name, has_lora, args.lora_rank, args.eval_batch_size, model.device)
     return ppl_test
 
 # Function to evaluate perplexity (ppl) specifically on the wikitext dataset
@@ -86,64 +93,79 @@ def eval_ppl_wikitext_train(model, trainloader, bs=1, device=None):
 
 @torch.no_grad()
 # Function to evaluate perplexity (ppl) specifically on the wikitext dataset
-def eval_ppl_wikitext(model, testenc, bs=1, device=None):
+def eval_ppl_wikitext(model, testenc, model_name, has_lora=False, lora_rank=None, bs=1, device=None):
     if model.device == torch.device("cpu"):
+        np.random.seed(np.int64(time.time()))
+        randint = np.random.randint(0, 1000)
+        checkpoint_dir = "/tmp/tmp_ckpt{}".format(randint)
+        torch.save(model.state_dict(), checkpoint_dir)
+        del model
         torch.cuda.empty_cache()
-        # model = model.float()
-        input_size = 4 if model.seqlen == 2048 else 20 if model.seqlen == 4096 else 58
-        layer_num_params = 0
-        layers = get_layers_list(model)
-        for param in layers[0].parameters():
-            layer_num_params += param.numel()
-        layer_size = 2 * layer_num_params
-        free_mem, total_mem = torch.cuda.mem_get_info()
-        num_layers_per_gpu = free_mem // layer_size - input_size
-        print(f"Transfering {min(torch.cuda.device_count() * num_layers_per_gpu, len(layers))} "
-              f"layers out of {len(layers)} to GPU. Each GPU will hold {num_layers_per_gpu} layers.")
+        model = get_llm(model_name, device_map="auto")
 
-        def move_to_gpu_pre_hook(module, input):
-            input[0].data = input[0].data.half().to(module.device)
+        if has_lora:
+            add_empty_lora(model, lora_rank)
 
-        def move_to_cpu_post_hook(module, input, output):
-            output[0].data = output[0].data.cpu().float()
+        model.load_state_dict(torch.load(checkpoint_dir))
 
-        last_fit_layer = -1
-        for i in range(torch.cuda.device_count()):
-            for layer_num in range(num_layers_per_gpu):
-                last_fit_layer += 1
-                if (last_fit_layer == len(layers) - 1) or ((i == torch.cuda.device_count() - 1) and (layer_num == num_layers_per_gpu - 1)):
-                    layers[last_fit_layer] = layers[last_fit_layer].half().cuda(i)
-                    layers[last_fit_layer].register_forward_hook(move_to_cpu_post_hook)
-                    break
-                layers[last_fit_layer] = layers[last_fit_layer].half().cuda(i)
-                if layer_num == 0:
-                    layers[last_fit_layer].device = torch.device(i)
-                    layers[last_fit_layer].register_forward_pre_hook(move_to_gpu_pre_hook)
-            if last_fit_layer == len(layers) - 1:
-                break
+        shutil.rmtree(checkpoint_dir)
 
-        # def cast_input_to_float_pre_hook(module, input):
-        #     input[0].data = input[0].data.float()
+        # torch.cuda.empty_cache()
+        # # model = model.float()
+        # input_size = 4 if model.seqlen == 2048 else 20 if model.seqlen == 4096 else 58
+        # layer_num_params = 0
+        # layers = get_layers_list(model)
+        # for param in layers[0].parameters():
+        #     layer_num_params += param.numel()
+        # layer_size = 2 * layer_num_params
+        # free_mem, total_mem = torch.cuda.mem_get_info()
+        # num_layers_per_gpu = free_mem // layer_size - input_size
+        # print(f"Transfering {min(torch.cuda.device_count() * num_layers_per_gpu, len(layers))} "
+        #       f"layers out of {len(layers)} to GPU. Each GPU will hold {num_layers_per_gpu} layers.")
         #
-        # def cast_ouput_to_half_post_hook(module, input, output):
-        #     output_half = output[0].half()
-        #     if output_half.dim() == 2:
-        #         output_half = output_half.unsqueeze(0)
-        #     return output_half
+        # def move_to_gpu_pre_hook(module, input):
+        #     input[0].data = input[0].data.half().to(module.device)
         #
-        for layer_num in range(last_fit_layer + 1, len(layers)):
-            layers[layer_num] = layers[layer_num].float()
-            # model.model.decoder.layers[layer_num].self_attn_layer_norm = model.model.decoder.layers[layer_num].self_attn_layer_norm.float()
-            # model.model.decoder.layers[layer_num].self_attn_layer_norm.register_forward_pre_hook(cast_input_to_float_pre_hook)
-            # model.model.decoder.layers[layer_num].self_attn_layer_norm.register_forward_hook(cast_ouput_to_half_post_hook)
-            # model.model.decoder.layers[layer_num].final_layer_norm = model.model.decoder.layers[layer_num].final_layer_norm.float()
-            # model.model.decoder.layers[layer_num].final_layer_norm.register_forward_pre_hook(cast_input_to_float_pre_hook)
-            # model.model.decoder.layers[layer_num].final_layer_norm.register_forward_hook(cast_ouput_to_half_post_hook)
-        if hasattr(model.model, "decoder"): #OPT
-            model.model.decoder.final_layer_norm = model.model.decoder.final_layer_norm.float()
-        elif hasattr(model.model, "layers"): #LLaMA
-            model.model.norm = model.model.norm.float()
-        model.lm_head = model.lm_head.float()
+        # def move_to_cpu_post_hook(module, input, output):
+        #     output[0].data = output[0].data.cpu().float()
+        #
+        # last_fit_layer = -1
+        # for i in range(torch.cuda.device_count()):
+        #     for layer_num in range(num_layers_per_gpu):
+        #         last_fit_layer += 1
+        #         if (last_fit_layer == len(layers) - 1) or ((i == torch.cuda.device_count() - 1) and (layer_num == num_layers_per_gpu - 1)):
+        #             layers[last_fit_layer] = layers[last_fit_layer].half().cuda(i)
+        #             layers[last_fit_layer].register_forward_hook(move_to_cpu_post_hook)
+        #             break
+        #         layers[last_fit_layer] = layers[last_fit_layer].half().cuda(i)
+        #         if layer_num == 0:
+        #             layers[last_fit_layer].device = torch.device(i)
+        #             layers[last_fit_layer].register_forward_pre_hook(move_to_gpu_pre_hook)
+        #     if last_fit_layer == len(layers) - 1:
+        #         break
+        #
+        # # def cast_input_to_float_pre_hook(module, input):
+        # #     input[0].data = input[0].data.float()
+        # #
+        # # def cast_ouput_to_half_post_hook(module, input, output):
+        # #     output_half = output[0].half()
+        # #     if output_half.dim() == 2:
+        # #         output_half = output_half.unsqueeze(0)
+        # #     return output_half
+        # #
+        # for layer_num in range(last_fit_layer + 1, len(layers)):
+        #     layers[layer_num] = layers[layer_num].float()
+        #     # model.model.decoder.layers[layer_num].self_attn_layer_norm = model.model.decoder.layers[layer_num].self_attn_layer_norm.float()
+        #     # model.model.decoder.layers[layer_num].self_attn_layer_norm.register_forward_pre_hook(cast_input_to_float_pre_hook)
+        #     # model.model.decoder.layers[layer_num].self_attn_layer_norm.register_forward_hook(cast_ouput_to_half_post_hook)
+        #     # model.model.decoder.layers[layer_num].final_layer_norm = model.model.decoder.layers[layer_num].final_layer_norm.float()
+        #     # model.model.decoder.layers[layer_num].final_layer_norm.register_forward_pre_hook(cast_input_to_float_pre_hook)
+        #     # model.model.decoder.layers[layer_num].final_layer_norm.register_forward_hook(cast_ouput_to_half_post_hook)
+        # if hasattr(model.model, "decoder"): #OPT
+        #     model.model.decoder.final_layer_norm = model.model.decoder.final_layer_norm.float()
+        # elif hasattr(model.model, "layers"): #LLaMA
+        #     model.model.norm = model.model.norm.float()
+        # model.lm_head = model.lm_head.float()
         
 
 
