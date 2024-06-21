@@ -176,13 +176,11 @@ def fine_tune(model,
                                         'allenai--c4',
                                         data_files={'train': 'en/c4-train.00000-of-01024.json.gz',
                                                     'validation': 'en/c4-validation.00000-of-00008.json.gz'},
-                                        split='train',
                                         cache_dir=cache_dir)
         except:
             raw_datasets = load_dataset('allenai/c4',
                                         data_files={'train': 'en/c4-train.00000-of-01024.json.gz',
                                                     'validation': 'en/c4-validation.00000-of-00008.json.gz'},
-                                        split='train',
                                         cache_dir=cache_dir)
 
         raw_datasets.save_to_disk(f"{cache_dir}/c4-raw.pt")
