@@ -9,7 +9,7 @@ from typing import Optional, List
 import datasets
 import evaluate
 import torch
-from datasets import load_dataset, concatenate_datasets
+from datasets import load_dataset, concatenate_datasets, load_from_disk
 import numpy as np
 
 import transformers
@@ -168,16 +168,24 @@ def fine_tune(model,
         report_to="none",
     )
     ################################################################################################################
-    try:
-        raw_datasets = load_dataset('allenai/c4', 'allenai--c4',
+    if os.path.exists(f"{cache_dir}/c4-raw.pt"):
+        raw_datasets = load_from_disk(f"{cache_dir}/c4-raw.pt")
+    else:
+        try:
+            raw_datasets = load_dataset('allenai/c4',
+                                        'allenai--c4',
                                         data_files={'train': 'en/c4-train.00000-of-01024.json.gz',
                                                     'validation': 'en/c4-validation.00000-of-00008.json.gz'},
+                                        split='train',
                                         cache_dir=cache_dir)
-    except:
-        raw_datasets= load_dataset('allenai/c4',
-                                       data_files={'train': 'en/c4-train.00000-of-01024.json.gz',
-                                                   'validation': 'en/c4-validation.00000-of-00008.json.gz'},
-                                       cache_dir=cache_dir)
+        except:
+            raw_datasets = load_dataset('allenai/c4',
+                                        data_files={'train': 'en/c4-train.00000-of-01024.json.gz',
+                                                    'validation': 'en/c4-validation.00000-of-00008.json.gz'},
+                                        split='train',
+                                        cache_dir=cache_dir)
+
+        raw_datasets.save_to_disk(f"{cache_dir}/c4-raw.pt")
 
     if "validation" not in raw_datasets.keys():
         raw_datasets["validation"] = load_dataset(
