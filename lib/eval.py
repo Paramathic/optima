@@ -99,6 +99,7 @@ def eval_ppl_wikitext(model, testenc, model_name, has_lora=False, lora_rank=None
         randint = np.random.randint(0, 1000)
         checkpoint_dir = "/tmp/tmp_ckpt{}".format(randint)
         torch.save(model.state_dict(), checkpoint_dir)
+        model = model.cpu()
         del model
         torch.cuda.empty_cache()
         model = get_llm(model_name, device_map="auto")
