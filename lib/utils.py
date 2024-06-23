@@ -5,7 +5,6 @@ import numpy as np
 from transformers import AutoModelForCausalLM
 from compression.quantization.model_quantizing import Quantizer as AutoQuantizer
 
-
 hf_token = "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"
 
 
@@ -35,6 +34,7 @@ def shift_zeros(x):
     min_positive = min_positive.min()
     return x + min_positive
 
+
 def optimize_pruned_l(L, R, error_mat):
     sparse_L, mask_L = prune_row_wise(L, 2, 4)
     sparse_L = sparse_L.half()
@@ -63,7 +63,7 @@ def optimize_pruned_l(L, R, error_mat):
             sparse_L = sparse_L_detached.requires_grad_()
 
             if abs(loss.item() - prev_loss) < convergence_threshold:
-                print("L Converged in "+ str(iteration))
+                print("L Converged in " + str(iteration))
                 break
             prev_loss = loss.item()
             iteration += 1
@@ -86,7 +86,7 @@ def optimize_pruned_l(L, R, error_mat):
             sparse_L = sparse_L_detached.requires_grad_()
 
             if abs(loss.item() - prev_loss) < convergence_threshold:
-                print("R Converged in "+ str(iteration))
+                print("R Converged in " + str(iteration))
                 break
             prev_loss = loss.item()
             iteration += 1
@@ -96,8 +96,8 @@ def optimize_pruned_l(L, R, error_mat):
                 break
 
         if abs(loss.item() - e2e_prev_loss) < e2e_convergence_threshold:
-                print("e2e algo Converged in "+ str(e2e_iteration))
-                break
+            print("e2e algo Converged in " + str(e2e_iteration))
+            break
         e2e_prev_loss = loss.item()
         e2e_iteration += 1
 
@@ -110,6 +110,7 @@ def optimize_pruned_l(L, R, error_mat):
 
     return sparse_L, R
 
+
 def add_lora(module,
              W_mask,
              rank_ratio=0.01,
@@ -120,21 +121,20 @@ def add_lora(module,
              bitwidth=8,
              use_std=False,
              max_bitwidth=8,
-             pruned_L = False,
-             separate_lora = True):
-
-    if use_wanda and not any (activations.scaler_row == 0):
+             pruned_L=False,
+             separate_lora=True):
+    if use_wanda and not any(activations.scaler_row == 0):
         if quantizer is None:
-            W_metric = module.weight.data * (torch.sqrt(activations.scaler_row.reshape((1,-1))))
+            W_metric = module.weight.data * (torch.sqrt(activations.scaler_row.reshape((1, -1))))
             new_weight = W_metric.clone().detach()
             new_weight[W_mask] = 0
             error_mat = W_metric - new_weight
         else:
-            W_metric = module.weight.data * (torch.sqrt(activations.scaler_row.reshape((1,-1))))
+            W_metric = module.weight.data * (torch.sqrt(activations.scaler_row.reshape((1, -1))))
             new_weight = module.weight.data
             new_weight[W_mask] = 0
             new_weight = quantizer.quantize_weight(new_weight, bitwidth, use_std=use_std, max_bitwidth=max_bitwidth)
-            new_weight = quantizer.dequantize_absmax(new_weight) * (torch.sqrt(activations.scaler_row.reshape((1,-1))))
+            new_weight = quantizer.dequantize_absmax(new_weight) * (torch.sqrt(activations.scaler_row.reshape((1, -1))))
             error_mat = (W_metric - new_weight)
     else:
         new_weight = module.weight.data.clone().detach()
@@ -166,8 +166,8 @@ def add_lora(module,
             lora_right = U[:, :rank].half().t()
         else:
             low_rank_weight = U[:, :rank].half() @ torch.diag_embed(S[:rank]).half() @ V[:, :rank].half().T
-    if use_wanda and not any (activations.scaler_row == 0):
-        denom = (torch.sqrt(activations.scaler_row.reshape((1,-1)))).half()
+    if use_wanda and not any(activations.scaler_row == 0):
+        denom = (torch.sqrt(activations.scaler_row.reshape((1, -1)))).half()
         if separate_lora:
             lora_left = lora_left / (denom.t())
         else:
@@ -221,7 +221,7 @@ def accelerate_module(module, quantize=False, bitwidth=8):
     module.qbitwidth = bitwidth
     module.sparse_index = None
     module.mask = None
-    module.add_lora = False #TODO: Fix
+    module.add_lora = False  # TODO: Fix
 
 
 def remove_outlier(x, std_factor=2):
@@ -249,6 +249,7 @@ if __name__ == "__main__":
     layer = torch.nn.Linear(1024, 4096).cuda()
     input = torch.randn(512, 1024).cuda()
     from compression.pruning_kernels.sparse_backend import prune_tensor
+
     layer.weight.data = prune_tensor(layer.weight.data)[0]
     weight_fp16 = layer.weight.data.clone().detach()
     # print(layer.weight.data[0:8, 0:8])
@@ -288,9 +289,9 @@ def attach_input_quantization_hooks(model, num_bits=8):
     def input_quantization_pre_hook(module, input):
         quantized_input = module.quantizer.quantize(input[0])
         dequantized_input = module.quantizer.dequantize_input(quantized_input)
-        print("Relative Error:", (torch.norm(input[0] - dequantized_input) / torch.norm(input[0])).item(), module.weight.shape)
+        print("Relative Error:", (torch.norm(input[0] - dequantized_input) / torch.norm(input[0])).item(),
+              module.weight.shape)
         # input.data = module.quantizer.dequantize_input(quantized_input)
-
 
     layers = get_layers_list(model)
     for i in range(len(layers)):
@@ -305,7 +306,8 @@ def attach_input_quantization_hooks(model, num_bits=8):
 def merge_lora(model):
     for name, module in model.named_modules():
         if hasattr(module, "lora_left") and hasattr(module, "lora_right"):
-            module.weight.data += (module.lora_right.t() @ module.lora_left.t()).to(module.weight.device).to(module.weight.dtype)
+            module.weight.data += (module.lora_right.t() @ module.lora_left.t()).to(module.weight.device).to(
+                module.weight.dtype)
             del module.lora_left
             del module.lora_right
 
@@ -315,11 +317,13 @@ def add_empty_lora(model, rank):
         subset = find_layers(layer)
         for name in subset:
             layer_rank = int(min(subset[name].weight.shape) * rank)
-            subset[name].lora_left = torch.nn.Parameter(torch.zeros((subset[name].weight.shape[1], layer_rank), device=subset[name].weight.device).half())
-            subset[name].lora_right = torch.nn.Parameter(torch.zeros((layer_rank, subset[name].weight.shape[0]), device=subset[name].weight.device).half())
+            subset[name].lora_left = torch.nn.Parameter(
+                torch.zeros((subset[name].weight.shape[1], layer_rank), device=subset[name].weight.device).half())
+            subset[name].lora_right = torch.nn.Parameter(
+                torch.zeros((layer_rank, subset[name].weight.shape[0]), device=subset[name].weight.device).half())
 
         def add_lora_hook(module, input, output):
-            output += torch.matmul(torch.matmul(input[0], module.lora_left),
+            output += torch.matmul(torch.matmul(input[0].to(module.lora_left.dtype), module.lora_left),
                                    module.lora_right)
 
         subset[name].register_forward_hook(add_lora_hook)
@@ -409,4 +413,72 @@ def get_llm(model_name, cache_dir="llm_weights", local_checkpoint_dir="", device
                 layer.mlp.c_proj = conv1d_to_linear(layer.mlp.c_proj)
 
     model.seqlen = model.config.max_position_embeddings
+    return model
+
+
+def distribute_model(model, fill_ratio=1., reserved_input_size=None):
+    model = model.cpu()
+    torch.cuda.empty_cache()
+    # model = model.float()
+    input_size = 4 if model.seqlen == 2048 else 20 if model.seqlen == 4096 else 58 if reserved_input_size is None else reserved_input_size
+    layer_num_params = 0
+    layers = get_layers_list(model)
+    for param in layers[0].parameters():
+        layer_num_params += param.numel()
+    layer_size = 2 * layer_num_params
+    free_mem, total_mem = torch.cuda.mem_get_info()
+    num_layers_per_gpu = int(free_mem * fill_ratio) // layer_size - input_size
+    print(f"Transfering {min(torch.cuda.device_count() * num_layers_per_gpu, len(layers))} "
+          f"layers out of {len(layers)} to GPU. Each GPU will hold {num_layers_per_gpu} layers.")
+
+    def move_to_gpu_pre_hook(module, input):
+        print("Moving data to device: ", module.device)
+        input[0].data = input[0].data.half().to(module.device)
+
+    def move_to_cpu_post_hook(module, input, output):
+        output[0].data = output[0].data.cpu().float()
+
+    def move_to_gpu_backward_pre_hook(module, grad_input):
+        print("Moving grads to ", module.device)
+        grad_input[0].data = grad_input[0].data.to(module.device)
+
+    last_fit_layer = -1
+    for i in range(torch.cuda.device_count()):
+        for layer_num in range(num_layers_per_gpu):
+            last_fit_layer += 1
+            if (last_fit_layer == len(layers) - 1) or (
+                    (i == torch.cuda.device_count() - 1) and (layer_num == num_layers_per_gpu - 1)):
+                layers[last_fit_layer] = layers[last_fit_layer].half().cuda(i)
+                layers[last_fit_layer].register_forward_hook(move_to_cpu_post_hook)
+                # layers[last_fit_layer].register_full_backward_pre_hook(move_to_gpu_backward_pre_hook)
+                # print("Appending backward hook to layer", last_fit_layer)
+                break
+            layers[last_fit_layer] = layers[last_fit_layer].half().cuda(i)
+            if layer_num == 0:
+                layers[last_fit_layer].device = torch.device(i)
+                layers[last_fit_layer].register_forward_pre_hook(move_to_gpu_pre_hook)
+        if last_fit_layer == len(layers) - 1:
+            break
+    # def cast_input_to_float_pre_hook(module, input):
+    #     input[0].data = input[0].data.float()
+    #
+    # def cast_ouput_to_half_post_hook(module, input, output):
+    #     output_half = output[0].half()
+    #     if output_half.dim() == 2:
+    #         output_half = output_half.unsqueeze(0)
+    #     return output_half
+    #
+    for layer_num in range(last_fit_layer + 1, len(layers)):
+        layers[layer_num] = layers[layer_num].float()
+        # model.model.decoder.layers[layer_num].self_attn_layer_norm = model.model.decoder.layers[layer_num].self_attn_layer_norm.float()
+        # model.model.decoder.layers[layer_num].self_attn_layer_norm.register_forward_pre_hook(cast_input_to_float_pre_hook)
+        # model.model.decoder.layers[layer_num].self_attn_layer_norm.register_forward_hook(cast_ouput_to_half_post_hook)
+        # model.model.decoder.layers[layer_num].final_layer_norm = model.model.decoder.layers[layer_num].final_layer_norm.float()
+        # model.model.decoder.layers[layer_num].final_layer_norm.register_forward_pre_hook(cast_input_to_float_pre_hook)
+        # model.model.decoder.layers[layer_num].final_layer_norm.register_forward_hook(cast_ouput_to_half_post_hook)
+    if hasattr(model.model, "decoder"):  # OPT
+        model.model.decoder.final_layer_norm = model.model.decoder.final_layer_norm.float()
+    elif hasattr(model.model, "layers"):  # LLaMA
+        model.model.norm = model.model.norm.float()
+    model.lm_head = model.lm_head.float()
     return model
