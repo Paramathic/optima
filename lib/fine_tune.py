@@ -1,44 +1,49 @@
-import logging
-import math
 import os
-import sys
 from dataclasses import dataclass, field
 from itertools import chain
-from typing import Optional, List
+from typing import Optional
 
-import datasets
 import evaluate
 import torch
-from datasets import load_dataset, concatenate_datasets, load_from_disk
-import numpy as np
+from datasets import load_dataset, load_from_disk
 
 import transformers
 from transformers import (
-    CONFIG_MAPPING,
-    MODEL_FOR_CAUSAL_LM_MAPPING,
-    AutoConfig,
-    AutoModelForCausalLM,
-    AutoTokenizer,
-    HfArgumentParser,
     Trainer,
     TrainingArguments,
     default_data_collator,
     is_torch_tpu_available,
-    set_seed,
 )
 from transformers.testing_utils import CaptureLogger
-from transformers.trainer_utils import get_last_checkpoint
-from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
+from torch.optim import AdamW
+from transformers.optimization import get_linear_schedule_with_warmup
+import tqdm.auto as tqdm
+from types import MethodType
+
+
+def dense_linear_forward(module, input):
+    output = torch.matmul(input.half(), module.weight.t())
+    if not module.bias is None:
+        output += module.bias
+    return output.float()
 
 
 def disable_linear_layer_grads(model):
+    def convert_input_to_half(module, input):
+        input[0].data = input[0].half()
+    
     known_modules = {"Linear", "Conv1d"}
     for name, module in model.named_modules():
         module_type = type(module).__name__
         if module_type in known_modules:
             module.weight.requires_grad = False
             module.weight.data = module.weight.half()
+            if module.bias is not None:
+                module.bias.data = module.bias.half()
+                module.bias.requires_grad = False
+            module.register_forward_pre_hook(convert_input_to_half)
+            # module.forward = MethodType(dense_linear_forward, module)
 
 
 @dataclass
@@ -131,8 +136,9 @@ def fine_tune(model,
               max_train_samples=30000,
               max_eval_samples=128,
               cache_dir="data",
+              use_hf_trainer=True
               ):
-    model = model.float()
+    model = model.float().cuda()
     # Get the datasets: you can either provide your own CSV/JSON/TXT training and evaluation files (see below)
     # or just provide the name of one of the public datasets available on the hub at https://huggingface.co/datasets/
     # (the dataset will be downloaded automatically from the datasets Hub).
@@ -144,7 +150,7 @@ def fine_tune(model,
     # download the dataset.
 
     ################################################################################################################
-    batch_size = 128
+    batch_size = 64
     local_batch_size = 1
     training_args = TrainingArguments(
         output_dir="output",
@@ -155,10 +161,10 @@ def fine_tune(model,
         per_device_eval_batch_size=local_batch_size,
         num_train_epochs=1,
         logging_dir="logs",
-        logging_steps=10,
-        eval_steps=10,
-        save_steps=50,
-        save_total_limit=15,
+        logging_steps=100,
+        eval_steps=100,
+        save_steps=5000,
+        save_total_limit=1,
         fp16=True,
         group_by_length=False,
         gradient_accumulation_steps=batch_size // local_batch_size,
@@ -166,6 +172,7 @@ def fine_tune(model,
         optim="adamw_torch",
         save_strategy="steps",
         report_to="none",
+        gradient_checkpointing=True,
     )
     ################################################################################################################
     if os.path.exists(f"{cache_dir}/c4-raw.pt"):
@@ -341,32 +348,55 @@ def fine_tune(model,
 
     disable_linear_layer_grads(model)
 
-    # Initialize our Trainer
-    trainer = Trainer(
-        model=model,
-        args=training_args,
-        train_dataset=train_dataset if training_args.do_train else None,
-        eval_dataset=eval_dataset if training_args.do_eval else None,
-        tokenizer=tokenizer,
-        # Data collator will default to DataCollatorWithPadding, so we change it.
-        data_collator=default_data_collator,
-        compute_metrics=compute_metrics if training_args.do_eval and not is_torch_tpu_available() else None,
-        preprocess_logits_for_metrics=preprocess_logits_for_metrics
-        if training_args.do_eval and not is_torch_tpu_available()
-        else None,
-    )
-
     ################################################################################################################
     model.config.use_cache = False
     if training_args.do_train:
-        train_result = trainer.train()
-        metrics = train_result.metrics
+        if use_hf_trainer:
+            # Initialize our Trainer
+            trainer = Trainer(
+                model=model,
+                args=training_args,
+                train_dataset=train_dataset if training_args.do_train else None,
+                eval_dataset=eval_dataset if training_args.do_eval else None,
+                tokenizer=tokenizer,
+                # Data collator will default to DataCollatorWithPadding, so we change it.
+                data_collator=default_data_collator,
+                compute_metrics=compute_metrics if training_args.do_eval else None,
+                preprocess_logits_for_metrics=preprocess_logits_for_metrics
+                if training_args.do_eval
+                else None,
+            )
+            train_result = trainer.train()
+            metrics = train_result.metrics
+            
+            max_train_samples = (
+                max_train_samples if max_train_samples is not None else len(train_dataset)
+            )
+            metrics["train_samples"] = min(max_train_samples, len(train_dataset))
+            
+            trainer.log_metrics("train", metrics)
+        else:
+            optimizer = AdamW(model.parameters(), lr=5e-5)
+            scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0, num_training_steps=len(train_dataset) // batch_size)
+            # Manual training loop
+            for epoch in range(training_args.num_train_epochs):
+                total_loss = 0.0
+                device = "cuda:0"
+                progress_bar = tqdm.tqdm(train_dataset, desc=f"Epoch {epoch}")
+                for i, batch in enumerate(progress_bar):
+                    batch["input_ids"] = torch.tensor(batch["input_ids"], device=device).unsqueeze(0)
+                    batch["labels"] = torch.tensor(batch["labels"], device=device).unsqueeze(0)
+                    batch["attention_mask"] = torch.tensor(batch["attention_mask"], dtype=torch.half, device=device).unsqueeze(0)
 
-        max_train_samples = (
-            max_train_samples if max_train_samples is not None else len(train_dataset)
-        )
-        metrics["train_samples"] = min(max_train_samples, len(train_dataset))
-
-        trainer.log_metrics("train", metrics)
+                    outputs = model(**batch)
+                    loss = outputs.loss
+                    # print(torch.cuda.memory_allocated())
+                    loss.backward()
+                    total_loss += loss.item()
+                    if i % training_args.gradient_accumulation_steps == 0 and i > 0:
+                        optimizer.zero_grad()
+                        optimizer.step()
+                        scheduler.step()
+                        progress_bar.set_postfix({"Loss": total_loss / (i + 1), "LR": scheduler.get_last_lr()[0]})
 
     model = model.half()

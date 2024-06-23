@@ -417,7 +417,7 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
 
                 if args.separate_lora:
                     def add_lora_hook(module, input, output):
-                        output += torch.matmul(torch.matmul(input[0], module.lora_left),
+                        output += torch.matmul(torch.matmul(input[0].to(module.lora_left.dtype), module.lora_left),
                                                module.lora_right)
 
                     subset[name].register_forward_hook(add_lora_hook)
