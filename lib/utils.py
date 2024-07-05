@@ -181,9 +181,9 @@ def add_lora(module,
         new_weight = quantizer.dequantize_absmax(new_weight)
 
     if separate_lora:
-        module.lora_left = torch.nn.Parameter(lora_left).half()
-        module.lora_right = torch.nn.Parameter(lora_right).half()
-        module.weight.data = new_weight.half()
+        module.lora_left = torch.nn.Parameter(lora_left).half().contiguous()
+        module.lora_right = torch.nn.Parameter(lora_right).half().contiguous()
+        module.weight.data = new_weight.half().contiguous()
     else:
         module.weight.data = (new_weight + low_rank_weight).half()
 
@@ -323,9 +323,9 @@ def add_empty_lora(model, rank):
                 torch.zeros((layer_rank, subset[name].weight.shape[0]), device=subset[name].weight.device).half())
 
         def add_lora_hook(module, input, output):
-            output += torch.matmul(torch.matmul(input[0].to(module.lora_left.dtype), module.lora_left),
-                                   module.lora_right)
-
+            output += torch.matmul(torch.matmul(input[0].to(module.lora_left.dtype), module.lora_left) / np.sqrt(module.lora_rank),
+                                   module.lora_right) / np.sqrt(module.lora_rank)
+        subset[name].lora_rank = torch.tensor(layer_rank)
         subset[name].register_forward_hook(add_lora_hook)
 
 
@@ -372,7 +372,7 @@ def convert_flashattn_checkpoint_to_hf(checkpoint):
     return checkpoint
 
 
-def get_llm(model_name, cache_dir="llm_weights", local_checkpoint_dir="", device_map=None):
+def get_llm(model_name, cache_dir="llm_weights", local_checkpoint_dir="", device_map=None, local_files_only=True):
     kwargs = {}
     if device_map is not None:
         kwargs["device_map"] = device_map
@@ -382,6 +382,7 @@ def get_llm(model_name, cache_dir="llm_weights", local_checkpoint_dir="", device
         cache_dir=cache_dir,
         low_cpu_mem_usage=True,
         token=hf_token,
+        local_files_only=local_files_only,
         **kwargs
     )
     if device_map == None:

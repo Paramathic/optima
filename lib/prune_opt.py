@@ -417,9 +417,12 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
 
                 if args.separate_lora:
                     def add_lora_hook(module, input, output):
-                        output += torch.matmul(torch.matmul(input[0].to(module.lora_left.dtype), module.lora_left),
-                                               module.lora_right)
+                        output += torch.matmul(torch.matmul(input[0].to(module.lora_left.dtype) / torch.sqrt(module.lora_rank), module.lora_left),
+                                               module.lora_right) / torch.sqrt(module.lora_rank)
 
+                    subset[name].lora_rank = torch.tensor(subset[name].lora_left.shape[1])
+                    subset[name].lora_left.data = subset[name].lora_left * torch.sqrt(subset[name].lora_rank)
+                    subset[name].lora_right.data = subset[name].lora_right * torch.sqrt(subset[name].lora_rank)
                     subset[name].register_forward_hook(add_lora_hook)
 
 
