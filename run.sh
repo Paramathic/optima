@@ -3,11 +3,12 @@
 #source activate pytorch
 
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$PWD/compression/pruning_kernels/tensor_cores/libcusparse_lt/lib
+export HF_DATASETS_TRUST_REMOTE_CODE=1
 
-MODEL_PREFIX=facebook/opt- #meta-llama/Llama-2- #facebook/opt-
-#MODEL_POSTFIX=-hf
+MODEL_PREFIX=meta-llama/Llama-2- #facebook/opt-
+MODEL_POSTFIX=-hf
 
-for MODEL_SIZE in 1.3b #7B #6.7b
+for MODEL_SIZE in 7b #1.3b #7B #6.7b
 do
     for STRUCTURE in "2:4"
     do
@@ -34,7 +35,7 @@ do
             FINE_TUNE='--fine_tune'
             EVALUATE_PERPLEXITY='--evaluate_perplexity'
 
-            python main_opt.py \
+            CUDA_VISIBLE_DEVICES=0 python main_opt.py \
                 --model ${MODEL_PREFIX}${MODEL_SIZE}${MODEL_POSTFIX} \
                 --prune_method $METHOD \
                 --sparsity_ratio $SPARSITY_RATIO \
