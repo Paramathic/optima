@@ -19,7 +19,6 @@ else:
     if not os.path.exists(f"{base_path}/build"):
         os.makedirs(f"{base_path}/build")
 
-    if not os.path.exists(base_path + "/libcusparse_lt"):
         #os.system(
         #    "wget https://developer.download.nvidia.com/compute/cusparselt/redist/libcusparse_lt/linux-x86_64/"
         #    "libcusparse_lt-linux-x86_64-0.4.0.7-archive.tar.xz")
@@ -28,7 +27,7 @@ else:
         #os.system("rm libcusparse_lt-linux-x86_64-0.4.0.7-archive.tar.xz")
 
         os.system(
-        "wget https://developer.download.nvidia.com/compute/cusparselt/redist/libcusparse_lt/linux-x86_64/libcusparse_lt-linux-x86_64-0.5.1.1-archive.tar.xz")
+        "wget --no-check-certificate https://developer.download.nvidia.com/compute/cusparselt/redist/libcusparse_lt/linux-x86_64/libcusparse_lt-linux-x86_64-0.5.1.1-archive.tar.xz")
         os.system("tar -xf libcusparse_lt-linux-x86_64-0.5.1.1-archive.tar.xz")
         os.system(f"mv libcusparse_lt-linux-x86_64-0.5.1.1-archive {base_path}/libcusparse_lt")
         os.system("rm libcusparse_lt-linux-x86_64-0.5.1.1-archive.tar.xz")
