@@ -306,7 +306,7 @@ def attach_input_quantization_hooks(model, num_bits=8):
 def merge_lora(model):
     for name, module in model.named_modules():
         if hasattr(module, "lora_left") and hasattr(module, "lora_right"):
-            module.weight.data += (module.lora_right.t() @ module.lora_left.t()).to(module.weight.device).to(
+            module.weight.data += ((module.lora_right.t() @ module.lora_left.t())  / module.lora_rank).to(module.weight.device).to(
                 module.weight.dtype)
             del module.lora_left
             del module.lora_right
@@ -372,7 +372,7 @@ def convert_flashattn_checkpoint_to_hf(checkpoint):
     return checkpoint
 
 
-def get_llm(model_name, cache_dir="llm_weights", local_checkpoint_dir="", device_map=None, local_files_only=True):
+def get_llm(model_name, cache_dir="llm_weights", local_checkpoint_dir="", device_map=None, local_files_only=False):
     kwargs = {}
     if device_map is not None:
         kwargs["device_map"] = device_map
