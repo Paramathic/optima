@@ -3,12 +3,14 @@
 #source activate pytorch
 
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$PWD/compression/pruning_kernels/tensor_cores/libcusparse_lt/lib
-export HF_DATASETS_TRUST_REMOTE_CODE=1
+export HF_DATASETS_TRUST_REMOTE_CODE="1"
+export HF_HOME="data"
+export HF_DATASETS_OFFLINE="1"
 
-MODEL_PREFIX=meta-llama/Llama-2- #facebook/opt-
-MODEL_POSTFIX=-hf
+MODEL_PREFIX=facebook/opt- #mistralai/Mistral- #meta-llama/Llama-2- #facebook/opt-
+# MODEL_POSTFIX=-v0.3 #-hf
 
-for MODEL_SIZE in 7b #1.3b #7B #6.7b
+for MODEL_SIZE in 13b #7B #125m # 7b #1.3b #7B #6.7b
 do
     for STRUCTURE in "2:4"
     do
