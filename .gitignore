@@ -20,3 +20,4 @@ compression/quantization/quantization_kernels/__pycache__
 compression/quantization/quantization_kernels/int_matmul/__pycache__
 results/*
 figures/*
+output/*
