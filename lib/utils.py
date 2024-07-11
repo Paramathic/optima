@@ -4,6 +4,8 @@ from types import MethodType
 import numpy as np
 from transformers import AutoModelForCausalLM
 from compression.quantization.model_quantizing import Quantizer as AutoQuantizer
+from transformers.modeling_utils import Conv1D
+
 
 hf_token = "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"
 
@@ -329,7 +331,7 @@ def add_empty_lora(model, rank):
         subset[name].register_forward_hook(add_lora_hook)
 
 
-def conv1d_to_linear(conv1d):
+def conv1d_to_linear_layer(conv1d):
     input_dim = conv1d.weight.shape[0]
     output_dim = conv1d.weight.shape[1]
     bias = conv1d.bias is not None
@@ -338,6 +340,43 @@ def conv1d_to_linear(conv1d):
     if bias:
         layer.bias.data = conv1d.bias.data
     return layer
+
+
+def linear_to_conv1d_layer(linear):
+    input_dim = linear.weight.shape[1]
+    output_dim = linear.weight.shape[0]
+    bias = linear.bias is not None
+    layer = Conv1D(output_dim, input_dim)
+    layer.weight.data = linear.weight.data.T
+    if bias:
+        layer.bias.data = linear.bias.data
+    return layer
+
+
+def convert_conv1d_to_linear(model):
+    requires_conversoin = False
+    for i, layer in enumerate(get_layers_list(model)):
+        if hasattr(layer, "attn"):
+            requires_conversoin = True
+            layer.attn.c_attn = conv1d_to_linear_layer(layer.attn.c_attn)
+            layer.attn.c_proj = conv1d_to_linear_layer(layer.attn.c_proj)
+        if hasattr(layer, "mlp"):
+            if hasattr(layer.mlp, "c_fc"):
+                layer.mlp.c_fc = conv1d_to_linear_layer(layer.mlp.c_fc)
+            if hasattr(layer.mlp, "c_proj"):
+                layer.mlp.c_proj = conv1d_to_linear_layer(layer.mlp.c_proj)
+    return requires_conversoin
+
+def convert_linear_to_conv1d(model):
+    for i, layer in enumerate(get_layers_list(model)):
+        if hasattr(layer, "attn"):
+            layer.attn.c_attn = linear_to_conv1d_layer(layer.attn.c_attn)
+            layer.attn.c_proj = linear_to_conv1d_layer(layer.attn.c_proj)
+        if hasattr(layer, "mlp"):
+            if hasattr(layer.mlp, "c_fc"):
+                layer.mlp.c_fc = linear_to_conv1d_layer(layer.mlp.c_fc)
+            if hasattr(layer.mlp, "c_proj"):
+                layer.mlp.c_proj = linear_to_conv1d_layer(layer.mlp.c_proj)
 
 
 def convert_flashattn_checkpoint_to_hf(checkpoint):
@@ -402,16 +441,8 @@ def get_llm(model_name, cache_dir="llm_weights", local_checkpoint_dir="", device
         if "gpt" in model_name:
             checkpoint = convert_flashattn_checkpoint_to_hf(checkpoint)
         model.load_state_dict(checkpoint)
-
-    for i, layer in enumerate(get_layers_list(model)):
-        if hasattr(layer, "attn"):
-            layer.attn.c_attn = conv1d_to_linear(layer.attn.c_attn)
-            layer.attn.c_proj = conv1d_to_linear(layer.attn.c_proj)
-        if hasattr(layer, "mlp"):
-            if hasattr(layer.mlp, "c_fc"):
-                layer.mlp.c_fc = conv1d_to_linear(layer.mlp.c_fc)
-            if hasattr(layer.mlp, "c_proj"):
-                layer.mlp.c_proj = conv1d_to_linear(layer.mlp.c_proj)
+    
+    model.has_conv1d = convert_conv1d_to_linear(model)
 
     model.seqlen = model.config.max_position_embeddings
     return model
@@ -482,4 +513,11 @@ def distribute_model(model, fill_ratio=1., reserved_input_size=None):
     elif hasattr(model.model, "layers"):  # LLaMA
         model.model.norm = model.model.norm.float()
     model.lm_head = model.lm_head.float()
+    return model
+
+
+def contigous_model(model):
+    for layer in get_layers_list(model):
+        for param in layer.parameters():
+            param.data = param.data.contiguous()
     return model

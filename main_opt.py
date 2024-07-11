@@ -8,7 +8,7 @@ from importlib.metadata import version
 
 from lib.prune_opt import prune_wanda, prune_magnitude, prune_sparsegpt, prune_ablate, check_sparsity, quantize_model
 from lib.eval import eval_ppl, eval_zero_shot
-from lib.utils import get_layers_list, merge_lora, get_llm, hf_token
+from lib.utils import contigous_model, merge_lora, get_llm, hf_token, convert_linear_to_conv1d
 import time
 import shutil
 from lib.fine_tune import fine_tune
@@ -177,6 +177,9 @@ def main():
         np.random.seed(np.int64(time.time()))
         randint = np.random.randint(0, 1000)
         checkpoint_dir = "/tmp/tmp_ckpt{}".format(randint)
+        if model.has_conv1d:
+            convert_linear_to_conv1d(model)
+        contigous_model(model)
         model.save_pretrained(checkpoint_dir)
         tokenizer.save_pretrained(checkpoint_dir)
         del model, tokenizer
