@@ -152,6 +152,7 @@ def fine_tune(model,
     ################################################################################################################
     batch_size = 64
     local_batch_size = 1
+    bf16 = transformers.utils.import_utils.is_torch_bf16_gpu_available()
     training_args = TrainingArguments(
         output_dir="output",
         overwrite_output_dir=True,
@@ -165,7 +166,8 @@ def fine_tune(model,
         eval_steps=100,
         save_steps=5000,
         save_total_limit=1,
-        fp16=True,
+        bf16=bf16,
+        fp16=not bf16,
         group_by_length=False,
         gradient_accumulation_steps=batch_size // local_batch_size,
         warmup_steps=5,
@@ -336,7 +338,8 @@ def fine_tune(model,
                 logits = logits[0]
             return logits.argmax(dim=-1)
 
-        metric = evaluate.load("accuracy")
+        # metric = evaluate.load("accuracy")
+        metric = None
 
         def compute_metrics(eval_preds):
             preds, labels = eval_preds
