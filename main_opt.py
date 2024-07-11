@@ -105,6 +105,7 @@ def main():
     parser.add_argument('--test_lmharness', action="store_true", help="Whether to test LMEHarness tasks")
     parser.add_argument('--fine_tune', action="store_true", help="Whether to fine-tune the model after pruning")
     parser.add_argument('--evaluate_perplexity', action="store_true", help="Whether to evaluate the model perplexity")
+    parser.add_argument('--local_files_only', action="store_true", help="Whether to use local files only")
 
     args = parser.parse_args()
 
@@ -114,7 +115,7 @@ def main():
 
     model_name = args.model.split("/")[-1]
     print(f"Loading model {model_name}")
-    model = get_llm(args.model, args.cache_dir, args.local_checkpoint_dir)
+    model = get_llm(args.model, args.cache_dir, args.local_checkpoint_dir, local_files_only=args.local_files_only)
 
     model.eval()
     tokenizer = AutoTokenizer.from_pretrained(args.model, use_fast=False, cache_dir="tokenizers", token=hf_token)

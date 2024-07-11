@@ -36,7 +36,7 @@ def eval_ppl(args, model, tokenizer, model_name, device=torch.device("cuda:0"), 
 
     # Evaluate ppl in no grad context to avoid updating the model
     with torch.no_grad():
-        ppl_test = eval_ppl_wikitext(model, testloader, model_name, has_lora, args.lora_rank, args.eval_batch_size, model.device)
+        ppl_test = eval_ppl_wikitext(model, testloader, model_name, has_lora, args.lora_rank, args.eval_batch_size, model.device, local_files_only=args.local_files_only)
     return ppl_test
 
 # Function to evaluate perplexity (ppl) specifically on the wikitext dataset
@@ -93,7 +93,7 @@ def eval_ppl_wikitext_train(model, trainloader, bs=1, device=None):
 
 @torch.no_grad()
 # Function to evaluate perplexity (ppl) specifically on the wikitext dataset
-def eval_ppl_wikitext(model, testenc, model_name, has_lora=False, lora_rank=None, bs=1, device=None):
+def eval_ppl_wikitext(model, testenc, model_name, has_lora=False, lora_rank=None, bs=1, device=None, local_files_only=False):
     if model.device == torch.device("cpu"):
         np.random.seed(np.int64(time.time()))
         randint = np.random.randint(0, 1000)
@@ -102,7 +102,7 @@ def eval_ppl_wikitext(model, testenc, model_name, has_lora=False, lora_rank=None
         model = model.cpu()
         del model
         torch.cuda.empty_cache()
-        model = get_llm(model_name, device_map="auto")
+        model = get_llm(model_name, device_map="auto", local_files_only=local_files_only)
 
         if has_lora:
             add_empty_lora(model, lora_rank)

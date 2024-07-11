@@ -17,6 +17,7 @@ do
         for METHOD in wanda #sparsegpt
         do
 #           rm -rf data
+            LOCAL_FILES_ONLY='--local_files_only'
             SPARSITY_RATIO=0.5
             LORA_RANK=0.1
             WANDA_IN_LORA='--wanda_in_lora'
@@ -63,7 +64,8 @@ do
                 $TEST_LMHARNESS \
                 --output_csv_path results/perplexity.csv \
                 $FINE_TUNE \
-                $EVALUATE_PERPLEXITY
+                $EVALUATE_PERPLEXITY \
+                $LOCAL_FILES_ONLY
 
             
         done
