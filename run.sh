@@ -5,12 +5,12 @@
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$PWD/compression/pruning_kernels/tensor_cores/libcusparse_lt/lib
 export HF_DATASETS_TRUST_REMOTE_CODE="1"
 export HF_HOME="data"
-export HF_DATASETS_OFFLINE="1"
+#export HF_DATASETS_OFFLINE="1"
 
 MODEL_PREFIX=facebook/opt- #mistralai/Mistral- #meta-llama/Llama-2- #facebook/opt-
 # MODEL_POSTFIX=-v0.3 #-hf
 
-for MODEL_SIZE in 13b #7B #125m # 7b #1.3b #7B #6.7b
+for MODEL_SIZE in 6.7b #7B #125m # 7b #1.3b #7B #6.7b
 do
     for STRUCTURE in "2:4"
     do
@@ -25,6 +25,8 @@ do
             EVAL_DATASET='wikitext2'
             QUANTIZE='--quantize'
             BITWIDTH=4
+            QUANTIZE_INPUT='--quantize_input'
+            INPUT_BITWIDTH=8
             # QUANTIZE_BEFORE_PRUNING='--quantize_before_pruning'
             MAX_BITWIDTH=4
             USE_STD_IN_QUANTIZATION='--use_std_in_quantization'
@@ -33,9 +35,9 @@ do
              SEPARATE_LORA='--separate_lora'
             # ACCELERATE='--accelerate'
             # RANDOMIZED_SVD='--randomized_svd'
-            # LOCAL_CHECKPOINT_DIR='--local_checkpoint_dir local_checkpoints/flash_attn_gpt2_small_dense.pt'
-            TEST_LMHARNESS='--test_lmharness'
-            FINE_TUNE='--fine_tune'
+            # LOCAL_CHECKPOINT_DIR='--local_checkpoint_dir llm_weights/flash_attn_gpt2_small_dense_lora0.pt'
+#            TEST_LMHARNESS='--test_lmharness'
+#            FINE_TUNE='--fine_tune'
             EVALUATE_PERPLEXITY='--evaluate_perplexity'
 
             CUDA_VISIBLE_DEVICES=0 python main_opt.py \
@@ -65,7 +67,9 @@ do
                 --output_csv_path results/perplexity.csv \
                 $FINE_TUNE \
                 $EVALUATE_PERPLEXITY \
-                $LOCAL_FILES_ONLY
+                $LOCAL_FILES_ONLY \
+                $QUANTIZE_INPUT \
+                --input_bitwidth $INPUT_BITWIDTH
 
             
         done

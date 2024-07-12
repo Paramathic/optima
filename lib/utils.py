@@ -289,11 +289,13 @@ def find_layers(module, layers=[torch.nn.Linear], name=''):
 
 def attach_input_quantization_hooks(model, num_bits=8):
     def input_quantization_pre_hook(module, input):
-        quantized_input = module.quantizer.quantize(input[0])
-        dequantized_input = module.quantizer.dequantize_input(quantized_input)
-        print("Relative Error:", (torch.norm(input[0] - dequantized_input) / torch.norm(input[0])).item(),
-              module.weight.shape)
-        # input.data = module.quantizer.dequantize_input(quantized_input)
+        if module.weight.size(1) != 4 * module.weight.size(0):
+            quantized_input = module.quantizer.quantize(input[0])
+            dequantized_input = module.quantizer.dequantize_input(quantized_input)
+            relative_error = (torch.norm(input[0] - dequantized_input) / torch.norm(input[0])).item()
+            if relative_error > 5e-2:
+                print("Relative Error:", relative_error, module.weight.shape)
+            input[0].data = module.quantizer.dequantize_input(quantized_input)
 
     layers = get_layers_list(model)
     for i in range(len(layers)):

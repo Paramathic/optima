@@ -8,7 +8,7 @@ from importlib.metadata import version
 
 from lib.prune_opt import prune_wanda, prune_magnitude, prune_sparsegpt, prune_ablate, check_sparsity, quantize_model
 from lib.eval import eval_ppl, eval_zero_shot
-from lib.utils import contigous_model, merge_lora, get_llm, hf_token, convert_linear_to_conv1d
+from lib.utils import contigous_model, merge_lora, get_llm, hf_token, convert_linear_to_conv1d, attach_input_quantization_hooks
 import time
 import shutil
 from lib.fine_tune import fine_tune
@@ -106,6 +106,8 @@ def main():
     parser.add_argument('--fine_tune', action="store_true", help="Whether to fine-tune the model after pruning")
     parser.add_argument('--evaluate_perplexity', action="store_true", help="Whether to evaluate the model perplexity")
     parser.add_argument('--local_files_only', action="store_true", help="Whether to use local files only")
+    parser.add_argument('--quantize_input', action="store_true", help="Whether to quantize input")
+    parser.add_argument("--input_bitwidth", type=int, default=8, help="Input quantization bitwidth")
 
     args = parser.parse_args()
 
@@ -159,7 +161,10 @@ def main():
     if args.fine_tune:
         fine_tune(model, tokenizer)#, block_size=tokenizer.model_max_length)
         print("*" * 30)
-
+    ################################################################
+    if args.quantize_input:
+        print("Enabling input quantizatoin:")
+        attach_input_quantization_hooks(model, args.input_bitwidth)
     ################################################################
     ppl_test = 0.
     if args.evaluate_perplexity:
