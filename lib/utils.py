@@ -326,11 +326,13 @@ def add_empty_lora(model, rank):
             subset[name].lora_right = torch.nn.Parameter(
                 torch.zeros((layer_rank, subset[name].weight.shape[0]), device=subset[name].weight.device).half())
 
-        def add_lora_hook(module, input, output):
-            output += torch.matmul(torch.matmul(input[0].to(module.lora_left.dtype), module.lora_left) / np.sqrt(module.lora_rank),
-                                   module.lora_right) / np.sqrt(module.lora_rank)
-        subset[name].lora_rank = torch.tensor(layer_rank)
-        subset[name].register_forward_hook(add_lora_hook)
+            def add_lora_hook(module, input, output):
+                output += torch.matmul(
+                    torch.matmul(input[0].to(module.lora_left.dtype) / torch.sqrt(module.lora_rank), module.lora_left),
+                    module.lora_right) / torch.sqrt(module.lora_rank)
+
+            subset[name].lora_rank = torch.tensor(layer_rank)
+            subset[name].register_forward_hook(add_lora_hook)
 
 
 def conv1d_to_linear_layer(conv1d):

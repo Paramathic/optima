@@ -421,8 +421,8 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
                                                module.lora_right) / torch.sqrt(module.lora_rank)
 
                     subset[name].lora_rank = torch.tensor(subset[name].lora_left.shape[1])
-                    subset[name].lora_left.data = subset[name].lora_left * torch.sqrt(subset[name].lora_rank)
-                    subset[name].lora_right.data = subset[name].lora_right * torch.sqrt(subset[name].lora_rank)
+                    subset[name].lora_left = torch.nn.Parameter(subset[name].lora_left * torch.sqrt(subset[name].lora_rank))
+                    subset[name].lora_right = torch.nn.Parameter(subset[name].lora_right * torch.sqrt(subset[name].lora_rank))
                     subset[name].register_forward_hook(add_lora_hook)
 
 
@@ -467,7 +467,6 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
     if args.bias_correction:
         raise NotImplementedError
         # layers_inps_outs = update_outputs_for_bias_correction(model, layers, layers_inps_outs, single_gpu_en, device, args.bias_alpha, args.bias_correction_nsamples)
-
     if args.accelerate:
         for i in range(len(layers)):
             if layer.device == torch.device("cpu"):
