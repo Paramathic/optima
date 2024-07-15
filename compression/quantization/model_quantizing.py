@@ -97,9 +97,12 @@ def find_optimal_quantiztion_cap(mat, num_bits=8, num_bins=4096, integrate=True)
 
 class Quantizer:
 
-    def __init__(self, matrix_type, num_bits=8):
+    def __init__(self, matrix_type, num_bits=8, group_size=-1, symmetric=True, eps=1e-4):
         self.matrix_type = matrix_type
         self.num_bits = num_bits
+        self.group_size = group_size
+        self.symmetric = symmetric
+        self.eps = eps
 
     def quantize(self, mat, num_bits=8):
         if self.matrix_type == "weight":
@@ -147,18 +150,33 @@ class Quantizer:
 
     def quantize_input(self, mat):
         """ Zero-point quantization for inputs """
+        if self.group_size != -1:
+            mat_shape = mat.shape
+            mat = mat.view(-1, self.group_size)
+        
         max_q = 2 ** (self.num_bits - 1) - 1
-        mat_max = mat.max(dim=1, keepdim=True)[0]
-        mat_min = mat.min(dim=1, keepdim=True)[0]
-        range = (mat_max - mat_min)
-        mid_point = (mat_max + mat_min) / 2
-        #TODO: Fix the asymmetric issue
-        scale = (2 * max_q + 1) / range 
+        if self.symmetric:
+            range = mat.abs().max(dim=-1, keepdim=True)[0]
+            zero_locs = range.abs() < (self.eps * max_q)
+            range[zero_locs] = 1.
+            mid_point = torch.zeros_like(range)
+            scale = max_q / range
+        else:
+            mat_max = mat.max(dim=-1, keepdim=True)[0]
+            mat_min = mat.min(dim=-1, keepdim=True)[0]
+            range = (mat_max - mat_min)
+            zero_locs = range.abs() < (self.eps * max_q)
+            range[zero_locs] = 1.
+            mid_point = (mat_max + mat_min) / 2
+            #TODO: Fix the asymmetric issue
+            scale = (2 * max_q + 1) / range 
         quantized_mat = torch.round((mat - mid_point) * scale)
         quantized_mat = torch.clamp(quantized_mat, -max_q - 1, max_q)
 
         self.zero_point = mid_point
         self.scaling_factor = scale
+        if self.group_size != -1:
+            quantized_mat = quantized_mat.view(mat_shape)
 
         return quantized_mat
 
@@ -194,8 +212,12 @@ class Quantizer:
     
     def dequantize_input(self, mat):
         """ Zero-point dequantization for inputs """
+        if self.group_size != -1:
+            mat_shape = mat.shape
+            mat = mat.view(-1, self.group_size)
         dequantized_mat = mat / self.scaling_factor + self.zero_point
-
+        if self.group_size != -1:
+            dequantized_mat = dequantized_mat.view(mat_shape)
         return dequantized_mat
 
 

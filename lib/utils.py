@@ -287,14 +287,14 @@ def find_layers(module, layers=[torch.nn.Linear], name=''):
     return res
 
 
-def attach_input_quantization_hooks(model, num_bits=8):
+def attach_input_quantization_hooks(model, num_bits=8, input_group_size=-1):
     def input_quantization_pre_hook(module, input):
-        if module.weight.size(1) != 4 * module.weight.size(0):
-            quantized_input = module.quantizer.quantize(input[0])
-            dequantized_input = module.quantizer.dequantize_input(quantized_input)
-            relative_error = (torch.norm(input[0] - dequantized_input) / torch.norm(input[0])).item()
-            if relative_error > 5e-2:
-                print("Relative Error:", relative_error, module.weight.shape)
+        quantized_input = module.quantizer.quantize(input[0])
+        dequantized_input = module.quantizer.dequantize_input(quantized_input)
+        relative_error = (torch.norm(input[0] - dequantized_input) / torch.norm(input[0])).item()
+        if relative_error > 5e-2:
+            print(f"Skipping input quantization for layer {module}: with relative error {relative_error}.")
+        else:
             input[0].data = module.quantizer.dequantize_input(quantized_input)
 
     layers = get_layers_list(model)
@@ -303,7 +303,7 @@ def attach_input_quantization_hooks(model, num_bits=8):
         subset = find_layers(layer)
 
         for name in subset:
-            subset[name].quantizer = AutoQuantizer("input", num_bits=num_bits)
+            subset[name].quantizer = AutoQuantizer("input", num_bits=num_bits, group_size=input_group_size)
             subset[name].register_forward_pre_hook(input_quantization_pre_hook)
 
 

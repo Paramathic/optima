@@ -1,16 +1,16 @@
 
-#module load anaconda3 cuda/11.4.4 gcc/10.3.0 ninja
-#source activate pytorch
+module load anaconda3 cuda/11.4.4 gcc/10.3.0 ninja
+source activate pytorch
 
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$PWD/compression/pruning_kernels/tensor_cores/libcusparse_lt/lib
 export HF_DATASETS_TRUST_REMOTE_CODE="1"
 export HF_HOME="data"
 #export HF_DATASETS_OFFLINE="1"
 
-MODEL_PREFIX=facebook/opt- #mistralai/Mistral- #meta-llama/Llama-2- #facebook/opt-
-# MODEL_POSTFIX=-v0.3 #-hf
+MODEL_PREFIX=meta-llama/Llama-2- #mistralai/Mistral- #meta-llama/Llama-2- #facebook/opt-
+MODEL_POSTFIX=-hf #-v0.3 #-hf
 
-for MODEL_SIZE in 6.7b #7B #125m # 7b #1.3b #7B #6.7b
+for MODEL_SIZE in 7b #7B #125m # 7b #1.3b #7B #6.7b
 do
     for STRUCTURE in "2:4"
     do
@@ -27,6 +27,7 @@ do
             BITWIDTH=4
             QUANTIZE_INPUT='--quantize_input'
             INPUT_BITWIDTH=8
+            INPUT_GROUP_SIZE=128
             # QUANTIZE_BEFORE_PRUNING='--quantize_before_pruning'
             MAX_BITWIDTH=4
             USE_STD_IN_QUANTIZATION='--use_std_in_quantization'
@@ -40,7 +41,7 @@ do
 #            FINE_TUNE='--fine_tune'
             EVALUATE_PERPLEXITY='--evaluate_perplexity'
 
-            CUDA_VISIBLE_DEVICES=0 python main_opt.py \
+            CUDA_VISIBLE_DEVICES=1 python main_opt.py \
                 --model ${MODEL_PREFIX}${MODEL_SIZE}${MODEL_POSTFIX} \
                 --prune_method $METHOD \
                 --sparsity_ratio $SPARSITY_RATIO \
@@ -69,7 +70,8 @@ do
                 $EVALUATE_PERPLEXITY \
                 $LOCAL_FILES_ONLY \
                 $QUANTIZE_INPUT \
-                --input_bitwidth $INPUT_BITWIDTH
+                --input_bitwidth $INPUT_BITWIDTH \
+                --input_group_size $INPUT_GROUP_SIZE 
 
             
         done
