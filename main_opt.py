@@ -8,7 +8,7 @@ from importlib.metadata import version
 
 from lib.prune_opt import prune_wanda, prune_magnitude, prune_sparsegpt, prune_ablate, check_sparsity, quantize_model
 from lib.eval import eval_ppl, eval_zero_shot
-from lib.utils import contigous_model, merge_lora, get_llm, hf_token, convert_linear_to_conv1d, attach_input_quantization_hooks
+from lib.utils import contigous_model, merge_lora, get_llm, hf_token, convert_linear_to_conv1d, attach_input_quantization_hooks, add_empty_lora
 import time
 import shutil
 from lib.fine_tune import fine_tune
@@ -174,7 +174,7 @@ def main():
         print("*" * 30)
     ################################################################
 
-    merge_lora(model)
+    # merge_lora(model)
 
     
     lmharness_results = {}
@@ -186,17 +186,36 @@ def main():
         if model.has_conv1d:
             convert_linear_to_conv1d(model)
         contigous_model(model)
-        model.save_pretrained(checkpoint_dir)
-        tokenizer.save_pretrained(checkpoint_dir)
-        del model, tokenizer
+        torch.save(model.state_dict(), checkpoint_dir)
+        # model.save_pretrained(checkpoint_dir)
+        # tokenizer.save_pretrained(checkpoint_dir)
+        # del model, tokenizer
         torch.cuda.empty_cache()
+        model_args = f"pretrained={args.model},dtype=half,parallelize=True,device_map_option=auto"
+        model = lm_eval.api.registry.get_model("hf").create_from_arg_string(
+                model_args,
+                {
+                    "batch_size": None,
+                    "max_batch_size": None,
+                    "device": None,
+                },
+            )
+        has_lora = (args.prune_method == "wanda"
+                    and args.lora_rank > 0
+                    and args.separate_lora
+                    and args.sparsity_type != "dense")
+        if has_lora:
+            add_empty_lora(model.model, args.lora_rank)
+        model.model.load_state_dict(torch.load(checkpoint_dir))
+        os.remove(checkpoint_dir)
+        if args.quantize_input:
+            attach_input_quantization_hooks(model.model, args.input_bitwidth, args.input_group_size)
         results = lm_eval.simple_evaluate(
-            model="hf",
-            model_args=f"pretrained={checkpoint_dir},dtype=half,parallelize=True,device_map_option=auto",
+            model=model,
             tasks=["mmlu", "piqa", "arc_easy", "arc_challenge", "winogrande", "openbookqa"],
             verbosity="ERROR"
         )
-        shutil.rmtree(checkpoint_dir)
+        # shutil.rmtree(checkpoint_dir)
         lmharness_results["mmlu"] = results['results']["mmlu"]["acc,none"]
         lmharness_results["piqa"] = results['results']["piqa"]["acc,none"]
         lmharness_results["arc_easy"] = results['results']["arc_easy"]["acc,none"]
