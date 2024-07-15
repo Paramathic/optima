@@ -12,6 +12,7 @@ from lib.utils import remove_outlier, add_empty_lora, get_llm
 import numpy as np
 import tqdm.auto as tqdm
 import shutil
+import os
 
 hf_token = "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"
 
@@ -106,10 +107,9 @@ def eval_ppl_wikitext(model, testenc, model_name, has_lora=False, lora_rank=None
 
         if has_lora:
             add_empty_lora(model, lora_rank)
-
         model.load_state_dict(torch.load(checkpoint_dir))
 
-        shutil.rmtree(checkpoint_dir)
+        os.remove(checkpoint_dir)
 
         # torch.cuda.empty_cache()
         # # model = model.float()
