@@ -191,7 +191,8 @@ def main():
         # tokenizer.save_pretrained(checkpoint_dir)
         # del model, tokenizer
         torch.cuda.empty_cache()
-        model_args = f"pretrained={args.model},dtype=half,parallelize=True,device_map_option=auto"
+
+        model_args = f"pretrained={args.model},dtype=half,device_map_option=auto,local_files_only={args.local_files_only},cache_dir=llm_weights,low_cpu_mem_usage=True"
         model = lm_eval.api.registry.get_model("hf").create_from_arg_string(
                 model_args,
                 {
