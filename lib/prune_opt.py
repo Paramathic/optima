@@ -167,7 +167,8 @@ def save_bias_correction_data(model, layers, inps, outs, attention_mask, single_
         coeff = int(128 / nsamples)
         for j in range(nsamples):
             with torch.no_grad():
-                outs[coeff * j] = layer(inps[coeff * j].unsqueeze(0), attention_mask=attention_mask)[0]
+                if attention_mask is not None:
+                    outs[coeff * j] = layer(inps[coeff * j].unsqueeze(0), attention_mask=attention_mask)[0]
                 sample_counter += 1
         for h in handles:
             h.remove()
@@ -352,7 +353,7 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
                                             attention_mask=attention_mask,
                                             position_ids=position_ids)[0]
                         else:
-                            outs[j] = layer(inps[j].unsqueeze(0).float(), attention_mask=attention_mask.cpu())[0].half()
+                            outs[j] = layer(inps[j].unsqueeze(0).float(), attention_mask=attention_mask.cpu() if attention_mask is not None else attention_mask)[0].half()
                 else:
                     if is_llama:
                         outs[j] = layer(inps[j].unsqueeze(0),
