@@ -106,7 +106,7 @@ def eval_ppl_wikitext(model, testenc, model_name, has_lora=False, lora_rank=None
         model = get_llm(model_name, device_map="auto", local_files_only=local_files_only)
 
         if has_lora:
-            add_empty_lora(model, lora_rank)
+            add_empty_lora(model)
         model.load_state_dict(torch.load(checkpoint_dir))
 
         os.remove(checkpoint_dir)

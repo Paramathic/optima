@@ -9,7 +9,7 @@ from .data import get_loaders
 
 from .ablate import AblateGPT
 
-from .utils import add_lora, get_layers_list, shift_zeros, accelerate_module, find_layers
+from .utils import add_lora, get_layers_list, shift_zeros, accelerate_module, find_layers, optimize_rank
 from compression.quantization.model_quantizing import Quantizer as AutoQuantizer
 from transformers import LlamaForCausalLM
 from compression.ops import prune_row_wise
@@ -405,7 +405,7 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
             if args.lora_rank > 0.:
                 add_lora(subset[name],
                          W_mask=W_mask,
-                         rank_ratio=args.lora_rank,
+                         rank_ratio=2. * args.lora_rank,
                          use_wanda=args.wanda_in_lora,
                          activations=wrapped_layers[name],
                          use_randomized_svd=args.randomized_svd,
@@ -414,7 +414,10 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
                          use_std=args.use_std_in_quantization,
                          max_bitwidth=args.max_bitwidth,
                          pruned_L=args.pruned_l,
-                         separate_lora=args.separate_lora)
+                         separate_lora=args.separate_lora,
+                         model_name=args.model,
+                         layer_name=name,
+                         layer_num=i)
 
                 if args.separate_lora:
                     def add_lora_hook(module, input, output):
@@ -464,6 +467,8 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
             layers[i] = layer.cpu()
             del layer
             torch.cuda.empty_cache()
+
+    optimize_rank(model, average_rank=args.lora_rank, max_rank=2.*args.lora_rank)
 
     if args.bias_correction:
         raise NotImplementedError

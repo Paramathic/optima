@@ -206,7 +206,7 @@ def main():
                     and args.separate_lora
                     and args.sparsity_type != "dense")
         if has_lora:
-            add_empty_lora(model.model, args.lora_rank)
+            add_empty_lora(model.model)
         model.model.load_state_dict(torch.load(checkpoint_dir))
         os.remove(checkpoint_dir)
         if args.quantize_input:
