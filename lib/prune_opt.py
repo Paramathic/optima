@@ -405,7 +405,7 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
             if args.lora_rank > 0.:
                 add_lora(subset[name],
                          W_mask=W_mask,
-                         rank_ratio=2. * args.lora_rank,
+                         rank_ratio=args.lora_rank,
                          use_wanda=args.wanda_in_lora,
                          activations=wrapped_layers[name],
                          use_randomized_svd=args.randomized_svd,
@@ -417,7 +417,8 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
                          separate_lora=args.separate_lora,
                          model_name=args.model,
                          layer_name=name,
-                         layer_num=i)
+                         layer_num=i, 
+                         max_rank=3. * args.lora_rank)
 
                 if args.separate_lora:
                     def add_lora_hook(module, input, output):
@@ -468,7 +469,7 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
             del layer
             torch.cuda.empty_cache()
 
-    optimize_rank(model, average_rank=args.lora_rank, max_rank=2.*args.lora_rank)
+    optimize_rank(model, average_rank=args.lora_rank, max_rank=3.*args.lora_rank)
 
     if args.bias_correction:
         raise NotImplementedError
