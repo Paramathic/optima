@@ -193,7 +193,7 @@ def add_lora(module,
     prob = cp.Problem(objective, constraints)
     result = prob.solve()
     approx_energy = polynomial_approximation(x, powers, alphas.value)
-    svd_params[(layer_name, layer_num)] = alphas.value
+    svd_params[(layer_name, layer_num)] = np.abs(alphas.value)
 
     # torch.save(energy, f"tmp/{layer_name}_{layer_num}.pt")
     # plt.plot(torch.linspace(0., 1., min(error_mat.shape)), energy)
@@ -221,7 +221,7 @@ def add_lora(module,
     # plt.legend()
     # plt.savefig(f"figures/rank/{model_name}/average_energy.pdf")
     # plt.close()
-    rank = int(rank_ratio * min(error_mat.shape))
+    rank = int(max_rank * min(error_mat.shape))
 
     if pruned_L:
         L = U[:, :rank].half()
