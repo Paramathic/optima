@@ -326,10 +326,6 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
 
         def add_batch(name):
             def tmp(_, inp, out):
-                if torch.any(torch.isnan(out)):
-                    print(f"Layer {i} - NaN detected in {name}")
-                    print("Input: ", torch.any(torch.isnan(inp[0].data)))
-                    exit()
                 wrapped_layers[name].add_batch(inp[0].data, out.data)
 
             return tmp
