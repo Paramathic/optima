@@ -148,8 +148,8 @@ def add_lora(module,
              model_name="",
              layer_name="",
              layer_num=0,
-             min_rank=0.01,
-             max_rank=0.25):
+             max_rank=0.25,
+             uniform_rank=True):
     if use_wanda and not any(activations.scaler_row == 0):
         if quantizer is None:
             W_metric = module.weight.data * (torch.sqrt(activations.scaler_row.reshape((1, -1))))
@@ -176,52 +176,57 @@ def add_lora(module,
     else:
         U, S, V = torch.svd(error_mat.float())
 
+    if not uniform_rank:
+        # if not os.path.exists(f"figures/rank/{model_name}"):
+        #     os.makedirs(f"figures/rank/{model_name}")
+        # plt.figure()
+        matrix_rank = min(error_mat.shape)
+        energy = (torch.cumsum(S ** 2, 0) / (S ** 2).sum()).cpu().numpy()[0:matrix_rank]
+        # bias = energy[int(min_rank * matrix_rank)]
+        # slope = (energy[int(matrix_rank * max_rank)] - energy[int(matrix_rank * min_rank)]) / 0.14
+        x = torch.linspace(0, max_rank, int(min(error_mat.shape) * max_rank))
+        # linear_approx_energy = bias + slope * x
+        alphas = cp.Variable(len(powers))
+        error = cp.norm(energy[0:int(max_rank * matrix_rank)] - polynomial_approximation(x, powers, alphas))
+        constraints = [alphas >= 0]
+        objective = cp.Minimize(error)
+        prob = cp.Problem(objective, constraints)
+        result = prob.solve()
+        if prob.status != cp.OPTIMAL:
+            print("Optimization failed")
+            exit()
+        # approx_energy = polynomial_approximation(x, powers, alphas.value)
+        svd_params[(layer_name, layer_num)] = np.abs(alphas.value)
 
-    if not os.path.exists(f"figures/rank/{model_name}"):
-        os.makedirs(f"figures/rank/{model_name}")
-    # plt.figure()
-    matrix_rank = min(error_mat.shape)
-    energy = (torch.cumsum(S ** 2, 0) / (S ** 2).sum()).cpu().numpy()[0:matrix_rank]
-    bias = energy[int(min_rank * matrix_rank)]
-    slope = (energy[int(matrix_rank * max_rank)] - energy[int(matrix_rank * min_rank)]) / 0.14
-    x = torch.linspace(0, max_rank, int(min(error_mat.shape) * max_rank))
-    linear_approx_energy = bias + slope * x
-    alphas = cp.Variable(len(powers))
-    error = cp.norm(energy[0:int(max_rank * matrix_rank)] - polynomial_approximation(x, powers, alphas))
-    constraints = [alphas >= 0]
-    objective = cp.Minimize(error)
-    prob = cp.Problem(objective, constraints)
-    result = prob.solve()
-    approx_energy = polynomial_approximation(x, powers, alphas.value)
-    svd_params[(layer_name, layer_num)] = np.abs(alphas.value)
-
-    # torch.save(energy, f"tmp/{layer_name}_{layer_num}.pt")
-    # plt.plot(torch.linspace(0., 1., min(error_mat.shape)), energy)
-    # plt.plot(x, linear_approx_energy)
-    # plt.plot(x, approx_energy)
-    # plt.xlabel('Rank')
-    # plt.ylabel('Energy')
-    # plt.grid(True)
-    # plt.title(layer_name)
-    # plt.savefig(f"figures/rank/{model_name}/{layer_name}_{layer_num}.pdf")
-    # plt.close()
-    if not layer_name in svd_energy:
-        svd_energy[layer_name] = [energy, 1]
+        # torch.save(energy, f"tmp/{layer_name}_{layer_num}.pt")
+        # plt.plot(torch.linspace(0., 1., min(error_mat.shape)), energy)
+        # plt.plot(x, linear_approx_energy)
+        # plt.plot(x, approx_energy)
+        # plt.xlabel('Rank')
+        # plt.ylabel('Energy')
+        # plt.grid(True)
+        # plt.title(layer_name)
+        # plt.savefig(f"figures/rank/{model_name}/{layer_name}_{layer_num}.pdf")
+        # plt.close()
+        if not layer_name in svd_energy:
+            svd_energy[layer_name] = [energy, 1]
+        else:
+            svd_energy[layer_name][0] += energy
+            svd_energy[layer_name][1] += 1
+        # plt.figure()
+        for key in svd_energy:
+            energy = svd_energy[key][0] / svd_energy[key][1]
+            # plt.plot(torch.linspace(0., 1., min(error_mat.shape)), energy, label=key)
+        # plt.xlabel('Rank')
+        # plt.ylabel('Energy')
+        # plt.grid(True)
+        # plt.title("Average Energy")
+        # plt.legend()
+        # plt.savefig(f"figures/rank/{model_name}/average_energy.pdf")
+        # plt.close()
+        rank = int(max_rank * min(error_mat.shape))
     else:
-        svd_energy[layer_name][0] += energy
-        svd_energy[layer_name][1] += 1
-    # plt.figure()
-    for key in svd_energy:
-        energy = svd_energy[key][0] / svd_energy[key][1]
-        # plt.plot(torch.linspace(0., 1., min(error_mat.shape)), energy, label=key)
-    # plt.xlabel('Rank')
-    # plt.ylabel('Energy')
-    # plt.grid(True)
-    # plt.title("Average Energy")
-    # plt.legend()
-    # plt.savefig(f"figures/rank/{model_name}/average_energy.pdf")
-    # plt.close()
-    rank = int(max_rank * min(error_mat.shape))
+        rank = int(rank_ratio * min(error_mat.shape))
 
     if pruned_L:
         L = U[:, :rank].half()
@@ -261,46 +266,51 @@ def add_lora(module,
         module.weight.data = (new_weight + low_rank_weight).half()
 
 
-def optimize_rank(model, min_rank=0.01, average_rank=0.05, max_rank=0.25):
-    r = cp.Variable(len(svd_params))
-    alphas = np.zeros([len(svd_params), len(powers)])
-    i = 0
-    for key in svd_params:
-        alphas[i, :] = svd_params[key]
-        i += 1
-    constraints = [r >= 0.01, r <= max_rank, cp.mean(r) <= average_rank]
-    objective = cp.Maximize(cp.min(polynomial_approximation_cvx(r, powers, alphas)))
-    prob = cp.Problem(objective, constraints)
-    result = prob.solve()
-    # plt.figure()
-    # plt.hist(r.value, bins=100)
-    # plt.xlabel('Rank')
-    # plt.ylabel('Frequency')
-    # plt.grid(True)
-    # plt.title("Optimal Rank Distribution")
-    # plt.show()
-    print("Minimum Rank: ", min(r.value))
-    print("Average Rank: ", cp.mean(r).value)
-    print("Maximum Rank: ", max(r.value))
-    i = 0
-    for key in svd_params:
-        svd_params[key] = r.value[i]
-        i += 1
+def optimize_rank(model, min_rank=0.05, average_rank=0.05, max_rank=0.25, uniform_rank=True):
+    if not uniform_rank:
+        r = cp.Variable(len(svd_params))
+        alphas = np.zeros([len(svd_params), len(powers)])
+        i = 0
+        for key in svd_params:
+            alphas[i, :] = svd_params[key]
+            i += 1
+        constraints = [r >= min_rank, r <= max_rank, cp.mean(r) <= average_rank]
+        objective = cp.Maximize(cp.min(polynomial_approximation_cvx(r, powers, alphas)))
+        prob = cp.Problem(objective, constraints)
+        result = prob.solve()
+        # plt.figure()
+        # plt.hist(r.value, bins=100)
+        # plt.xlabel('Rank')
+        # plt.ylabel('Frequency')
+        # plt.grid(True)
+        # plt.title("Optimal Rank Distribution")
+        # plt.show()
+        print("Minimum Rank: ", min(r.value))
+        print("Average Rank: ", cp.mean(r).value)
+        print("Maximum Rank: ", max(r.value))
+        i = 0
+        for key in svd_params:
+            svd_params[key] = r.value[i]
+            i += 1
     layers = get_layers_list(model)
     for i in range(len(layers)):
         layer = layers[i]
         subset = find_layers(layer)
         for name in subset:
             module = subset[name]
-            lora_rank = torch.tensor(int(svd_params[(name, i)] * min(subset[name].weight.shape)))
-            # lora_rank = torch.tensor(int(0.1 * min(subset[name].weight.shape)))
-            lora_left = subset[name].lora_left[:, 0:lora_rank].data * torch.sqrt(lora_rank) / torch.sqrt(
-                module.lora_rank)
-            lora_right = subset[name].lora_right[0:lora_rank, :].data * torch.sqrt(lora_rank) / torch.sqrt(
-                module.lora_rank)
-            subset[name].lora_rank = lora_rank
-            subset[name].lora_left = torch.nn.Parameter(lora_left)
-            subset[name].lora_right = torch.nn.Parameter(lora_right)
+            if uniform_rank:
+                lora_rank = int(average_rank * min(module.weight.shape))
+                svd_params[(name, i)] = average_rank
+            else:
+                lora_rank = torch.tensor(int(svd_params[(name, i)] * min(subset[name].weight.shape)))
+                # lora_rank = torch.tensor(int(0.1 * min(subset[name].weight.shape)))
+                lora_left = subset[name].lora_left[:, 0:lora_rank].data * torch.sqrt(lora_rank) / torch.sqrt(
+                    module.lora_rank)
+                lora_right = subset[name].lora_right[0:lora_rank, :].data * torch.sqrt(lora_rank) / torch.sqrt(
+                    module.lora_rank)
+                subset[name].lora_rank = lora_rank
+                subset[name].lora_left = torch.nn.Parameter(lora_left)
+                subset[name].lora_right = torch.nn.Parameter(lora_right)
 
 
 
