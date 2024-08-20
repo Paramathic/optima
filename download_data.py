@@ -1,29 +1,44 @@
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
-
+import argparse
 
 #Download Models and Tokenizers
 
+argparser = argparse.ArgumentParser()
+argparser.add_argument("--local_cache", default=False, action="store_true")
+
+args = argparser.parse_args()
+
 hf_token = "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"
 
-llama2_sizes = ['7b' '13b', '70b']
-opt_sizes = ['125m', '1.3b', '2.7b', '6.7b', '13b', '30b', '66b']
+llama2_sizes = ['7b', '13b'] #, '70b']
+opt_sizes = ['125m', '350m', '1.3b', '2.7b', '6.7b', '13b', '30b', '66b']
 mistral_sizes = ['7B']
+llama3_1_sizes = ['8B']#, '70B', '405B']
 
-for size in mistral_sizes:# llama2_sizes:
+if args.local_cache:
+    model_cache_dir = "llm_weights"
+    tokenizer_cache_dir = "tokenizers"
+else:
+    model_cache_dir = None
+    tokenizer_cache_dir = None
+
+
+for size in llama3_1_sizes:
     # model_name = f'facebook/opt-{size}'
     # model_name = f'meta-llama/Llama-2-{size}-hf'
-    model_name = f"mistralai/Mistral-{size}-v0.3"
+    # model_name = f"mistralai/Mistral-{size}-v0.3"
+    model_name = f"meta-llama/Meta-Llama-3.1-{size}"
     print("Loading Model: ", model_name)
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
         torch_dtype=torch.float16,
-        cache_dir="llm_weights",
+        cache_dir=model_cache_dir,
         low_cpu_mem_usage=True,
         token=hf_token,
         # device_map='auto'
         )
-    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=False, cache_dir="tokenizers", token=hf_token)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=False, token=hf_token, cache_dir=tokenizer_cache_dir)
 
 
 # Download LM Harness Data
