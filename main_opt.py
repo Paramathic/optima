@@ -109,6 +109,7 @@ def main():
     parser.add_argument('--quantize_input', action="store_true", help="Whether to quantize input")
     parser.add_argument("--input_bitwidth", type=int, default=8, help="Input quantization bitwidth")
     parser.add_argument("--input_group_size", type=int, default=-1, help="Input quantization group size")
+    parser.add_argument("--uniform_rank", action="store_true", help="Whether to use uniform rank")
 
     args = parser.parse_args()
 

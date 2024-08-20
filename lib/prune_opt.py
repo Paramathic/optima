@@ -326,6 +326,10 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
 
         def add_batch(name):
             def tmp(_, inp, out):
+                if torch.any(torch.isnan(out)):
+                    print(f"Layer {i} - NaN detected in {name}")
+                    print("Input: ", torch.any(torch.isnan(inp[0].data)))
+                    exit()
                 wrapped_layers[name].add_batch(inp[0].data, out.data)
 
             return tmp
@@ -418,12 +422,15 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
                          model_name=args.model,
                          layer_name=name,
                          layer_num=i, 
-                         max_rank=3. * args.lora_rank)
+                         max_rank=3. * args.lora_rank,
+                         uniform_rank=args.uniform_rank,
+                         )
 
                 if args.separate_lora:
                     def add_lora_hook(module, input, output):
-                        output += torch.matmul(torch.matmul(input[0].to(module.lora_left.dtype) / torch.sqrt(module.lora_rank), module.lora_left),
-                                               module.lora_right) / torch.sqrt(module.lora_rank)
+                        output += torch.matmul(torch.matmul(input[0].to(module.lora_left.dtype) , module.lora_left / torch.sqrt(module.lora_rank)),
+                                               module.lora_right / torch.sqrt(module.lora_rank))
+
 
                     subset[name].lora_rank = torch.tensor(subset[name].lora_left.shape[1])
                     subset[name].lora_left = torch.nn.Parameter(subset[name].lora_left * torch.sqrt(subset[name].lora_rank))
@@ -469,7 +476,7 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
             del layer
             torch.cuda.empty_cache()
 
-    optimize_rank(model, average_rank=args.lora_rank, max_rank=3.*args.lora_rank)
+    optimize_rank(model, average_rank=args.lora_rank, max_rank=3.*args.lora_rank, uniform_rank=args.uniform_rank)
 
     if args.bias_correction:
         raise NotImplementedError
