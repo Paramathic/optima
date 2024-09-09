@@ -6,19 +6,13 @@ import triton.language as tl
 @triton.jit
 def quantize(x_vals, alpha, beta, q):
     """ Returns (x[i*block_size1:(i+1)*block_size1, j*block_size2:(j+1)*block_size2] - betas[i, j]) / alphas[i, j]
-        x: 2D array of FP16
-        alphas: 2D array of FP16
-        betas: 2D array of FP16
-        block_size1: int
-        block_size2: int
-        i: int
-        j: int
+        x_vals: 2D array of FP16
+        alpha: 2D array of FP16
+        beta: 2D array of FP16
         q: quantization bitwidth
        """
-    if q == 8:
-        max_val = 127 #TODO: Change to (2 ** (q - 1) - 1)
-    elif q == 4:
-        max_val = 7
+    if q == 4:
+        max_val = 7 #TODO: Change to (2 ** (q - 1) - 1)
     else:
         max_val = 127
 
@@ -26,7 +20,7 @@ def quantize(x_vals, alpha, beta, q):
         x_vals = (x_vals - beta) / alpha * max_val
     else:
         x_vals = x_vals / alpha * max_val
-    x_vals = tl.clamp(x_vals, -max_val, max_val)
+    x_vals = tl.clamp(x_vals, -(max_val+1), max_val)
     x_vals = x_vals.to(tl.int8)
 
     return x_vals
@@ -35,18 +29,12 @@ def quantize(x_vals, alpha, beta, q):
 @triton.jit
 def dequantize(x_vals, alpha, beta, q):
     """ Returns (x[i*block_size1:(i+1)*block_size1, j*block_size2:(j+1)*block_size2] - betas[i, j]) / alphas[i, j]
-        x: 2D array of FP16
-        alphas: 2D array of FP16
-        betas: 2D array of FP16
-        block_size1: int
-        block_size2: int
-        i: int
-        j: int
+        x_vals: 2D array of INT8
+        alpha: 2D array of FP16
+        beta: 2D array of FP16
         q: quantization bitwidth
        """
-    if q == 8:
-        max_val = 127
-    elif q == 4:
+    if q == 4:
         max_val = 7
     else:
         max_val = 127
@@ -89,7 +77,8 @@ if __name__ == "__main__":
                      col_size: tl.constexpr,
                      q):
         """ Returns (x[i*block_size1:(i+1)*block_size1, j*block_size2:(j+1)*block_size2] - betas[i, j]) / alphas[i, j]
-            x: 2D array of FP16
+            x: Input 2D array of FP16
+            y: Output 2D array of int8
             alphas: 2D array of FP16
             betas: 2D array of FP16
             block_size1: int
