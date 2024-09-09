@@ -61,6 +61,7 @@ if __name__ == "__main__":
                      block_size1: tl.constexpr,
                      block_size2: tl.constexpr,
                      row_size: tl.constexpr,
+                     col_size: tl.constexpr,
                      q):
         """ Returns (x[i*block_size1:(i+1)*block_size1, j*block_size2:(j+1)*block_size2] - betas[i, j]) / alphas[i, j]
             x: 2D array of FP16
@@ -73,7 +74,15 @@ if __name__ == "__main__":
 
         # Compute the start and end indices of the block
         i, j = tl.program_id(0), tl.program_id(1)
-        x_ptrs = get_block_ptrs(x, block_size1, block_size2, row_size, i, j)
+        #x_ptrs = get_block_ptrs(x, block_size1, block_size2, row_size, i, j)
+        x_ptrs = tl.make_block_ptr(
+            base=x,
+            shape=(col_size, row_size),
+            strides=(row_size, 1),
+            offsets=(i*block_size1, j*block_size2),
+            block_shape=(block_size1, block_size2),
+            order=(1,0)
+        )
         alphas_row_size = row_size // block_size2
         alpha = tl.load(alphas + i * alphas_row_size + j).to(tl.float16)
         if betas is not None:
@@ -88,7 +97,15 @@ if __name__ == "__main__":
         x_vals = quantize(x_vals, alpha, beta, q)
 
         # Store the quantized values
-        y_ptrs = get_block_ptrs(y, block_size1, block_size2, row_size, i, j)
+        #y_ptrs = get_block_ptrs(y, block_size1, block_size2, row_size, i, j)
+        y_ptrs = tl.make_block_ptr(
+            base=y,
+            shape=(col_size, row_size),
+            strides=(row_size, 1),
+            offsets=(i*block_size1, j*block_size2),
+            block_shape=(block_size1, block_size2),
+            order=(1,0)
+        )
         tl.store(y_ptrs, x_vals)
     # Allocate memory
     x = torch.randn(32, 32).cuda().half()
@@ -112,7 +129,7 @@ if __name__ == "__main__":
 
     print(y)
     grid = lambda meta: (triton.cdiv(x.shape[0], block_size1), triton.cdiv(x.shape[1], block_size2))
-    quantize_e2e[grid](x, y_triton, alphas, betas, block_size1, block_size2, x.shape[1], q)
+    quantize_e2e[grid](x, y_triton, alphas, betas, block_size1, block_size2, x.shape[1], x.shape[0], q)
 
     print(y_triton)
     print("Relative Error: ", ((y - y_triton).float().norm() / y.float().norm()).item())
