@@ -33,6 +33,31 @@ def quantize(x_vals, alpha, beta, q):
 
 
 @triton.jit
+def dequantize(x_vals, alpha, beta, q):
+    """ Returns (x[i*block_size1:(i+1)*block_size1, j*block_size2:(j+1)*block_size2] - betas[i, j]) / alphas[i, j]
+        x: 2D array of FP16
+        alphas: 2D array of FP16
+        betas: 2D array of FP16
+        block_size1: int
+        block_size2: int
+        i: int
+        j: int
+        q: quantization bitwidth
+       """
+    if q == 8:
+        max_val = 127
+    elif q == 4:
+        max_val = 7
+    else:
+        max_val = 127
+
+    x_vals = x_vals.to(tl.float16) / max_val * alpha
+    if beta is not None:
+        x_vals = x_vals + beta
+    return x_vals
+
+
+@triton.jit
 def get_block_ptrs(x, block_size1, block_size2, row_size, i, j):
     """ Returns x[i*block_size1:(i+1)*block_size1, j*block_size2:(j+1)*block_size2]
         x: 2D array of FP16
