@@ -139,7 +139,7 @@ def _layer_norm_fwd_fused(
 class LayerNorm(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx, x, x_alphas, x_betas, y_alphas, y_betas, q, normalized_shape, weight, bias, eps):
+    def forward(ctx, x, x_alphas, x_betas, y_alphas, y_betas, q, weight, bias, eps):
         # allocate output
         y = torch.empty_like(x)
         # reshape input data into 2D tensor
@@ -187,7 +187,7 @@ if __name__ == "__main__":
         # forward pass
         y_ref = torch.nn.functional.layer_norm(x, w_shape, weight, bias, eps).to(dtype)
         y_alphas, y_betas = compute_quantization_params(y_ref, block_size_row, block_size_col)
-        y_tri = layer_norm(x_quant, x_alphas, x_betas, y_alphas, y_betas, q, w_shape, weight, bias, eps)
+        y_tri = layer_norm(x_quant, x_alphas, x_betas, y_alphas, y_betas, q, weight, bias, eps)
         y_tri_dequantized = dequantize_tensor(y_tri, y_alphas, y_betas, q)
         # compare
         error = torch.norm(y_tri_dequantized.float() - y_ref.float()) / torch.norm(y_ref.float())
@@ -205,7 +205,7 @@ if __name__ == "__main__":
             styles=[('blue', '-'), ('green', '-')],
             ylabel='GB/s',
             plot_name='Layer-Norm',
-            args={'M': 4096, 'dtype': torch.float16},
+            args={'M': M, 'dtype': torch.float16},
         ))
     def bench_layer_norm(M, N, dtype, provider, eps=1e-5, device='cuda'):
         # create data
@@ -221,17 +221,10 @@ if __name__ == "__main__":
             x_alphas, x_betas = compute_quantization_params(x, block_size_row, block_size_col)
             x_quant = quantize_tensor(x, x_alphas, x_betas, q)
             def y_fwd():
-                return layer_norm(x_quant, x_alphas, x_betas, x_alphas, x_betas, 8, w_shape, weight, bias, eps)
+                return layer_norm(x_quant, x_alphas, x_betas, x_alphas, x_betas, 8, weight, bias, eps)
         if provider == "torch":
             def y_fwd():
                 return torch.nn.functional.layer_norm(x, w_shape, weight, bias, eps)
-
-        # def y_fwd():
-        #     if provider == "triton":
-        #         return layer_norm(x, None, None, None, w_shape, weight, bias, eps)  # noqa: F811, E704
-        #
-        #     if provider == "torch":
-        #         return torch.nn.functional.layer_norm(x, w_shape, weight, bias, eps)  # noqa: F811, E704
 
         gbps = lambda ms: 2 * x.numel() * x.element_size() / ms * 1e-6
         ms, min_ms, max_ms = triton.testing.do_bench(y_fwd, quantiles=quantiles, rep=500)
