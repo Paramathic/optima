@@ -442,6 +442,8 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
                                                                          use_std=args.use_std_in_quantization,
                                                                          max_bitwidth=args.max_bitwidth)
                     subset[name].weight.data = quantizer.dequantize_absmax(quantized_weight).half()
+                    subset[name].scaling_factor = quantizer.scaling_factor
+
 
         if cpu_only:
             layer = layer.float()
@@ -716,7 +718,7 @@ def prune_ablate(args, model, tokenizer, dev, prune_n=0, prune_m=0):
     torch.cuda.empty_cache()
 
 
-def quantize_model(args, model):
+def quantize_model(args, model, use_std=None):
     quantizer = AutoQuantizer("weight")
     layers = get_layers_list(model)
 
@@ -734,10 +736,36 @@ def quantize_model(args, model):
                 quantizer.quantize_weight(
                     subset[name].weight.data,
                     args.bitwidth,
-                    use_std=args.use_std_in_quantization,
+                    use_std=args.use_std_in_quantization if use_std is None else use_std,
                     max_bitwidth=args.max_bitwidth
                 )
             )
             
             subset[name].weight.data = quantized_weight.to(subset[name].weight.dtype)
 
+
+
+def prune_and_quantize(model, tokenizer, device, args):
+
+    if args.sparsity_ratio == 0. or args.sparsity_type == "dense":
+        if args.quantize:
+            print("Quantizing the dense model:")
+            quantize_model(args, model)
+        else:
+            print("Using original dense model:")
+    else:
+        # Handling n:m sparsity
+        prune_n, prune_m = 0, 0
+        if args.sparsity_type != "unstructured":
+            prune_n, prune_m = map(int, args.sparsity_type.split(":"))
+            prune_n = prune_m - prune_n
+            assert args.sparsity_ratio == prune_n / prune_m, "sparsity ratio must be 0.5 for structured N:M sparsity"
+        print(f"Pruning and quantizing the model using {args.prune_method}:")
+        if args.prune_method == "wanda":
+            prune_wanda(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
+        elif args.prune_method == "magnitude":
+            prune_magnitude(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
+        elif args.prune_method == "sparsegpt":
+            prune_sparsegpt(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
+        elif "ablate" in args.prune_method:
+            prune_ablate(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)

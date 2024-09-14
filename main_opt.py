@@ -6,7 +6,7 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, LlamaForCausalLM, LlamaTokenizer
 from importlib.metadata import version
 
-from lib.prune_opt import prune_wanda, prune_magnitude, prune_sparsegpt, prune_ablate, check_sparsity, quantize_model
+from lib.prune_opt import check_sparsity,  prune_and_quantize
 from lib.eval import eval_ppl, eval_zero_shot
 from lib.utils import contigous_model, merge_lora, get_llm, hf_token, convert_linear_to_conv1d, attach_input_quantization_hooks, add_empty_lora
 import time
@@ -131,28 +131,8 @@ def main():
     print("Prune Method: ", args.prune_method)
     print("Quantize: ", args.quantize)
 
-    if args.sparsity_ratio == 0. or args.sparsity_type == "dense":
-        if args.quantize:
-            print("Quantizing the dense model:")
-            quantize_model(args, model)
-        else:
-            print("Using original dense model:")
-    else:
-        # Handling n:m sparsity
-        prune_n, prune_m = 0, 0
-        if args.sparsity_type != "unstructured":
-            prune_n, prune_m = map(int, args.sparsity_type.split(":"))
-            prune_n = prune_m - prune_n
-            assert args.sparsity_ratio == prune_n / prune_m, "sparsity ratio must be 0.5 for structured N:M sparsity"
-        print(f"Pruning and quantizing the model using {args.prune_method}:")
-        if args.prune_method == "wanda":
-            prune_wanda(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
-        elif args.prune_method == "magnitude":
-            prune_magnitude(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
-        elif args.prune_method == "sparsegpt":
-            prune_sparsegpt(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
-        elif "ablate" in args.prune_method:
-            prune_ablate(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
+
+    prune_and_quantize(model, tokenizer, device, args)
 
     ################################################################
     print("*" * 30)
@@ -193,7 +173,7 @@ def main():
         # del model, tokenizer
         torch.cuda.empty_cache()
 
-        model_args = f"pretrained={args.model},dtype=half,device_map_option=auto,local_files_only={args.local_files_only},cache_dir=llm_weights,low_cpu_mem_usage=True"
+        model_args = f"pretrained={args.model},dtype=half,local_files_only={args.local_files_only},cache_dir=llm_weights,low_cpu_mem_usage=True"
         model = lm_eval.api.registry.get_model("hf").create_from_arg_string(
                 model_args,
                 {
