@@ -30,20 +30,40 @@ def dense_linear_forward(module, input):
 
 
 def disable_linear_layer_grads(model):
-    def convert_input_to_half(module, input):
-        input[0].data = input[0].half()
-    
     known_modules = {"Linear", "Conv1d"}
     for name, module in model.named_modules():
         module_type = type(module).__name__
         if module_type in known_modules:
-            module.weight.requires_grad = False
-            module.weight.data = module.weight.half()
-            if module.bias is not None:
-                module.bias.data = module.bias.half()
-                module.bias.requires_grad = False
-            module.register_forward_pre_hook(convert_input_to_half)
-            # module.forward = MethodType(dense_linear_forward, module)
+            if hasattr(module, "lora_left"):
+                module.weight.requires_grad = False
+                module.weight.data = module.weight.half()
+                if module.bias is not None:
+                    module.bias.data = module.bias.half()
+                    module.bias.requires_grad = False
+            else:
+                def mask_weight(self, inputs):
+                    self.weight.data[self.weight_mask] = 0
+                module.absmax = module.weight.abs().max().item()
+                module.weight.requires_grad = True
+                module.weight_mask = (module.weight.data.clone().detach().cpu() == 0)
+                module.register_forward_pre_hook(mask_weight)
+
+
+def requantize(model, q=4):
+    known_modules = {"Linear", "Conv1d"}
+    for name, module in model.named_modules():
+        module_type = type(module).__name__
+        if module_type in known_modules:
+            if hasattr(module, "lora_left"):
+                pass
+            else:
+                if not hasattr(module, 'scaling_factor'):
+                    pass
+                else:
+                    scaling_factor = module.scaling_factor
+                    weight = module.weight
+                    quantized_weight = torch.round((weight * scaling_factor).float())
+                    module.weight.data = (quantized_weight / scaling_factor).to(module.weight.dtype)
 
 
 @dataclass
@@ -133,12 +153,11 @@ def fine_tune(model,
               preprocessing_num_workers=None,
               overwrite_cache=False,
               block_size=None,
-              max_train_samples=30000,
+              max_train_samples=300,
               max_eval_samples=128,
               cache_dir="data",
-              use_hf_trainer=True
+              use_hf_trainer=True,
               ):
-    model = model.float().cuda()
     # Get the datasets: you can either provide your own CSV/JSON/TXT training and evaluation files (see below)
     # or just provide the name of one of the public datasets available on the hub at https://huggingface.co/datasets/
     # (the dataset will be downloaded automatically from the datasets Hub).
@@ -153,6 +172,10 @@ def fine_tune(model,
     batch_size = 64
     local_batch_size = 1
     bf16 = transformers.utils.import_utils.is_torch_bf16_gpu_available()
+    if not bf16:
+        model = model.float().cuda()
+    else:
+        model = model.to(torch.bfloat16).cuda()
     training_args = TrainingArguments(
         output_dir="output",
         overwrite_output_dir=True,
@@ -355,6 +378,7 @@ def fine_tune(model,
     model.config.use_cache = False
     if training_args.do_train:
         if use_hf_trainer:
+            model.train()
             # Initialize our Trainer
             trainer = Trainer(
                 model=model,
@@ -371,12 +395,12 @@ def fine_tune(model,
             )
             train_result = trainer.train()
             metrics = train_result.metrics
-            
+
             max_train_samples = (
                 max_train_samples if max_train_samples is not None else len(train_dataset)
             )
             metrics["train_samples"] = min(max_train_samples, len(train_dataset))
-            
+
             trainer.log_metrics("train", metrics)
         else:
             optimizer = AdamW(model.parameters(), lr=5e-5)
@@ -393,7 +417,6 @@ def fine_tune(model,
 
                     outputs = model(**batch)
                     loss = outputs.loss
-                    # print(torch.cuda.memory_allocated())
                     loss.backward()
                     total_loss += loss.item()
                     if i % training_args.gradient_accumulation_steps == 0 and i > 0:
@@ -402,4 +425,4 @@ def fine_tune(model,
                         scheduler.step()
                         progress_bar.set_postfix({"Loss": total_loss / (i + 1), "LR": scheduler.get_last_lr()[0]})
 
-    model = model.half()
+    requantize(model)
