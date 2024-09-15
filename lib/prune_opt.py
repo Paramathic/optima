@@ -528,7 +528,7 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
         gpts = {}
         for name in subset:
             gpts[name] = SparseGPT(subset[name])
-            if args.quantize < 16:
+            if args.quantize:
                 gpts[name].quantizer = SparseGPTQuantizer()
                 gpts[name].quantizer.configure(
                     args.bitwidth, perchannel=False, sym=True, mse=False
@@ -579,6 +579,9 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
         for name in gpts:
             progress_bar.set_description(f"Layer {i} - Pruning and Quantizing {name}")
             gpts[name].fasterprune(args.sparsity_ratio, prune_n=prune_n, prune_m=prune_m, percdamp=0.01, blocksize=128)
+            if args.quantize:
+                subset[name].scaling_factor = 1. / gpts[name].quantizer.scale
+
             gpts[name].free()
 
 

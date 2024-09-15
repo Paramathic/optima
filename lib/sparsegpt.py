@@ -47,6 +47,10 @@ class SparseGPT:
             W = W.t()
         W = W.float()
 
+        if hasattr(self, 'quantizer'):
+            if not self.quantizer.ready():
+                self.quantizer.find_params(W, weight=True)
+
         tick = time.time()
 
         H = self.H
