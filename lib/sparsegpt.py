@@ -81,7 +81,7 @@ class SparseGPT:
             Losses1 = torch.zeros_like(W1)
             Hinv1 = Hinv[i1:i2, i1:i2]
 
-            if prune_n == 0: 
+            if prune_n == 0:
                 if mask is not None:
                     mask1 = mask[:, i1:i2]
                 else:
@@ -102,10 +102,15 @@ class SparseGPT:
                 q = w.clone()
                 q[mask1[:, i]] = 0
 
+                if hasattr(self, 'quantizer'):
+                    q = quantize(
+                        q.unsqueeze(1), self.quantizer.scale, self.quantizer.zero, self.quantizer.maxq
+                    ).flatten()
+
                 Q1[:, i] = q
                 Losses1[:, i] = (w - q) ** 2 / d ** 2
 
-                err1 = (w - q) / d 
+                err1 = (w - q) / d
                 W1[:, i:] -= err1.unsqueeze(1).matmul(Hinv1[i, i:].unsqueeze(0))
                 Err1[:, i] = err1
 

@@ -580,7 +580,16 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
             progress_bar.set_description(f"Layer {i} - Pruning and Quantizing {name}")
             gpts[name].fasterprune(args.sparsity_ratio, prune_n=prune_n, prune_m=prune_m, percdamp=0.01, blocksize=128)
             if args.quantize:
-                subset[name].scaling_factor = 1. / gpts[name].quantizer.scale
+                subset[name].scaling_factor = 1. / gpts[name].quantizer.scale[0]
+
+                # scaling_factor = 1. / gpts[name].quantizer.scale[0]
+                # print(scaling_factor)
+                # weight = subset[name].weight.data.clone().detach()
+                # quantized_weight = torch.round(weight * scaling_factor)
+                # dequantized_weight = quantized_weight / scaling_factor
+                # error = torch.norm(weight.float() - dequantized_weight.float()) / torch.norm(weight.float())
+                # print(error)
+
 
             gpts[name].free()
 
