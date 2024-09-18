@@ -31,6 +31,9 @@ print('# of gpus: ', torch.cuda.device_count())
 
 def add_result_to_csv(args, ppl, lmharness_results):
     # Load CSV if it exists, otherwise create a new DataFrame with given columns
+    directory = os.path.dirname(args.output_csv_path)
+    if not os.path.exists(directory):
+        os.mkdir(directory)
     if os.path.exists(args.output_csv_path):
         df = pd.read_csv(args.output_csv_path)
     else:
