@@ -249,8 +249,15 @@ def return_given_alpha(alpha, sort_res, W_metric, tmp_metric, sum_before):
 
 def prune_magnitude(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
     layers = get_layers_list(model)
+    progress_bar = tqdm.tqdm(range(len(layers)))
 
-    for i in range(len(layers)):
+    if args.quantize:
+        quantizer = AutoQuantizer("weight")
+    else:
+        quantizer = None
+
+    for i in progress_bar:
+        progress_bar.set_description(f"Layer {i}")
         layer = layers[i]
         subset = find_layers(layer)
 
@@ -268,6 +275,14 @@ def prune_magnitude(args, model, tokenizer, device=torch.device("cuda:0"), prune
                 W_mask = (W_metric <= thresh)
 
             W[W_mask] = 0
+            subset[name].weight.data = W
+            if (not args.quantize_before_pruning) and quantizer is not None:
+                quantized_weight = quantizer.quantize_weight(subset[name].weight.data,
+                                                             args.bitwidth,
+                                                             use_std=args.use_std_in_quantization,
+                                                             max_bitwidth=args.max_bitwidth)
+                subset[name].weight.data = quantizer.dequantize_absmax(quantized_weight).half()
+                subset[name].scaling_factor = quantizer.scaling_factor
 
 
 def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
@@ -582,13 +597,6 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
             if args.quantize:
                 subset[name].scaling_factor = 1. / gpts[name].quantizer.scale[0]
 
-                # scaling_factor = 1. / gpts[name].quantizer.scale[0]
-                # print(scaling_factor)
-                # weight = subset[name].weight.data.clone().detach()
-                # quantized_weight = torch.round(weight * scaling_factor)
-                # dequantized_weight = quantized_weight / scaling_factor
-                # error = torch.norm(weight.float() - dequantized_weight.float()) / torch.norm(weight.float())
-                # print(error)
 
 
             gpts[name].free()
