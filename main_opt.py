@@ -64,6 +64,10 @@ def add_result_to_csv(args, ppl, lmharness_results):
     # Save to CSV
     df.to_csv(args.output_csv_path, index=False)
 
+def report_gpu_memory(message=""):
+    torch.cuda.empty_cache()
+    print(message, " - Allocated Memory: ", torch.cuda.memory_allocated() / 1024 / 1024 / 1024)
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -134,8 +138,9 @@ def main():
     print("Prune Method: ", args.prune_method)
     print("Quantize: ", args.quantize)
 
-
+    report_gpu_memory("Before Pruning")
     prune_and_quantize(model, tokenizer, device, args)
+    report_gpu_memory("After pruning")
 
     ################################################################
     print("*" * 30)
@@ -144,7 +149,9 @@ def main():
     print("*" * 30)
     ################################################################
     if args.fine_tune:
+        report_gpu_memory("Before Fine-tuning")
         fine_tune(model, tokenizer)#, block_size=tokenizer.model_max_length)
+        report_gpu_memory("After Fine-tuning")
         print("*" * 30)
     ################################################################
     if args.quantize_input:
@@ -170,11 +177,12 @@ def main():
         if model.has_conv1d:
             convert_linear_to_conv1d(model)
         contigous_model(model)
+        report_gpu_memory("Before Saving Checkpoint")
         torch.save(model.state_dict(), checkpoint_dir)
         # model.save_pretrained(checkpoint_dir)
         # tokenizer.save_pretrained(checkpoint_dir)
-        # del model, tokenizer
-        torch.cuda.empty_cache()
+        del model, tokenizer
+        report_gpu_memory("After Saving Checkpoint")
 
         model_args = f"pretrained={args.model},dtype=half,local_files_only={args.local_files_only},cache_dir=llm_weights,low_cpu_mem_usage=True"
         model = lm_eval.api.registry.get_model("hf").create_from_arg_string(
@@ -191,7 +199,9 @@ def main():
                     and args.sparsity_type != "dense")
         if has_lora:
             add_empty_lora(model.model)
+        report_gpu_memory("After Creating Model and Adding LoRA")
         model.model.load_state_dict(torch.load(checkpoint_dir))
+        report_gpu_memory("After Loading State Dictionary")
         os.remove(checkpoint_dir)
         if args.quantize_input:
             attach_input_quantization_hooks(model.model, args.input_bitwidth, args.input_group_size)
