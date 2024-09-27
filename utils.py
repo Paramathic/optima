@@ -191,10 +191,10 @@ def dequantize_tensor(x, alphas, betas, q):
     return y
 
 
-def compute_quantization_params(x, block_size_row, block_size_col):
+def compute_quantization_params_torch(x, block_size_row, block_size_col):
     param_row_cnt, param_col_cnt = x.shape[0] // block_size_row, x.shape[1] // block_size_col
-    alphas = torch.ones(param_row_cnt, param_col_cnt).cuda().half()
-    betas = torch.ones(param_row_cnt, param_col_cnt).cuda().half()
+    alphas = torch.empty(param_row_cnt, param_col_cnt, device='cuda', dtype=torch.float16)
+    betas = torch.empty(param_row_cnt, param_col_cnt, device='cuda', dtype=torch.float16)
     for i in range(param_row_cnt):
         for j in range(param_col_cnt):
             block = x[i*block_size_row:(i+1)*block_size_row, j*block_size_col:(j+1)*block_size_col]
@@ -202,6 +202,61 @@ def compute_quantization_params(x, block_size_row, block_size_col):
             block_max = block.flatten().max()
             alphas[i, j] = (block_max - block_min)
             betas[i, j] = (block_max + block_min) / 2
+    return alphas, betas
+
+
+@triton.jit
+def _compute_quantization_params(x,
+                                 alphas,
+                                 betas,
+                                 block_size1: tl.constexpr,
+                                 block_size2: tl.constexpr,
+                                 row_size: tl.constexpr,
+                                 col_size: tl.constexpr,
+                                 ):
+    # Compute the start and end indices of the block
+    i, j = tl.program_id(0), tl.program_id(1)
+    # x_ptrs = get_block_ptrs(x, block_size1, block_size2, row_size, i, j)
+    x_ptrs = tl.make_block_ptr(
+        base=x,
+        shape=(col_size, row_size),
+        strides=(row_size, 1),
+        offsets=(i * block_size1, j * block_size2),
+        block_shape=(block_size1, block_size2),
+        order=(1, 0)
+    )
+
+    alphas_row_size = row_size // block_size2
+
+    # Load the input values
+    x_vals = tl.load(x_ptrs)
+
+    if betas is not None:
+        max = tl.max(x_vals)
+        min = tl.min(x_vals)
+        alpha = max - min
+        beta = (max + min) / 2.
+        tl.store(betas + i * alphas_row_size + j, beta)
+    else:
+        alpha = tl.max(tl.abs(x_vals))
+
+    tl.store(alphas + i * alphas_row_size + j, alpha)
+
+
+def compute_quantization_params(x, block_size_row, block_size_col):
+    param_row_cnt, param_col_cnt = x.shape[0] // block_size_row, x.shape[1] // block_size_col
+    alphas = torch.empty(param_row_cnt, param_col_cnt, device='cuda', dtype=torch.float16)
+    betas = torch.empty(param_row_cnt, param_col_cnt, device='cuda', dtype=torch.float16)
+
+    # reshape input data into 2D tensor
+    x_arg = x.reshape(-1, x.shape[-1])
+    M, N = x_arg.shape
+    # heuristics for number of warps
+    grid_size = (triton.cdiv(M, block_size_row), triton.cdiv(N, block_size_col))
+    _compute_quantization_params[grid_size](
+        x_arg, alphas, betas,
+        block_size_row, block_size_col, N, M,
+        )
     return alphas, betas
 
 
@@ -214,6 +269,9 @@ if __name__ == "__main__":
         q = 8
 
         alphas, betas = compute_quantization_params(x, 64, 64)
+        alphas2, betas2 = compute_quantization_params_torch(x, 64, 64)
+        assert torch.norm(alphas.float() - alphas2.float()) < 1e-2
+        assert torch.norm(betas.float() - betas2.float()) < 1e-2
 
         # Launch the kernel
         block_size1 = x.shape[0] // alphas.shape[0]
