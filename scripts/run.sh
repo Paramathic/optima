@@ -23,7 +23,7 @@ do
 
     for MODEL_SIZE in 125m #13b # 7b #7b 13b #8B #7B #125m # 7b #1.3b #7B #6.7b
     do
-        for STRUCTURE in dense #unstructured
+        for STRUCTURE in 2:4 #unstructured
         do
             for METHOD in wanda
             do
@@ -61,6 +61,7 @@ do
 #                                FINE_TUNE='--fine_tune'
                                 EVALUATE_PERPLEXITY='--evaluate_perplexity'
                                 OPTIMIZER="adamw_torch" #"adafactor"
+#                                PRUNE_LORA="--prune_lora"
 
                                 CUDA_VISIBLE_DEVICES=0 python main_opt.py \
                                     --model ${MODEL_PREFIX}${MODEL_SIZE}${MODEL_POSTFIX} \
@@ -96,7 +97,8 @@ do
                                     $UNIFORM_RANK \
                                     --nsample $NUM_CALIBRATION_SAMPLES \
                                     --optimizer $OPTIMIZER \
-                                    $TILED_QUANTIZATION
+                                    $TILED_QUANTIZATION \
+                                    $PRUNE_LORA
                             done
                         done
                     done

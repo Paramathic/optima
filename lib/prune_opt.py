@@ -9,7 +9,7 @@ from .data import get_loaders
 
 from .ablate import AblateGPT
 
-from .utils import add_lora, get_layers_list, shift_zeros, accelerate_module, find_layers, optimize_rank
+from .utils import add_lora, get_layers_list, shift_zeros, accelerate_module, find_layers, optimize_rank, prune_nm
 from compression.quantization.model_quantizing import Quantizer as AutoQuantizer
 from transformers import LlamaForCausalLM
 from compression.ops import prune_row_wise
@@ -265,11 +265,7 @@ def prune_magnitude(args, model, tokenizer, device=torch.device("cuda:0"), prune
             W = subset[name].weight.data
             W_metric = torch.abs(W)
             if prune_n != 0:
-                W_mask = (torch.zeros_like(W) == 1)
-                for ii in range(W_metric.shape[1]):
-                    if ii % prune_m == 0:
-                        tmp = W_metric[:, ii:(ii + prune_m)].float()
-                        W_mask.scatter_(1, ii + torch.topk(tmp, prune_n, dim=1, largest=False)[1], True)
+                W_mask = prune_nm(W_metric)
             else:
                 thresh = torch.sort(W_metric.flatten().cuda())[0][int(W.numel() * args.sparsity_ratio)].cpu()
                 W_mask = (W_metric <= thresh)
@@ -428,7 +424,7 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
                          bitwidth=args.bitwidth,
                          use_std=args.use_std_in_quantization,
                          max_bitwidth=args.max_bitwidth,
-                         pruned_L=args.pruned_l,
+                         prune_lora=args.prune_lora,
                          separate_lora=args.separate_lora,
                          model_name=args.model,
                          layer_name=name,

@@ -9,6 +9,7 @@ from transformers.modeling_utils import Conv1D
 import os
 import cvxpy as cp
 from tiled_quantization.utils import quantize_tensor, dequantize_tensor, compute_quantization_params
+import tqdm.auto as tqdm
 
 
 hf_token = "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"
@@ -45,80 +46,37 @@ def shift_zeros(x):
     return x + min_positive
 
 
-def optimize_pruned_l(L, R, error_mat):
-    sparse_L, mask_L = prune_row_wise(L, 2, 4)
-    sparse_L = sparse_L.half()
-    criterion = torch.nn.MSELoss()
-    optimizer_L = optim.SGD(params=[sparse_L], lr=0.01, momentum=0.9)
-    optimizer_R = optim.SGD(params=[R], lr=0.01, momentum=0.9)
-    sparse_L.requires_grad = True
-    R.requires_grad = True
-    convergence_threshold = 5e-8
-    e2e_iteration = 0
-    max_iterations = 50
-    e2e_convergence_threshold = 1e-8
-    e2e_prev_loss = float('inf')
+def prune_nm(mat, n, m):
+    mask = (torch.zeros_like(mat) == 1)
+    for ii in range(mat.shape[1]):
+        if ii % m == 0:
+            tmp = mat[:, ii:(ii + m)].float()
+            mask.scatter_(1, ii + torch.topk(tmp, n, dim=1, largest=False)[1], True)
+    return mask
 
-    while True:
-        prev_loss = float('inf')
-        iteration = 0
-        while True:
-            optimizer_L.zero_grad()
-            error_mat_hat = sparse_L @ R
-            loss = criterion(error_mat_hat, error_mat.half())
-            loss.backward()
-            optimizer_L.step()
-            sparse_L_detached = sparse_L.detach()
-            sparse_L_detached[mask_L] = 0.
-            sparse_L = sparse_L_detached.requires_grad_()
 
-            if abs(loss.item() - prev_loss) < convergence_threshold:
-                print("L Converged in " + str(iteration))
-                break
-            prev_loss = loss.item()
-            iteration += 1
-
-            if iteration >= max_iterations:
-                print("Maximum iterations reached.")
-                break
-
-        iteration = 0
-        prev_loss = float('inf')
-
-        while True:
-            optimizer_R.zero_grad()
-            error_mat_hat = sparse_L @ R
-            loss = criterion(error_mat_hat, error_mat.half())
-            loss.backward()
-            optimizer_R.step()
-            sparse_L_detached = sparse_L.detach()
-            sparse_L_detached[mask_L] = 0.
-            sparse_L = sparse_L_detached.requires_grad_()
-
-            if abs(loss.item() - prev_loss) < convergence_threshold:
-                print("R Converged in " + str(iteration))
-                break
-            prev_loss = loss.item()
-            iteration += 1
-
-            if iteration >= max_iterations:
-                print("Maximum iterations reached.")
-                break
-
-        if abs(loss.item() - e2e_prev_loss) < e2e_convergence_threshold:
-            print("e2e algo Converged in " + str(e2e_iteration))
-            break
-        e2e_prev_loss = loss.item()
-        e2e_iteration += 1
-
-        if e2e_iteration >= max_iterations:
-            print("E2E Maximum iterations reached.")
-            break
-
-    sparse_L.requires_grad = False
-    R.requires_grad = False
-
-    return sparse_L, R
+def prune_and_optimizer_lora(L, R, num_iters=1000, lr_end_factor=1e-4):
+    target = torch.matmul(L, R).float()
+    target_norm = torch.norm(target).item()
+    L_mask = prune_nm(L.t(), 2, 4).t()
+    L[L_mask] = 0
+    L_param = torch.nn.Parameter(L.float(), requires_grad=True)
+    R_param = torch.nn.Parameter(R.float(), requires_grad=True)
+    optimizer = torch.optim.Adam([L_param, R_param], lr=1e0)
+    scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1.0, end_factor=lr_end_factor, total_iters=num_iters)
+    progress_bar = tqdm.tqdm(range(num_iters))
+    initial_error = torch.norm(torch.matmul(L, R).float() - target.float()) / target_norm
+    for iter in progress_bar:
+        output = torch.matmul(L_param, R_param)
+        loss = torch.norm(output - target) / target_norm
+        loss.backward()
+        optimizer.step()
+        scheduler.step()
+        optimizer.zero_grad()
+        L_param.data[L_mask] = 0
+        progress_bar.set_description('Iteration {} - Inital Loss {} - Current Loss: {}, LR: {}'.format(iter + 1, initial_error.item(), loss.item(), scheduler.get_lr()))
+    L.data = L_param.data.half()
+    R.data = R_param.data.half()
 
 
 def polynomial_approximation(x, p, alpha):
@@ -144,7 +102,7 @@ def add_lora(module,
              bitwidth=8,
              use_std=False,
              max_bitwidth=8,
-             pruned_L=False,
+             prune_lora=False,
              separate_lora=True,
              model_name="",
              layer_name="",
@@ -229,22 +187,15 @@ def add_lora(module,
     else:
         rank = int(rank_ratio * min(error_mat.shape))
 
-    if pruned_L:
-        L = U[:, :rank].half()
-        R = torch.diag_embed(S[:rank]).half() @ V[:, :rank].half().T
-        sparse_L, R = optimize_pruned_l(L, R, error_mat)
-        if separate_lora:
-            lora_left = R.t()
-            lora_right = sparse_L.half().t()
-        else:
-            low_rank_weight = sparse_L.half() @ R
-
+    if separate_lora:
+        lora_left = (torch.diag_embed(S[:rank]).half() @ V[:, :rank].half().T).t()
+        lora_right = U[:, :rank].half().t()
+        if prune_lora:
+            prune_and_optimizer_lora(lora_left, lora_right)
     else:
-        if separate_lora:
-            lora_left = (torch.diag_embed(S[:rank]).half() @ V[:, :rank].half().T).t()
-            lora_right = U[:, :rank].half().t()
-        else:
-            low_rank_weight = U[:, :rank].half() @ torch.diag_embed(S[:rank]).half() @ V[:, :rank].half().T
+        low_rank_weight = U[:, :rank].half() @ torch.diag_embed(S[:rank]).half() @ V[:, :rank].half().T
+        if prune_lora:
+            raise NotImplementedError
     if use_wanda and not any(activations.scaler_row == 0):
         denom = (torch.sqrt(activations.scaler_row.reshape((1, -1)))).half()
         if separate_lora:
@@ -444,6 +395,8 @@ def attach_input_quantization_hooks(model, num_bits=8, input_group_size=-1, tile
             subset[name].tiled_quantization = tiled_quantization
             if not tiled_quantization:
                 subset[name].quantizer = AutoQuantizer("input", num_bits=num_bits, group_size=input_group_size)
+            else:
+                subset[name].input_group_size = int(np.ceil(np.sqrt(input_group_size)))
 
 
 

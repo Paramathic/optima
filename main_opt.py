@@ -93,7 +93,7 @@ def main():
     parser.add_argument("--lora_rank", type=float, default=0.0)
     parser.add_argument("--separate_lora", action="store_true")
     parser.add_argument("--randomized_svd", action="store_true")
-    parser.add_argument("--pruned_l", action="store_true")
+    parser.add_argument("--prune_lora", action="store_true")
     parser.add_argument("--bias_correction", action="store_true")
     parser.add_argument("--bias_alpha", type=float, default=1.0)
     parser.add_argument("--bias_correction_nsamples", type=int, default=128)
