@@ -157,6 +157,7 @@ def fine_tune(model,
               max_eval_samples=128,
               cache_dir="data",
               use_hf_trainer=True,
+              optimizer="adamw",
               ):
     # Get the datasets: you can either provide your own CSV/JSON/TXT training and evaluation files (see below)
     # or just provide the name of one of the public datasets available on the hub at https://huggingface.co/datasets/
@@ -194,7 +195,7 @@ def fine_tune(model,
         group_by_length=False,
         gradient_accumulation_steps=batch_size // local_batch_size,
         warmup_steps=5,
-        optim="adamw_torch",
+        optim=optimizer,
         save_strategy="steps",
         report_to="none",
         gradient_checkpointing=True,

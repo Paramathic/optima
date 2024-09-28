@@ -117,6 +117,7 @@ def main():
     parser.add_argument("--input_bitwidth", type=int, default=8, help="Input quantization bitwidth")
     parser.add_argument("--input_group_size", type=int, default=-1, help="Input quantization group size")
     parser.add_argument("--uniform_rank", action="store_true", help="Whether to use uniform rank")
+    parser.add_argument("--optimizer", type=str, default="adamw", help="Optimizer for fien-tuning models")
 
     args = parser.parse_args()
 
@@ -150,7 +151,7 @@ def main():
     ################################################################
     if args.fine_tune:
         report_gpu_memory("Before Fine-tuning")
-        fine_tune(model, tokenizer)#, block_size=tokenizer.model_max_length)
+        fine_tune(model, tokenizer, optimizer=args.optimizer)#, block_size=tokenizer.model_max_length)
         report_gpu_memory("After Fine-tuning")
         print("*" * 30)
     ################################################################
