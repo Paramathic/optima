@@ -151,7 +151,7 @@ def main():
     ################################################################
     if args.fine_tune:
         report_gpu_memory("Before Fine-tuning")
-        fine_tune(model, tokenizer)#, block_size=tokenizer.model_max_length)
+        fine_tune(model, tokenizer, optimizer=args.optimizer)#, block_size=tokenizer.model_max_length)
         report_gpu_memory("After Fine-tuning")
         print("*" * 30)
     ################################################################
