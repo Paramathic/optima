@@ -8,7 +8,7 @@ from importlib.metadata import version
 
 from lib.prune_opt import check_sparsity,  prune_and_quantize
 from lib.eval import eval_ppl, eval_zero_shot
-from lib.utils import contigous_model, merge_lora, get_llm, hf_token, convert_linear_to_conv1d, attach_input_quantization_hooks, add_empty_lora
+from lib.utils import contigous_model, merge_lora, get_llm, hf_token, convert_linear_to_conv1d, attach_input_quantization_hooks, add_empty_lora, report_gpu_memory
 import time
 import shutil
 from lib.fine_tune import fine_tune
@@ -63,10 +63,6 @@ def add_result_to_csv(args, ppl, lmharness_results):
 
     # Save to CSV
     df.to_csv(args.output_csv_path, index=False)
-
-def report_gpu_memory(message=""):
-    torch.cuda.empty_cache()
-    print(message, " - Allocated Memory: ", torch.cuda.memory_allocated() / 1024 / 1024 / 1024)
 
 
 def main():
@@ -148,7 +144,7 @@ def main():
     ################################################################
     print("*" * 30)
     sparsity_ratio = check_sparsity(model)
-    print(f"Model Sparsity Ratio: {sparsity_ratio:.4f}")
+    print(f"Model Sparsity Ratio: {sparsity_ratio:.2f}")
     print("*" * 30)
     ################################################################
     if args.fine_tune:
@@ -167,7 +163,7 @@ def main():
     ppl_test = 0.
     if args.evaluate_perplexity:
         ppl_test = eval_ppl(args, model, tokenizer, args.model,  device, num_partition=args.num_sample_partition)
-        print(f"WikiText2 Perplexity: {ppl_test}")
+        print(f"WikiText2 Perplexity: {ppl_test:.2f}")
         print("*" * 30)
     ################################################################
 

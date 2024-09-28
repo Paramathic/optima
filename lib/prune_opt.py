@@ -2,6 +2,7 @@ import time
 import heapq
 import torch
 import torch.nn as nn
+
 from .sparsegpt import SparseGPT
 from .sparsegpt import Quantizer as SparseGPTQuantizer
 from .layerwrapper import WrappedGPT
@@ -9,7 +10,7 @@ from .data import get_loaders
 
 from .ablate import AblateGPT
 
-from .utils import add_lora, get_layers_list, shift_zeros, accelerate_module, find_layers, optimize_rank, prune_nm
+from .utils import add_lora, get_layers_list, shift_zeros, accelerate_module, find_layers, optimize_rank, prune_nm, report_gpu_memory
 from compression.quantization.model_quantizing import Quantizer as AutoQuantizer
 from transformers import LlamaForCausalLM
 from compression.ops import prune_row_wise
@@ -40,7 +41,7 @@ def check_sparsity(model):
             sub_count += (W == 0).sum().item()
             sub_params += W.numel()
 
-        print(f"Layer {i} Sparsity Ratio: {float(sub_count) / sub_params:.6f}")
+        print(f"Layer {i} Sparsity Ratio: {float(sub_count) / sub_params:.2f}")
 
     model.config.use_cache = use_cache
     return float(count) / total_params
@@ -73,12 +74,12 @@ def prepare_calibration_input(model, dataloader, device):
 
     dtype = next(iter(model.parameters())).dtype
     try:
-        print("Memory usage before loading inputs: ", torch.cuda.memory_allocated(device) / 1024 ** 3, "GB")
+        report_gpu_memory("Memory usage before loading inputs")
         # inps = torch.zeros((128, model.seqlen, model.config.hidden_size), dtype=dtype, device=device)
         input_device = inps.device
     except:
         torch.cuda.empty_cache()
-        print("Memory usage after failing loading inputs: ", torch.cuda.memory_allocated(device) / 1024 ** 3, "GB")
+        report_gpu_memory("Memory usage after failing loading inputs")
         print("Inputs don't fit in the GPU. Storing them in CPU...")
         inps = torch.zeros((128, model.seqlen, model.config.hidden_size), dtype=dtype, device="cpu")
         input_device = "cpu"

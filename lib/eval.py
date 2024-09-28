@@ -221,13 +221,13 @@ def eval_ppl_wikitext(model, testenc, model_name, has_lora=False, lora_rank=None
             # Append to list of negative log likelihoods
             nlls.append(neg_log_likelihood)
 
-            progress_bar.set_description(f"Perplexity: {torch.exp(torch.stack(nlls).sum() / (i * model.seqlen)).item()}")
+            progress_bar.set_description(f"Perplexity: {(torch.exp(torch.stack(nlls).sum() / (i * model.seqlen)).item()):.2f}")
 
         # Compute perplexity
         ppl = torch.exp(torch.stack(nlls).sum() / (nsamples * model.seqlen))
 
         times = remove_outlier(times)
-        print(f"Inference Time: ", np.mean(times), "+-", np.std(times))
+        print(f"Inference Time: {np.mean(times):.2f} +- {np.std(times):.2f}")
 
     # # Empty CUDA cache to save memory
     # torch.cuda.empty_cache()
