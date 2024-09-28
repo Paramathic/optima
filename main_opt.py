@@ -114,10 +114,12 @@ def main():
     parser.add_argument('--evaluate_perplexity', action="store_true", help="Whether to evaluate the model perplexity")
     parser.add_argument('--local_files_only', action="store_true", help="Whether to use local files only")
     parser.add_argument('--quantize_input', action="store_true", help="Whether to quantize input")
+    parser.add_argument('--tiled_quantization', action="store_true", help="Whether to use tiling for input quantization")
     parser.add_argument("--input_bitwidth", type=int, default=8, help="Input quantization bitwidth")
     parser.add_argument("--input_group_size", type=int, default=-1, help="Input quantization group size")
     parser.add_argument("--uniform_rank", action="store_true", help="Whether to use uniform rank")
-    parser.add_argument("--optimizer", type=str, default="adamw", help="Optimizer for fien-tuning models")
+    parser.add_argument("--optimizer", type=str, default="adamw_torch", help="Optimizer for fien-tuning models")
+
 
     args = parser.parse_args()
 
@@ -157,7 +159,10 @@ def main():
     ################################################################
     if args.quantize_input:
         print("Enabling input quantizatoin:")
-        attach_input_quantization_hooks(model, args.input_bitwidth, args.input_group_size)
+        attach_input_quantization_hooks(model,
+                                        args.input_bitwidth,
+                                        args.input_group_size,
+                                        tiled_quantization=args.tiled_quantization)
     ################################################################
     ppl_test = 0.
     if args.evaluate_perplexity:

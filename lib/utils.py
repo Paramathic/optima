@@ -8,6 +8,7 @@ from transformers.modeling_utils import Conv1D
 # import matplotlib.pyplot as plt
 import os
 import cvxpy as cp
+from tiled_quantization.utils import quantize_tensor, dequantize_tensor, compute_quantization_params
 
 
 hf_token = "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"
@@ -412,17 +413,24 @@ def find_layers(module, layers=[torch.nn.Linear], name=''):
     return res
 
 
-def attach_input_quantization_hooks(model, num_bits=8, input_group_size=-1):
+def attach_input_quantization_hooks(model, num_bits=8, input_group_size=-1, tiled_quantization=False):
     def input_quantization_pre_hook(module, input):
         if module.quantize_input:
-            quantized_input = module.quantizer.quantize(input[0])
-            dequantized_input = module.quantizer.dequantize_input(quantized_input)
+            if module.tiled_quantization:
+                x = input[0].squeeze(0)
+                alphas, betas = compute_quantization_params(x, module.input_group_size, module.input_group_size)
+                quantized_input = quantize_tensor(x, alphas, betas, num_bits)
+                dequantized_input = dequantize_tensor(quantized_input, alphas, betas, num_bits)
+                quantized_input, dequantized_input = quantized_input.unsqueeze(0), dequantized_input.unsqueeze(0)
+            else:
+                quantized_input = module.quantizer.quantize(input[0])
+                dequantized_input = module.quantizer.dequantize_input(quantized_input)
             relative_error = (torch.norm(input[0] - dequantized_input) / torch.norm(input[0])).item()
             if relative_error > 5e-2:
                 print(f"Skipping input quantization for layer {module}: with relative error {relative_error}.")
                 module.quantize_input = False
             else:
-                input[0].data = module.quantizer.dequantize_input(quantized_input)
+                input[0].data = dequantized_input
 
     layers = get_layers_list(model)
     for i in range(len(layers)):
@@ -430,9 +438,13 @@ def attach_input_quantization_hooks(model, num_bits=8, input_group_size=-1):
         subset = find_layers(layer)
 
         for name in subset:
-            subset[name].quantizer = AutoQuantizer("input", num_bits=num_bits, group_size=input_group_size)
             subset[name].register_forward_pre_hook(input_quantization_pre_hook)
             subset[name].quantize_input = True
+            subset[name].input_group_size = input_group_size
+            subset[name].tiled_quantization = tiled_quantization
+            if not tiled_quantization:
+                subset[name].quantizer = AutoQuantizer("input", num_bits=num_bits, group_size=input_group_size)
+
 
 
 def merge_lora(model):

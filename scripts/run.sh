@@ -21,9 +21,9 @@ do
     fi
 
 
-    for MODEL_SIZE in 13b #13b # 7b #7b 13b #8B #7B #125m # 7b #1.3b #7B #6.7b
+    for MODEL_SIZE in 125m #13b # 7b #7b 13b #8B #7B #125m # 7b #1.3b #7B #6.7b
     do
-        for STRUCTURE in unstructured 
+        for STRUCTURE in dense #unstructured
         do
             for METHOD in wanda
             do
@@ -33,20 +33,20 @@ do
                     do
                         for NUM_CALIBRATION_SAMPLES in 128 #1 2 4 8 16 32 64 128 256
                         do
-                            for QUANTIZE in '--quantize'
+                            for QUANTIZE in '' #'--quantize'
                             do
                                 # rm -rf data
                                 LOCAL_FILES_ONLY='--local_files_only'
                                 SPARSITY_RATIO=0.5
                                 SHIFT_ZERO_METRICS='--shift_zero_metrics'
                                 EVAL_DATASET='wikitext2'
-                                QUANTIZE='--quantize'
                                 BITWIDTH=4
                                 if [ $QUANTIZE == '--quantize' ]; then
                                     QUANTIZE_INPUT='--quantize_input'
+#                                    TILED_QUANTIZATION='--tiled_quantization'
                                 fi
                                 INPUT_BITWIDTH=8
-                                INPUT_GROUP_SIZE=128
+                                INPUT_GROUP_SIZE=16
                                 # QUANTIZE_BEFORE_PRUNING='--quantize_before_pruning'
                                 MAX_BITWIDTH=4
                                 USE_STD_IN_QUANTIZATION='--use_std_in_quantization'
@@ -57,12 +57,12 @@ do
                                 # ACCELERATE='--accelerate'
                                 # RANDOMIZED_SVD='--randomized_svd'
                                 # LOCAL_CHECKPOINT_DIR='--local_checkpoint_dir llm_weights/flash_attn_gpt2_small_dense_lora0.pt'
-                                TEST_LMHARNESS='--test_lmharness'
-                                FINE_TUNE='--fine_tune'
+#                                TEST_LMHARNESS='--test_lmharness'
+#                                FINE_TUNE='--fine_tune'
                                 EVALUATE_PERPLEXITY='--evaluate_perplexity'
-                                OPTIMIZER="adamw" #"adafactor"
+                                OPTIMIZER="adamw_torch" #"adafactor"
 
-                                CUDA_VISIBLE_DEVICES=3 python main_opt.py \
+                                CUDA_VISIBLE_DEVICES=0 python main_opt.py \
                                     --model ${MODEL_PREFIX}${MODEL_SIZE}${MODEL_POSTFIX} \
                                     --prune_method $METHOD \
                                     --sparsity_ratio $SPARSITY_RATIO \
@@ -95,7 +95,8 @@ do
                                     --input_group_size $INPUT_GROUP_SIZE \
                                     $UNIFORM_RANK \
                                     --nsample $NUM_CALIBRATION_SAMPLES \
-                                    --optimizer $OPTIMIZER
+                                    --optimizer $OPTIMIZER \
+                                    $TILED_QUANTIZATION
                             done
                         done
                     done
