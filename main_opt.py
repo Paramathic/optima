@@ -201,7 +201,7 @@ def main():
         if has_lora:
             add_empty_lora(model.model)
         report_gpu_memory("After Creating Model and Adding LoRA")
-        model.model.load_state_dict(torch.load(checkpoint_dir))
+        model.model.load_state_dict(torch.load(checkpoint_dir, map_location="cpu"))
         report_gpu_memory("After Loading State Dictionary")
         os.remove(checkpoint_dir)
         if args.quantize_input:
