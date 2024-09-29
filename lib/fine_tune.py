@@ -40,6 +40,13 @@ def disable_linear_layer_grads(model):
                 if module.bias is not None:
                     module.bias.data = module.bias.half()
                     module.bias.requires_grad = False
+                if hasattr(module, "lora_left_mask"):
+                    def mask_lora(self, inputs):
+                        self.lora_left.data[self.lora_left_mask] = 0
+
+                        spartity_ratio = (self.lora_left == 0).float().mean()
+                        print("HI - ", spartity_ratio )
+                    module.register_forward_pre_hook(mask_lora)
             else:
                 def mask_weight(self, inputs):
                     self.weight.data[self.weight_mask] = 0
@@ -424,6 +431,6 @@ def fine_tune(model,
                         optimizer.zero_grad()
                         optimizer.step()
                         scheduler.step()
-                        progress_bar.set_postfix({"Loss": total_loss / (i + 1), "LR": scheduler.get_last_lr()[0]})
+                        progress_bar.set_postfix({f"Loss {(total_loss / (i + 1)):.2f} - LR {scheduler.get_last_lr()[0]:.2f}"})
 
     requantize(model)

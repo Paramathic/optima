@@ -19,6 +19,11 @@ svd_params = {}
 powers = [0, 1 / 3, 1 / 2, 1]
 
 
+def report_gpu_memory(message=""):
+    torch.cuda.empty_cache()
+    print(message, f" - Allocated Memory: {(torch.cuda.memory_allocated() / 1024 / 1024 / 1024):.2f}GB")
+
+
 def density_ratio(x):
     return (x != 0).sum().float() / x.numel()
 
@@ -62,7 +67,7 @@ def prune_and_optimizer_lora(L, R, num_iters=1000, lr_end_factor=1e-4):
     L[L_mask] = 0
     L_param = torch.nn.Parameter(L.float(), requires_grad=True)
     R_param = torch.nn.Parameter(R.float(), requires_grad=True)
-    optimizer = torch.optim.Adam([L_param, R_param], lr=1e0)
+    optimizer = torch.optim.Adam([L_param, R_param], lr=1e6 / min(L.shape[0], R.shape[1]) ** 2)
     scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1.0, end_factor=lr_end_factor, total_iters=num_iters)
     progress_bar = tqdm.tqdm(range(num_iters))
     initial_error = torch.norm(torch.matmul(L, R).float() - target.float()) / target_norm
@@ -74,9 +79,17 @@ def prune_and_optimizer_lora(L, R, num_iters=1000, lr_end_factor=1e-4):
         scheduler.step()
         optimizer.zero_grad()
         L_param.data[L_mask] = 0
-        progress_bar.set_description('Iteration {} - Inital Loss {} - Current Loss: {}, LR: {}'.format(iter + 1, initial_error.item(), loss.item(), scheduler.get_lr()))
+        progress_bar.set_description(
+            'Iteration {} - Initial Loss: {:.2f} - Current Loss: {:.2f}, LR: {:.2e}'.format(
+                iter + 1,
+                initial_error.item(),
+                loss.item(),
+                scheduler.get_lr()[0]
+            )
+        )
     L.data = L_param.data.half()
     R.data = R_param.data.half()
+    return L_mask
 
 
 def polynomial_approximation(x, p, alpha):
@@ -191,7 +204,7 @@ def add_lora(module,
         lora_left = (torch.diag_embed(S[:rank]).half() @ V[:, :rank].half().T).t()
         lora_right = U[:, :rank].half().t()
         if prune_lora:
-            prune_and_optimizer_lora(lora_left, lora_right)
+            lora_left_mask = prune_and_optimizer_lora(lora_left, lora_right)
     else:
         low_rank_weight = U[:, :rank].half() @ torch.diag_embed(S[:rank]).half() @ V[:, :rank].half().T
         if prune_lora:
@@ -214,6 +227,8 @@ def add_lora(module,
         module.lora_left = torch.nn.Parameter(lora_left).half().contiguous()
         module.lora_right = torch.nn.Parameter(lora_right).half().contiguous()
         module.weight.data = new_weight.half().contiguous()
+        if prune_lora:
+            module.lora_left_mask = lora_left_mask
     else:
         module.weight.data = (new_weight + low_rank_weight).half()
 
