@@ -120,7 +120,33 @@ class Quantizer:
             dtype = torch.int32
         return dtype
 
-    def quantize_weight(self, mat, num_bits=8, use_std=False, max_bitwidth=8, target_scaling_factor=None):
+    def quantize_weight(self, mat, num_bits=8, use_std=False, max_bitwidth=8, target_scaling_factor=None, block_quantization=False, block_size=16):
+        if block_quantization:
+            assert mat.shape[0] % block_size == 0 and mat.shape[1] % block_size == 0, "Input matrix size is not divisible by block size"
+            self.scaling_factor = torch.empty([mat.shape[0] // block_size, mat.shape[1] // block_size], device=mat.device, dtype=torch.float16)
+            quantized_mat = torch.empty_like(mat)
+            for row in range(0, mat.shape[0], block_size):
+                for col in range(0, mat.shape[1], block_size):
+                    row_idx = row // block_size
+                    col_idx = col // block_size
+                    quantized_mat[row:row+block_size, col:col+block_size], self.scaling_factor[row_idx, col_idx] = self.quantize_block(
+                        mat[row:row + block_size, col:col + block_size],
+                        num_bits,
+                        use_std,
+                        max_bitwidth,
+                        target_scaling_factor
+                    )
+        else:
+            quantized_mat, scaling_factor = self.quantize_block(
+                mat,
+                num_bits,
+                use_std,
+                max_bitwidth,
+                target_scaling_factor)
+            self.scaling_factor = scaling_factor.reshape(1, 1)
+        return quantized_mat
+
+    def quantize_block(self, mat, num_bits=8, use_std=False, max_bitwidth=8, target_scaling_factor=None):
         """absmax quantization"""
         dtype = self.get_dtype(num_bits)
         max_q = 2 ** (num_bits - 1) - 1
@@ -141,16 +167,24 @@ class Quantizer:
             max_q = 2 ** (max_bitwidth - 1) - 1
         quantized_mat = torch.clamp(quantized_mat, -max_q - 1, max_q)
 
-        self.scaling_factor = scaling_factor
-
-        return quantized_mat.to(dtype)
+        return quantized_mat.to(dtype), scaling_factor
 
     # doesn't change the original matrix
     def dequantize_absmax(self, quantized_mat, scaling_factor=None):
         """absmax dequantization"""
         if scaling_factor is None:
             scaling_factor = self.scaling_factor
-        deq_mat = quantized_mat / scaling_factor
+
+        if scaling_factor.shape == (1, 1):
+            deq_mat = quantized_mat / scaling_factor
+        else:
+            deq_mat = torch.empty_like(quantized_mat)
+            block_size = deq_mat.shape[0] // scaling_factor.shape[0]
+            for row in range(0, deq_mat.shape[0], block_size):
+                for col in range(0, deq_mat.shape[1], block_size):
+                    row_idx = row // block_size
+                    col_idx = col // block_size
+                    deq_mat[row:row+block_size, col:col+block_size] = quantized_mat[row:row+block_size, col:col+block_size] / scaling_factor[row_idx, col_idx]
 
         return deq_mat
 
@@ -184,7 +218,7 @@ class Quantizer:
         if self.group_size != -1:
             quantized_mat = quantized_mat.view(mat_shape)
 
-        return quantized_mat
+        return quantized_mat, scale
 
     def dequantize_output(self, output, quantized_weight, weight_sf):
         """ Dequantization of the output when input is quantized with the row-wise zero point algorithm and the weight matrix is quantized with absmax"""
@@ -279,15 +313,15 @@ def quantize_model(model,
 
 
 if __name__ == "__main__":
-    quantizer = Quantizer("input", num_bits=4)
-    input = torch.randn(1024, 2048)
-    quantized_input = quantizer.quantize(input)
-    dequantized_input = quantizer.dequantize_input(quantized_input)
-    print(torch.norm(input - dequantized_input) / torch.norm(input))
-    print(torch.max(quantized_input), torch.min(quantized_input))
+    # quantizer = Quantizer("input", num_bits=4)
+    # input = torch.randn(1024, 2048)
+    # quantized_input = quantizer.quantize(input)
+    # dequantized_input = quantizer.dequantize_input(quantized_input)
+    # print(torch.norm(input - dequantized_input) / torch.norm(input))
+    # print(torch.max(quantized_input), torch.min(quantized_input))
 
     quantizer = Quantizer("weight", num_bits=4)
-    weight = torch.randn(2048, 1024)
-    quantized_weight = quantizer.quantize(weight, num_bits=4)
+    weight = torch.randn(2048, 1024, dtype=torch.float16, device='cuda')
+    quantized_weight = quantizer.quantize_weight(weight, num_bits=4, use_std=True, block_quantization=True, block_size=64)
     dequantized_weight = quantizer.dequantize_absmax(quantized_weight)
     print(torch.norm(weight - dequantized_weight) / torch.norm(weight))

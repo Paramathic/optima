@@ -16,7 +16,7 @@ from lib.fine_tune import fine_tune
 
 
 CSV_COLUMNS = ["model", "prune_method", "sparsity_ratio", "sparsity_type", "lora_rank",
-               "wanda_in_lora", "randomized_svd", "shift_zero_metrics", "eval_dataset", "quantize",
+               "wanda_in_lora", "randomized_svd", "shift_zero_metrics", "eval_dataset", "quantize_weight",
                "quantize_before_pruning",
                "bitwidth", "max_bitwidth", "use_std_in_quantization", "bias_correction", "bias_alpha",
                "bias_correction_nsamples", "perplexity", "mmlu", "piqa", "arc_easy", "arc_challenge",
@@ -92,12 +92,15 @@ def main():
     parser.add_argument("--randomized_svd", action="store_true")
     parser.add_argument("--prune_lora", action="store_true")
     parser.add_argument("--quantize_lora", action="store_true")
+    parser.add_argument("--lora_tile_size", type=int, default=256)
     parser.add_argument("--bias_correction", action="store_true")
     parser.add_argument("--bias_alpha", type=float, default=1.0)
     parser.add_argument("--bias_correction_nsamples", type=int, default=128)
 
     parser.add_argument("--bitwidth", type=int, default=8)
     parser.add_argument("--quantize_weight", action="store_true")
+    parser.add_argument("--tiled_weight_quantization", action="store_true")
+    parser.add_argument("--weight_tile_size", type=int, default=256)
     parser.add_argument("--quantize_before_pruning", action="store_true")
     parser.add_argument("--local_checkpoint_dir", type=str, default="")
     parser.add_argument("--eval_dataset", type=str, default="wikitext2", choices=["wikitext2", "c4", "openwebtext"])

@@ -114,8 +114,10 @@ def quantize_lora(model, args):
                 quantizer.quantize_weight(
                     subset[name].lora_left.data,
                     args.bitwidth,
-                    use_std=args.use_std_in_quantization,
+                    use_std=False,#args.use_std_in_quantization,
                     max_bitwidth=args.max_bitwidth,
+                    block_quantization=True,
+                    block_size=int(np.sqrt(args.lora_tile_size)),
                     # target_scaling_factor=subset[name].scaling_factor
                 )
             )
@@ -124,8 +126,10 @@ def quantize_lora(model, args):
                 quantizer.quantize_weight(
                     subset[name].lora_right.data,# / quantizer.normalizer,
                     args.bitwidth,
-                    use_std=args.use_std_in_quantization,
+                    use_std=False,#args.use_std_in_quantization,
                     max_bitwidth=args.max_bitwidth,
+                    block_quantization=True,
+                    block_size=int(np.sqrt(args.lora_tile_size)),
                 )
             )
 
@@ -162,7 +166,9 @@ def add_lora(module,
              layer_name="",
              layer_num=0,
              max_rank=0.25,
-             uniform_rank=True):
+             uniform_rank=True,
+             block_quantization=False,
+             lora_tile_size=None):
     if use_wanda and not any(activations.scaler_row == 0):
         if quantizer is None:
             W_metric = module.weight.data * (torch.sqrt(activations.scaler_row.reshape((1, -1))))
@@ -173,14 +179,24 @@ def add_lora(module,
             W_metric = module.weight.data * (torch.sqrt(activations.scaler_row.reshape((1, -1))))
             new_weight = module.weight.data
             new_weight[W_mask] = 0
-            new_weight = quantizer.quantize_weight(new_weight, bitwidth, use_std=use_std, max_bitwidth=max_bitwidth)
+            new_weight = quantizer.quantize_weight(new_weight,
+                                                   bitwidth,
+                                                   use_std=use_std,
+                                                   max_bitwidth=max_bitwidth,
+                                                   block_quantization=block_quantization,
+                                                   )
             new_weight = quantizer.dequantize_absmax(new_weight) * (torch.sqrt(activations.scaler_row.reshape((1, -1))))
             error_mat = (W_metric - new_weight)
     else:
         new_weight = module.weight.data.clone().detach()
         new_weight[W_mask] = 0
         if quantizer is not None:
-            new_weight = quantizer.quantize_weight(new_weight, bitwidth, use_std=use_std, max_bitwidth=max_bitwidth)
+            new_weight = quantizer.quantize_weight(new_weight,
+                                                   bitwidth,
+                                                   use_std=use_std,
+                                                   max_bitwidth=max_bitwidth,
+                                                   block_quantization=block_quantization,
+                                                   )
             new_weight = quantizer.dequantize_absmax(new_weight)
         error_mat = module.weight.data - new_weight
     # Use SVD on the error matrix to find the best low-rank approximation
@@ -241,6 +257,13 @@ def add_lora(module,
     else:
         rank = int(rank_ratio * min(error_mat.shape))
 
+    if lora_tile_size is not None:
+        tile_dim = int(np.sqrt(lora_tile_size))
+        residue = rank % tile_dim
+        if residue != 0:
+            rank = rank + (tile_dim - residue)
+        assert rank % tile_dim == 0
+
     if separate_lora:
         lora_left = (torch.diag_embed(S[:rank]).half() @ V[:, :rank].half().T).t()
         lora_right = U[:, :rank].half().t()
@@ -261,7 +284,12 @@ def add_lora(module,
     new_weight = module.weight.data - low_rank_weight
     new_weight[W_mask] = 0
     if quantizer is not None:
-        new_weight = quantizer.quantize_weight(new_weight, bitwidth, use_std=use_std, max_bitwidth=max_bitwidth)
+        new_weight = quantizer.quantize_weight(new_weight,
+                                               bitwidth,
+                                               use_std=use_std,
+                                               max_bitwidth=max_bitwidth,
+                                               block_quantization=block_quantization,
+                                               )
         new_weight = quantizer.dequantize_absmax(new_weight)
 
     if separate_lora:

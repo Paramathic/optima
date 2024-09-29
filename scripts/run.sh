@@ -21,13 +21,13 @@ do
     fi
 
 
-    for MODEL_SIZE in 125m #13b # 7b #7b 13b #8B #7B #125m # 7b #1.3b #7B #6.7b
+    for MODEL_SIZE in 2.7b #125m #13b # 7b #7b 13b #8B #7B #125m # 7b #1.3b #7B #6.7b
     do
         for STRUCTURE in 2:4 #unstructured
         do
             for METHOD in wanda
             do
-                for LORA_RANK in 0.1 #0.1 #0.125 0.25 0.125 0.0625 0.03125
+                for LORA_RANK in 0.125 #0.1 #0.125 0.25 0.125 0.0625 0.03125
                 do
                     for WANDA_IN_LORA in '--wanda_in_lora'
                     do
@@ -46,7 +46,7 @@ do
 #                                    TILED_INPUT_QUANTIZATION='--tiled_input_quantization'
                                 fi
                                 INPUT_BITWIDTH=8
-                                INPUT_GROUP_SIZE=16
+                                INPUT_GROUP_SIZE=256
                                 # QUANTIZE_BEFORE_PRUNING='--quantize_before_pruning'
                                 MAX_BITWIDTH=4
                                 USE_STD_IN_QUANTIZATION='--use_std_in_quantization'
@@ -61,9 +61,11 @@ do
 #                                FINE_TUNE='--fine_tune'
                                 EVALUATE_PERPLEXITY='--evaluate_perplexity'
                                 OPTIMIZER="adamw_torch" #"adafactor"
-#                                PRUNE_LORA="--prune_lora"
-#                                QUANTIZE_LORA="--quantize_lora"
+                                PRUNE_LORA="--prune_lora"
+                                QUANTIZE_LORA="--quantize_lora"
+                                LORA_TILE_SIZE=256
 #                                TILED_WEIGHT_QUANTIZATION="--tiled_weight_quantization"
+                                WEIGHT_TILE_SIZE=256
 
                                 CUDA_VISIBLE_DEVICES=0 python main_opt.py \
                                     --model ${MODEL_PREFIX}${MODEL_SIZE}${MODEL_POSTFIX} \
@@ -102,7 +104,9 @@ do
                                     $TILED_INPUT_QUANTIZATION \
                                     $PRUNE_LORA \
                                     $QUANTIZE_LORA \
-                                    $TILED_WEIGHT_QUANTIZATION
+                                    --lora_tile_size $LORA_TILE_SIZE \
+                                    $TILED_WEIGHT_QUANTIZATION \
+                                    --weight_tile_size $WEIGHT_TILE_SIZE
                             done
                         done
                     done

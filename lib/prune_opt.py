@@ -15,6 +15,7 @@ from compression.quantization.model_quantizing import Quantizer as AutoQuantizer
 from transformers import LlamaForCausalLM
 from compression.ops import prune_row_wise
 import tqdm.auto as tqdm
+import numpy as np
 
 
 
@@ -277,7 +278,10 @@ def prune_magnitude(args, model, tokenizer, device=torch.device("cuda:0"), prune
                 quantized_weight = quantizer.quantize_weight(subset[name].weight.data,
                                                              args.bitwidth,
                                                              use_std=args.use_std_in_quantization,
-                                                             max_bitwidth=args.max_bitwidth)
+                                                             max_bitwidth=args.max_bitwidth,
+                                                             block_quantization=args.tiled_quantization,
+                                                             block_size=int(np.sqrt(args.weight_tile_size)),
+                                                             )
                 subset[name].weight.data = quantizer.dequantize_absmax(quantized_weight).half()
                 subset[name].scaling_factor = quantizer.scaling_factor
 
@@ -387,7 +391,9 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
                         subset[name].weight.data,
                         args.bitwidth,
                         use_std=args.use_std_in_quantization,
-                        max_bitwidth=args.max_bitwidth
+                        max_bitwidth=args.max_bitwidth,
+                        block_quantization=args.tiled_quantization,
+                        block_size=int(np.sqrt(args.weight_tile_size)),
                     )
                 )
                 W_metric = torch.abs(quantized_weight) * torch.sqrt(wrapped_layers[name].scaler_row.reshape((1, -1)))
@@ -432,6 +438,8 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
                          layer_num=i, 
                          max_rank=3. * args.lora_rank,
                          uniform_rank=args.uniform_rank,
+                         block_quantization=args.tiled_weight_quantization,
+                         lora_tile_size=args.lora_tile_size if args.quantize_lora else None,
                          )
 
                 subset[name].scaling_factor = quantizer.scaling_factor
@@ -452,9 +460,12 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
                 subset[name].weight.data[W_mask] = 0  ## set weights to zero
                 if (not args.quantize_before_pruning) and quantizer is not None:
                     quantized_weight = quantizer.quantize_weight(subset[name].weight.data,
-                                                                         args.bitwidth,
-                                                                         use_std=args.use_std_in_quantization,
-                                                                         max_bitwidth=args.max_bitwidth)
+                                                                 args.bitwidth,
+                                                                 use_std=args.use_std_in_quantization,
+                                                                 max_bitwidth=args.max_bitwidth,
+                                                                 block_quantization=args.tiled_quantization,
+                                                                 block_size=int(np.sqrt(args.weight_tile_size)),
+                                                                 )
                     subset[name].weight.data = quantizer.dequantize_absmax(quantized_weight).half()
                     subset[name].scaling_factor = quantizer.scaling_factor
 
@@ -545,7 +556,7 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
             if args.quantize_weight:
                 gpts[name].quantizer = SparseGPTQuantizer()
                 gpts[name].quantizer.configure(
-                    args.bitwidth, perchannel=False, sym=True, mse=False
+                    args.bitwidth, perchannel=args.tiled_quantization, sym=True, mse=False
                 )
 
         def add_batch(name):
@@ -592,14 +603,11 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
 
         for name in gpts:
             progress_bar.set_description(f"Layer {i} - Pruning and Quantizing {name}")
-            gpts[name].fasterprune(args.sparsity_ratio, prune_n=prune_n, prune_m=prune_m, percdamp=0.01, blocksize=128)
+            gpts[name].fasterprune(args.sparsity_ratio, prune_n=prune_n, prune_m=prune_m, percdamp=0.01, blocksize=args.weight_tile_size)
             if args.quantize_weight:
                 subset[name].scaling_factor = 1. / gpts[name].quantizer.scale[0]
 
-
-
             gpts[name].free()
-
 
         if cpu_only:
             layer = layer.float()
@@ -756,7 +764,9 @@ def quantize_model(args, model, use_std=None):
                     subset[name].weight.data,
                     args.bitwidth,
                     use_std=args.use_std_in_quantization if use_std is None else use_std,
-                    max_bitwidth=args.max_bitwidth
+                    max_bitwidth=args.max_bitwidth,
+                    block_quantization=args.tiled_quantization,
+                    block_size=int(np.sqrt(args.weight_tile_size)),
                 )
             )
             
