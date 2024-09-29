@@ -33,7 +33,7 @@ do
                     do
                         for NUM_CALIBRATION_SAMPLES in 128 #1 2 4 8 16 32 64 128 256
                         do
-                            for QUANTIZE in '' #'--quantize'
+                            for QUANTIZE in '--quantize'
                             do
                                 # rm -rf data
                                 LOCAL_FILES_ONLY='--local_files_only'
@@ -62,6 +62,7 @@ do
                                 EVALUATE_PERPLEXITY='--evaluate_perplexity'
                                 OPTIMIZER="adamw_torch" #"adafactor"
 #                                PRUNE_LORA="--prune_lora"
+                                QUANTIZE_LORA="--quantize_lora"
 
                                 CUDA_VISIBLE_DEVICES=0 python main_opt.py \
                                     --model ${MODEL_PREFIX}${MODEL_SIZE}${MODEL_POSTFIX} \
@@ -98,7 +99,8 @@ do
                                     --nsample $NUM_CALIBRATION_SAMPLES \
                                     --optimizer $OPTIMIZER \
                                     $TILED_QUANTIZATION \
-                                    $PRUNE_LORA
+                                    $PRUNE_LORA \
+                                    $QUANTIZE_LORA
                             done
                         done
                     done

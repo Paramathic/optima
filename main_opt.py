@@ -8,7 +8,8 @@ from importlib.metadata import version
 
 from lib.prune_opt import check_sparsity,  prune_and_quantize
 from lib.eval import eval_ppl, eval_zero_shot
-from lib.utils import contigous_model, merge_lora, get_llm, hf_token, convert_linear_to_conv1d, attach_input_quantization_hooks, add_empty_lora, report_gpu_memory
+from lib.utils import (contigous_model, merge_lora, get_llm, hf_token, convert_linear_to_conv1d,
+                       attach_input_quantization_hooks, add_empty_lora, report_gpu_memory, quantize_lora)
 import time
 import shutil
 from lib.fine_tune import fine_tune
@@ -90,6 +91,7 @@ def main():
     parser.add_argument("--separate_lora", action="store_true")
     parser.add_argument("--randomized_svd", action="store_true")
     parser.add_argument("--prune_lora", action="store_true")
+    parser.add_argument("--quantize_lora", action="store_true")
     parser.add_argument("--bias_correction", action="store_true")
     parser.add_argument("--bias_alpha", type=float, default=1.0)
     parser.add_argument("--bias_correction_nsamples", type=int, default=128)
@@ -159,6 +161,9 @@ def main():
                                         args.input_bitwidth,
                                         args.input_group_size,
                                         tiled_quantization=args.tiled_quantization)
+    ################################################################
+    if args.quantize and args.quantize_lora:
+        quantize_lora(model, args)
     ################################################################
     ppl_test = 0.
     if args.evaluate_perplexity:

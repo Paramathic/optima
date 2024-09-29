@@ -120,16 +120,22 @@ class Quantizer:
             dtype = torch.int32
         return dtype
 
-    def quantize_weight(self, mat, num_bits=8, use_std=False, std_factor=5, max_bitwidth=8):
+    def quantize_weight(self, mat, num_bits=8, use_std=False, max_bitwidth=8, target_scaling_factor=None):
         """absmax quantization"""
         dtype = self.get_dtype(num_bits)
         max_q = 2 ** (num_bits - 1) - 1
         if use_std:
             # abs_max = std_factor * torch.sqrt((mat ** 2).mean())
-            abs_max = find_optimal_quantiztion_cap(mat, num_bits, num_bins=min(torch.numel(mat) // 1000, 20000))
+            abs_max = find_optimal_quantiztion_cap(mat, num_bits, num_bins=max(512, min(torch.numel(mat) // 1000, 20000)))
         else:
             abs_max = mat.abs().max()
+
         scaling_factor = max_q / abs_max
+        if target_scaling_factor is not None:
+            self.normalizer = (target_scaling_factor / scaling_factor)
+            print("Normalizer", self.normalizer)
+            mat *= self.normalizer
+            scaling_factor = target_scaling_factor
         quantized_mat = torch.round((mat * scaling_factor).float())
         if use_std:
             max_q = 2 ** (max_bitwidth - 1) - 1

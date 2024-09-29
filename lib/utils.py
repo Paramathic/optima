@@ -92,6 +92,47 @@ def prune_and_optimizer_lora(L, R, num_iters=1000, lr_end_factor=1e-4):
     return L_mask
 
 
+def error(mat, target):
+    return torch.norm(mat.float() - target.float()) / torch.norm(target.float())
+
+
+def quantize_lora(model, args):
+    quantizer = AutoQuantizer("weight")
+    layers = get_layers_list(model)
+
+    progress_bar = tqdm.tqdm(range(len(layers)))
+
+    for i in progress_bar:
+        layer = layers[i]
+
+        subset = find_layers(layer)
+
+        for name in subset:
+            progress_bar.set_description(f"Layer {i} - Quantizing LoRA for {name}")
+
+            quantized_lora_left = quantizer.dequantize_absmax(
+                quantizer.quantize_weight(
+                    subset[name].lora_left.data,
+                    args.bitwidth,
+                    use_std=args.use_std_in_quantization,
+                    max_bitwidth=args.max_bitwidth,
+                    # target_scaling_factor=subset[name].scaling_factor
+                )
+            )
+
+            quantized_lora_right = quantizer.dequantize_absmax(
+                quantizer.quantize_weight(
+                    subset[name].lora_right.data,# / quantizer.normalizer,
+                    args.bitwidth,
+                    use_std=args.use_std_in_quantization,
+                    max_bitwidth=args.max_bitwidth,
+                )
+            )
+
+            subset[name].lora_left.data = quantized_lora_left.to(subset[name].weight.dtype)
+            subset[name].lora_right.data = quantized_lora_right.to(subset[name].weight.dtype)
+
+
 def polynomial_approximation(x, p, alpha):
     result = alpha[0] * x ** p[0]
     for i in range(1, len(p)):

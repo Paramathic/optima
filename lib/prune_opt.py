@@ -434,6 +434,8 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
                          uniform_rank=args.uniform_rank,
                          )
 
+                subset[name].scaling_factor = quantizer.scaling_factor
+
                 if args.separate_lora:
                     def add_lora_hook(module, input, output):
                         output += torch.matmul(torch.matmul(input[0].to(module.lora_left.dtype) , module.lora_left / torch.sqrt(module.lora_rank)),
