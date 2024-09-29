@@ -33,7 +33,7 @@ do
                     do
                         for NUM_CALIBRATION_SAMPLES in 128 #1 2 4 8 16 32 64 128 256
                         do
-                            for QUANTIZE in '--quantize'
+                            for QUANTIZE_WEIGHT in '--quantize_weight'
                             do
                                 # rm -rf data
                                 LOCAL_FILES_ONLY='--local_files_only'
@@ -43,7 +43,7 @@ do
                                 BITWIDTH=4
                                 if [ $QUANTIZE == '--quantize' ]; then
                                     QUANTIZE_INPUT='--quantize_input'
-#                                    TILED_QUANTIZATION='--tiled_quantization'
+#                                    TILED_INPUT_QUANTIZATION='--tiled_input_quantization'
                                 fi
                                 INPUT_BITWIDTH=8
                                 INPUT_GROUP_SIZE=16
@@ -62,7 +62,8 @@ do
                                 EVALUATE_PERPLEXITY='--evaluate_perplexity'
                                 OPTIMIZER="adamw_torch" #"adafactor"
 #                                PRUNE_LORA="--prune_lora"
-                                QUANTIZE_LORA="--quantize_lora"
+#                                QUANTIZE_LORA="--quantize_lora"
+#                                TILED_WEIGHT_QUANTIZATION="--tiled_weight_quantization"
 
                                 CUDA_VISIBLE_DEVICES=0 python main_opt.py \
                                     --model ${MODEL_PREFIX}${MODEL_SIZE}${MODEL_POSTFIX} \
@@ -76,7 +77,7 @@ do
                                     --eval_dataset $EVAL_DATASET \
                                     $SHIFT_ZERO_METRICS \
                                     $LOCAL_CHECKPOINT_DIR \
-                                    $QUANTIZE \
+                                    $QUANTIZE_WEIGHT \
                                     $QUANTIZE_BEFORE_PRUNING \
                                     --bitwidth $BITWIDTH \
                                     --max_bitwidth $MAX_BITWIDTH \
@@ -98,9 +99,10 @@ do
                                     $UNIFORM_RANK \
                                     --nsample $NUM_CALIBRATION_SAMPLES \
                                     --optimizer $OPTIMIZER \
-                                    $TILED_QUANTIZATION \
+                                    $TILED_INPUT_QUANTIZATION \
                                     $PRUNE_LORA \
-                                    $QUANTIZE_LORA
+                                    $QUANTIZE_LORA \
+                                    $TILED_WEIGHT_QUANTIZATION
                             done
                         done
                     done

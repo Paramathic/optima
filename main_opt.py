@@ -97,7 +97,7 @@ def main():
     parser.add_argument("--bias_correction_nsamples", type=int, default=128)
 
     parser.add_argument("--bitwidth", type=int, default=8)
-    parser.add_argument("--quantize", action="store_true")
+    parser.add_argument("--quantize_weight", action="store_true")
     parser.add_argument("--quantize_before_pruning", action="store_true")
     parser.add_argument("--local_checkpoint_dir", type=str, default="")
     parser.add_argument("--eval_dataset", type=str, default="wikitext2", choices=["wikitext2", "c4", "openwebtext"])
@@ -112,7 +112,7 @@ def main():
     parser.add_argument('--evaluate_perplexity', action="store_true", help="Whether to evaluate the model perplexity")
     parser.add_argument('--local_files_only', action="store_true", help="Whether to use local files only")
     parser.add_argument('--quantize_input', action="store_true", help="Whether to quantize input")
-    parser.add_argument('--tiled_quantization', action="store_true", help="Whether to use tiling for input quantization")
+    parser.add_argument('--tiled_input_quantization', action="store_true", help="Whether to use tiling for input quantization")
     parser.add_argument("--input_bitwidth", type=int, default=8, help="Input quantization bitwidth")
     parser.add_argument("--input_group_size", type=int, default=-1, help="Input quantization group size")
     parser.add_argument("--uniform_rank", action="store_true", help="Whether to use uniform rank")
@@ -137,7 +137,7 @@ def main():
     print("Sparsity Ratio: ", args.sparsity_ratio)
     print("Pruning Structure: ", args.sparsity_type)
     print("Prune Method: ", args.prune_method)
-    print("Quantize: ", args.quantize)
+    print("Quantize: ", args.quantize_weight)
 
     report_gpu_memory("Before Pruning")
     prune_and_quantize(model, tokenizer, device, args)
@@ -160,9 +160,9 @@ def main():
         attach_input_quantization_hooks(model,
                                         args.input_bitwidth,
                                         args.input_group_size,
-                                        tiled_quantization=args.tiled_quantization)
+                                        tiled_quantization=args.tiled_input_quantization)
     ################################################################
-    if args.quantize and args.quantize_lora:
+    if args.quantize_weight and args.quantize_lora:
         quantize_lora(model, args)
     ################################################################
     ppl_test = 0.
@@ -211,7 +211,10 @@ def main():
         report_gpu_memory("After Loading State Dictionary")
         os.remove(checkpoint_dir)
         if args.quantize_input:
-            attach_input_quantization_hooks(model.model, args.input_bitwidth, args.input_group_size)
+            attach_input_quantization_hooks(model,
+                                            args.input_bitwidth,
+                                            args.input_group_size,
+                                            tiled_quantization=args.tiled_input_quantization)
         results = lm_eval.simple_evaluate(
             model=model,
             tasks=["mmlu", "piqa", "arc_easy", "arc_challenge", "winogrande", "openbookqa"],

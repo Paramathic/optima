@@ -252,7 +252,7 @@ def prune_magnitude(args, model, tokenizer, device=torch.device("cuda:0"), prune
     layers = get_layers_list(model)
     progress_bar = tqdm.tqdm(range(len(layers)))
 
-    if args.quantize:
+    if args.quantize_weight:
         quantizer = AutoQuantizer("weight")
     else:
         quantizer = None
@@ -295,7 +295,7 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
         else:
             inps, outs, attention_mask = prepare_calibration_input(model, dataloader, device)
 
-    if args.quantize:
+    if args.quantize_weight:
         quantizer = AutoQuantizer("weight")
     else:
         quantizer = None
@@ -502,7 +502,7 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
 
             subset = find_layers(layer)
             for name in subset:
-                accelerate_module(subset[name], args.quantize, args.bitwidth)
+                accelerate_module(subset[name], args.quantize_weight, args.bitwidth)
 
     model.config.use_cache = use_cache
     torch.cuda.empty_cache()
@@ -542,7 +542,7 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
         gpts = {}
         for name in subset:
             gpts[name] = SparseGPT(subset[name])
-            if args.quantize:
+            if args.quantize_weight:
                 gpts[name].quantizer = SparseGPTQuantizer()
                 gpts[name].quantizer.configure(
                     args.bitwidth, perchannel=False, sym=True, mse=False
@@ -593,7 +593,7 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
         for name in gpts:
             progress_bar.set_description(f"Layer {i} - Pruning and Quantizing {name}")
             gpts[name].fasterprune(args.sparsity_ratio, prune_n=prune_n, prune_m=prune_m, percdamp=0.01, blocksize=128)
-            if args.quantize:
+            if args.quantize_weight:
                 subset[name].scaling_factor = 1. / gpts[name].quantizer.scale[0]
 
 
@@ -767,7 +767,7 @@ def quantize_model(args, model, use_std=None):
 def prune_and_quantize(model, tokenizer, device, args):
 
     if args.sparsity_ratio == 0. or args.sparsity_type == "dense":
-        if args.quantize:
+        if args.quantize_weight:
             print("Quantizing the dense model:")
             quantize_model(args, model)
         else:
