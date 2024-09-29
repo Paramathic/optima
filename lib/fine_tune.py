@@ -44,8 +44,6 @@ def disable_linear_layer_grads(model):
                     def mask_lora(self, inputs):
                         self.lora_left.data[self.lora_left_mask] = 0
 
-                        spartity_ratio = (self.lora_left == 0).float().mean()
-                        print("HI - ", spartity_ratio )
                     module.register_forward_pre_hook(mask_lora)
             else:
                 def mask_weight(self, inputs):
