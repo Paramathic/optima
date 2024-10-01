@@ -208,13 +208,13 @@ def main():
                     and args.separate_lora
                     and args.sparsity_type != "dense")
         if has_lora:
-            add_empty_lora(model.model)
+            add_empty_lora(model.model, lora_tile_size=args.lora_tile_size if args.quantize_lora else None)
         report_gpu_memory("After Creating Model and Adding LoRA")
         model.model.load_state_dict(torch.load(checkpoint_dir, map_location="cpu"))
         report_gpu_memory("After Loading State Dictionary")
         os.remove(checkpoint_dir)
         if args.quantize_input:
-            attach_input_quantization_hooks(model,
+            attach_input_quantization_hooks(model.model,
                                             args.input_bitwidth,
                                             args.input_group_size,
                                             tiled_quantization=args.tiled_input_quantization)
