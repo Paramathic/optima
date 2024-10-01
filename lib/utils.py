@@ -493,13 +493,19 @@ def merge_lora(model):
             del module.lora_right
 
 
-def add_empty_lora(model):
+def add_empty_lora(model, lora_tile_size=None):
     layer_list = get_layers_list(model)
     for i in range(len(layer_list)):
         layer = layer_list[i]
         subset = find_layers(layer)
         for name in subset:
             layer_rank = int(min(subset[name].weight.shape) * svd_params[(name, i)])
+            if lora_tile_size is not None:
+                tile_dim = int(np.sqrt(lora_tile_size))
+                residue = layer_rank % tile_dim
+                if residue != 0:
+                    layer_rank = layer_rank + (tile_dim - residue)
+                assert layer_rank % tile_dim == 0
             subset[name].lora_left = torch.nn.Parameter(
                 torch.zeros((subset[name].weight.shape[1], layer_rank), device=subset[name].weight.device).half())
             subset[name].lora_right = torch.nn.Parameter(
