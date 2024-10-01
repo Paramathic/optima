@@ -1,5 +1,4 @@
 # SLiM: One-shot Quantized Sparse Plus Low-rank Approximation of LLMs
-Official PyTorch implementation of **Wanda** (Pruning by **W**eights **and a**ctivations), as presented in our paper:
 
 ## Setup
 Installation instructions can be found in [INSTALL.md](INSTALL.md).
