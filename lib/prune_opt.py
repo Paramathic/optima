@@ -279,7 +279,7 @@ def prune_magnitude(args, model, tokenizer, device=torch.device("cuda:0"), prune
                                                              args.bitwidth,
                                                              use_std=args.use_std_in_quantization,
                                                              max_bitwidth=args.max_bitwidth,
-                                                             block_quantization=args.tiled_quantization,
+                                                             block_quantization=args.tiled_weight_quantization,
                                                              block_size=int(np.sqrt(args.weight_tile_size)),
                                                              )
                 subset[name].weight.data = quantizer.dequantize_absmax(quantized_weight).half()
@@ -392,7 +392,7 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
                         args.bitwidth,
                         use_std=args.use_std_in_quantization,
                         max_bitwidth=args.max_bitwidth,
-                        block_quantization=args.tiled_quantization,
+                        block_quantization=args.tiled_weight_quantization,
                         block_size=int(np.sqrt(args.weight_tile_size)),
                     )
                 )
@@ -442,7 +442,8 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
                          lora_tile_size=args.lora_tile_size if args.quantize_lora else None,
                          )
 
-                subset[name].scaling_factor = quantizer.scaling_factor
+                if quantizer is not None:
+                    subset[name].scaling_factor = quantizer.scaling_factor
 
                 if args.separate_lora:
                     def add_lora_hook(module, input, output):
@@ -463,11 +464,12 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
                                                                  args.bitwidth,
                                                                  use_std=args.use_std_in_quantization,
                                                                  max_bitwidth=args.max_bitwidth,
-                                                                 block_quantization=args.tiled_quantization,
+                                                                 block_quantization=args.tiled_weight_quantization,
                                                                  block_size=int(np.sqrt(args.weight_tile_size)),
                                                                  )
                     subset[name].weight.data = quantizer.dequantize_absmax(quantized_weight).half()
-                    subset[name].scaling_factor = quantizer.scaling_factor
+                    if quantizer is not None:
+                        subset[name].scaling_factor = quantizer.scaling_factor
 
 
         if cpu_only:
@@ -556,7 +558,7 @@ def prune_sparsegpt(args, model, tokenizer, dev, prune_n=0, prune_m=0):
             if args.quantize_weight:
                 gpts[name].quantizer = SparseGPTQuantizer()
                 gpts[name].quantizer.configure(
-                    args.bitwidth, perchannel=args.tiled_quantization, sym=True, mse=False
+                    args.bitwidth, perchannel=args.tiled_weight_quantization, sym=True, mse=False
                 )
 
         def add_batch(name):
@@ -765,7 +767,7 @@ def quantize_model(args, model, use_std=None):
                     args.bitwidth,
                     use_std=args.use_std_in_quantization if use_std is None else use_std,
                     max_bitwidth=args.max_bitwidth,
-                    block_quantization=args.tiled_quantization,
+                    block_quantization=args.tiled_weight_quantization,
                     block_size=int(np.sqrt(args.weight_tile_size)),
                 )
             )
