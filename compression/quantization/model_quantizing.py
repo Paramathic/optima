@@ -218,7 +218,7 @@ class Quantizer:
         if self.group_size != -1:
             quantized_mat = quantized_mat.view(mat_shape)
 
-        return quantized_mat, scale
+        return quantized_mat
 
     def dequantize_output(self, output, quantized_weight, weight_sf):
         """ Dequantization of the output when input is quantized with the row-wise zero point algorithm and the weight matrix is quantized with absmax"""
