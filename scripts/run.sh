@@ -8,28 +8,30 @@ export HF_HOME="data"
 export HF_DATASETS_OFFLINE="1"
 export HF_HUB_OFFLINE="1"
 
-for MODEL_NAME in opt #llama2 
+for MODEL_NAME in opt llama2 
 do
     if [ $MODEL_NAME == 'llama2' ]
     then
         MODEL_PREFIX=meta-llama/Llama-2-
         MODEL_POSTFIX=-hf
+        MODEL_SIZE_LIST="7b 13b"
     elif [ $MODEL_NAME == 'opt' ]
     then   
         MODEL_PREFIX=facebook/opt-
         MODEL_POSTFIX=""
+        MODEL_SIZE_LIST="125m 350m 1.3b 2.7b 6.7b 13b"
     fi
 
 
-    for MODEL_SIZE in 2.7b #125m #13b # 7b #7b 13b #8B #7B #125m # 7b #1.3b #7B #6.7b
+    for MODEL_SIZE in $MODEL_SIZE_LIST #125m #13b # 7b #7b 13b #8B #7B #125m # 7b #1.3b #7B #6.7b
     do
-        for STRUCTURE in 2:4 #unstructured
+        for STRUCTURE in unstructured
         do
             for METHOD in wanda
             do
-                for LORA_RANK in 0.125 #0.1 #0.125 0.25 0.125 0.0625 0.03125
+                for LORA_RANK in 0.1 #0.1 #0.125 0.25 0.125 0.0625 0.03125
                 do
-                    for WANDA_IN_LORA in '--wanda_in_lora'
+                    for WANDA_IN_LORA in '' '--wanda_in_lora'
                     do
                         for NUM_CALIBRATION_SAMPLES in 128 #1 2 4 8 16 32 64 128 256
                         do
@@ -37,19 +39,19 @@ do
                             do
                                 # rm -rf data
                                 LOCAL_FILES_ONLY='--local_files_only'
-                                SPARSITY_RATIO=0.5
+                                SPARSITY_RATIO=0.001
                                 SHIFT_ZERO_METRICS='--shift_zero_metrics'
                                 EVAL_DATASET='wikitext2'
                                 BITWIDTH=4
-                                if [ $QUANTIZE == '--quantize' ]; then
+                                if [ $QUANTIZE_WEIGHT == '--quantize_weight' ]; then
                                     QUANTIZE_INPUT='--quantize_input'
 #                                    TILED_INPUT_QUANTIZATION='--tiled_input_quantization'
                                 fi
                                 INPUT_BITWIDTH=8
-                                INPUT_GROUP_SIZE=256
+                                INPUT_GROUP_SIZE=128
                                 # QUANTIZE_BEFORE_PRUNING='--quantize_before_pruning'
                                 MAX_BITWIDTH=4
-                                USE_STD_IN_QUANTIZATION='--use_std_in_quantization'
+                                # USE_STD_IN_QUANTIZATION='--use_std_in_quantization'
                                 #BIAS_CORRECTION='--bias_correction'
                                 EVAL_BATCH_SIZE=1
                                 SEPARATE_LORA='--separate_lora'
@@ -57,14 +59,14 @@ do
                                 # ACCELERATE='--accelerate'
                                 # RANDOMIZED_SVD='--randomized_svd'
                                 # LOCAL_CHECKPOINT_DIR='--local_checkpoint_dir llm_weights/flash_attn_gpt2_small_dense_lora0.pt'
-#                                TEST_LMHARNESS='--test_lmharness'
-#                                FINE_TUNE='--fine_tune'
+                               TEST_LMHARNESS='--test_lmharness'
+                            #    FINE_TUNE='--fine_tune'
                                 EVALUATE_PERPLEXITY='--evaluate_perplexity'
-                                OPTIMIZER="adamw_torch" #"adafactor"
-                                PRUNE_LORA="--prune_lora"
-                                QUANTIZE_LORA="--quantize_lora"
+                                OPTIMIZER="adafactor"
+                                # PRUNE_LORA="--prune_lora"
+                                # QUANTIZE_LORA="--quantize_lora"
                                 LORA_TILE_SIZE=256
-#                                TILED_WEIGHT_QUANTIZATION="--tiled_weight_quantization"
+                               TILED_WEIGHT_QUANTIZATION="--tiled_weight_quantization"
                                 WEIGHT_TILE_SIZE=256
 
                                 CUDA_VISIBLE_DEVICES=0 python main_opt.py \
@@ -91,7 +93,7 @@ do
                                     $SEPARATE_LORA \
                                     $ACCELERATE \
                                     $TEST_LMHARNESS \
-                                    --output_csv_path results/missing_perplexity${FINE_TUNE}.csv \
+                                    --output_csv_path results/missing-quant-${PRUNE_LORA}${QUANTIZE_LORA}${FINE_TUNE}.csv \
                                     $FINE_TUNE \
                                     $EVALUATE_PERPLEXITY \
                                     $LOCAL_FILES_ONLY \
