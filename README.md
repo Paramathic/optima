@@ -211,7 +211,7 @@ functions, please refer to their dockstrings.
 - `bitwidth`: The bitwidth to be used for quantization.
 - `slim_quant`: Whether to use SLiM-Quant for pruning. If set to 'False', AbsMax or OPTQ (GPTQ) will be used for quantization.
 - `weight_tiled_quantization`: Whether to use weight tiled (group) quantization. We do not recommend using this option with SLiM-Quant.
-- `weight_tile_size`: The size of the weight tiles to be used for weight tiled quantization. The dimension of the tile will be $\sqrt{\text{weight_tile_size}}$.
+- `weight_tile_size`: The size of the weight tiles to be used for weight tiled quantization. The dimension of the tile will be $\sqrt{\text{weight-tile-size}}$.
 - `prune_method`: The pruning method to be used. We support `wanda`, `sparsegpt`, and `magnitude`. If using `sparsegpt`, the `slim_quant` should be set to `False`.
 - `sparsity_ratio`: The sparsity ratio to be used for pruning.
 - `sparsity_type`: The sparsity type to be used for pruning. We support `unstructured` and `N:M` sparsity.
@@ -222,7 +222,7 @@ functions, please refer to their dockstrings.
 - `slim_lora`: Whether to use SLiM for low-rank approximation.
 - `prune_lora`: Whether to 2:4 prune the left low-rank adapter `L`. For setting this option, `sparsity_type` should be set to `2:4`.
 - `quantize_lora`: Whether to quantize the low-rank adapters.
-- `lora_tile_size`: The size of the low-rank adapter tiles to be used for low-rank approximation. The dimension of the tile will be $\sqrt{\text{lora_tile_size}}$.
+- `lora_tile_size`: The size of the low-rank adapter tiles to be used for low-rank approximation. The dimension of the tile will be $\sqrt{\text{lora-tile-size}}$.
 - `separate_lora`: Whether to keep the low-rank adapters separate from the model weights. If set to `False`, the low-rank adapters will be merged with the model weights.
 - `seed`: The seed to be used for reproducibility.
 
