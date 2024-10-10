@@ -1,0 +1,10 @@
+transformers==4.45.0
+datasets==3.0.1
+wandb
+sentencepiece
+accelerate==0.34.2
+einops
+tensorboardX
+absl-py
+h5py
+git+https://github.com/EleutherAI/lm-evaluation-harness.git

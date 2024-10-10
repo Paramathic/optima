@@ -1,14 +1,12 @@
 
-# module load anaconda3 cuda/11.4.4 gcc/10.3.0 ninja
-# source activate pytorch
-
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$PWD/compression/pruning_kernels/tensor_cores/libcusparse_lt/lib
 export HF_DATASETS_TRUST_REMOTE_CODE="1"
 export HF_HOME="data"
 export HF_DATASETS_OFFLINE="1"
 export HF_HUB_OFFLINE="1"
 
-for MODEL_NAME in opt llama2 
+HF_TOKEN="--hf_token HUGGINGFACE_ACCESS_TOKEN"
+
+for MODEL_NAME in opt llama2
 do
     if [ $MODEL_NAME == 'llama2' ]
     then
@@ -23,23 +21,22 @@ do
     fi
 
 
-    for MODEL_SIZE in $MODEL_SIZE_LIST #125m #13b # 7b #7b 13b #8B #7B #125m # 7b #1.3b #7B #6.7b
+    for MODEL_SIZE in $MODEL_SIZE_LIST
     do
-        for STRUCTURE in unstructured
+        for STRUCTURE in 2:4 unstructured
         do
             for METHOD in wanda
             do
-                for LORA_RANK in 0.1 #0.1 #0.125 0.25 0.125 0.0625 0.03125
+                for LORA_RANK in 0.1
                 do
-                    for WANDA_IN_LORA in '' '--wanda_in_lora'
+                    for SLIM_LORA in '--slim_lora'
                     do
-                        for NUM_CALIBRATION_SAMPLES in 128 #1 2 4 8 16 32 64 128 256
+                        for NUM_CALIBRATION_SAMPLES in 128
                         do
                             for QUANTIZE_WEIGHT in '--quantize_weight'
                             do
-                                # rm -rf data
                                 LOCAL_FILES_ONLY='--local_files_only'
-                                SPARSITY_RATIO=0.001
+                                SPARSITY_RATIO=0.5
                                 SHIFT_ZERO_METRICS='--shift_zero_metrics'
                                 EVAL_DATASET='wikitext2'
                                 BITWIDTH=4
@@ -49,58 +46,41 @@ do
                                 fi
                                 INPUT_BITWIDTH=8
                                 INPUT_GROUP_SIZE=128
-                                # QUANTIZE_BEFORE_PRUNING='--quantize_before_pruning'
-                                MAX_BITWIDTH=4
-                                # USE_STD_IN_QUANTIZATION='--use_std_in_quantization'
-                                #BIAS_CORRECTION='--bias_correction'
+                                SLIM_QUANT='--slim_quant'
                                 EVAL_BATCH_SIZE=1
                                 SEPARATE_LORA='--separate_lora'
-                                UNIFORM_RANK='--uniform_rank'
-                                # ACCELERATE='--accelerate'
-                                # RANDOMIZED_SVD='--randomized_svd'
-                                # LOCAL_CHECKPOINT_DIR='--local_checkpoint_dir llm_weights/flash_attn_gpt2_small_dense_lora0.pt'
-                               TEST_LMHARNESS='--test_lmharness'
-                            #    FINE_TUNE='--fine_tune'
+                                TEST_LMHARNESS='--test_lmharness'
+#                                FINE_TUNE='--fine_tune'
                                 EVALUATE_PERPLEXITY='--evaluate_perplexity'
                                 OPTIMIZER="adafactor"
-                                # PRUNE_LORA="--prune_lora"
-                                # QUANTIZE_LORA="--quantize_lora"
+#                                PRUNE_LORA="--prune_lora"
+                                QUANTIZE_LORA="--quantize_lora"
                                 LORA_TILE_SIZE=256
-                               TILED_WEIGHT_QUANTIZATION="--tiled_weight_quantization"
+#                                TILED_WEIGHT_QUANTIZATION="--tiled_weight_quantization"
                                 WEIGHT_TILE_SIZE=256
 
-                                CUDA_VISIBLE_DEVICES=0 python main_opt.py \
+                                CUDA_VISIBLE_DEVICES=0 python main.py \
                                     --model ${MODEL_PREFIX}${MODEL_SIZE}${MODEL_POSTFIX} \
                                     --prune_method $METHOD \
                                     --sparsity_ratio $SPARSITY_RATIO \
                                     --sparsity_type $STRUCTURE \
-                                    --save out/opt_$MODEL_SIZE/$STRUCTURE/$METHOD/ \
                                     --lora_rank $LORA_RANK \
-                                    $WANDA_IN_LORA \
-                                    $RANDOMIZED_SVD \
+                                    $SLIM_LORA \
                                     --eval_dataset $EVAL_DATASET \
                                     $SHIFT_ZERO_METRICS \
-                                    $LOCAL_CHECKPOINT_DIR \
                                     $QUANTIZE_WEIGHT \
-                                    $QUANTIZE_BEFORE_PRUNING \
                                     --bitwidth $BITWIDTH \
-                                    --max_bitwidth $MAX_BITWIDTH \
-                                    $BIAS_CORRECTION \
-                                    --bias_alpha 0.3 \
-                                    --bias_correction_nsamples 16 \
-                                    $USE_STD_IN_QUANTIZATION \
+                                    $SLIM_QUANT \
                                     --eval_batch_size $EVAL_BATCH_SIZE \
                                     $SEPARATE_LORA \
-                                    $ACCELERATE \
                                     $TEST_LMHARNESS \
-                                    --output_csv_path results/missing-quant-${PRUNE_LORA}${QUANTIZE_LORA}${FINE_TUNE}.csv \
+                                    --output_csv_path results/logs.csv \
                                     $FINE_TUNE \
                                     $EVALUATE_PERPLEXITY \
                                     $LOCAL_FILES_ONLY \
                                     $QUANTIZE_INPUT \
                                     --input_bitwidth $INPUT_BITWIDTH \
                                     --input_group_size $INPUT_GROUP_SIZE \
-                                    $UNIFORM_RANK \
                                     --nsample $NUM_CALIBRATION_SAMPLES \
                                     --optimizer $OPTIMIZER \
                                     $TILED_INPUT_QUANTIZATION \
@@ -109,6 +89,7 @@ do
                                     --lora_tile_size $LORA_TILE_SIZE \
                                     $TILED_WEIGHT_QUANTIZATION \
                                     --weight_tile_size $WEIGHT_TILE_SIZE
+                                    $HF_TOKEN
                             done
                         done
                     done
