@@ -11,7 +11,7 @@ while maintaining efficiency in memory-constrained environments.
 
 *Mohammad Mozaffari and Maryam Mehri Dehnavi*
 
-Paper: TODO: Add arXiv link
+Paper: [https://arxiv.org/abs/2410.09615](https://arxiv.org/abs/2410.09615)
 
 ![Alt text](./assets/SLiM-Pipeline.png "MKOR Pipeline")
 
