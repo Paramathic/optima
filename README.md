@@ -249,5 +249,10 @@ This repository is build upon the [SparseGPT](https://github.com/IST-DASLab/spar
 ## Citation
 If you use SLiM in your research, please cite our paper:
 ```angular2html
-TODO: Add citation
+@article{slim:2024,
+    title        = {{SLiM: One-shot Quantized Sparse Plus Low-rank Approximation of LLMs}},
+    author       = {Mozaffari, Mohammad and Mehri Dahnavi, Maryam},
+    year         = 2024,
+    journal      = {arXiv preprint}
+}
 ```
