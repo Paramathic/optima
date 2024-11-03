@@ -88,7 +88,7 @@ do
                                     $QUANTIZE_LORA \
                                     --lora_tile_size $LORA_TILE_SIZE \
                                     $TILED_WEIGHT_QUANTIZATION \
-                                    --weight_tile_size $WEIGHT_TILE_SIZE
+                                    --weight_tile_size $WEIGHT_TILE_SIZE \
                                     $HF_TOKEN
                             done
                         done
