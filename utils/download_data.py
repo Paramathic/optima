@@ -16,11 +16,11 @@ lmharness = False
 data = False
 
 if args.model == "llama2":
-    sizes = ['7b', '13b'] #, '70b']
+    sizes = ['7b', '13b', '70b']
     model_name_holder = 'meta-llama/Llama-2-{}-hf'
 elif args.model == 'llama3_1':
-    sizes = ['8B']#, '70B', '405B']
-    model_name_holder = "mistralai/Mistral-{}-v0.3"
+    sizes = ['8B', '70B', '405B']
+    model_name_holder = "meta-llama/Llama-3.1-{}-hf"
 elif args.model == "mistral":
     sizes = ['7B']
     model_name_holder = "mistralai/Mistral-{size}-v0.3"
