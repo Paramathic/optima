@@ -10,7 +10,7 @@ argparser.add_argument('--model', type=str)
 
 args = argparser.parse_args()
 
-hf_token = "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"
+hf_token = "ADD_YOUR_HF_TOKEN"
 
 lmharness = False
 data = False
