@@ -118,7 +118,6 @@ def add_lora(
         quantizer=None,
         bitwidth=8,
         slim_quant=False,
-        max_bitwidth=8,
         prune_lora=False,
         separate_lora=True,
         block_quantization=False,
@@ -157,7 +156,6 @@ def add_lora(
             new_weight = quantizer.quantize_weight(new_weight,
                                                    bitwidth,
                                                    slim_quant=slim_quant,
-                                                   max_bitwidth=max_bitwidth,
                                                    block_quantization=block_quantization,
                                                    block_dim=int(np.sqrt(weight_tile_size)),
                                                    )
