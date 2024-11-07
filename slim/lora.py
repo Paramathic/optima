@@ -136,7 +136,6 @@ def add_lora(
         quantizer: Quantizer, The quantizer to use
         bitwidth: int, The number of bits to quantize the weights to
         slim_quant: bool, Whether to use slim quantization
-        max_bitwidth: int, The maximum bitwidth to use for slim quantization
         prune_lora: bool, Whether to prune the LoRA matrices
         separate_lora: bool, Whether to use separate LoRA matrices
         block_quantization: bool, Whether to use block quantization
