@@ -13,7 +13,7 @@ while maintaining efficiency in memory-constrained environments.
 
 Paper: [https://arxiv.org/abs/2410.09615](https://arxiv.org/abs/2410.09615)
 
-![Alt text](./assets/SLiM-Pipeline.png "MKOR Pipeline")
+![Alt text](./assets/SLiM-Pipeline.png "SLiM Pipeline")
 
 ## Setup
 
