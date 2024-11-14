@@ -10,6 +10,8 @@ from .quantization import Quantizer as AutoQuantizer
 from transformers import LlamaForCausalLM
 import tqdm.auto as tqdm
 import numpy as np
+from .jsq_utils import clip_matrix, generate_ss
+from .smooth import smooth_layer
 
 
 def prepare_calibration_input(
@@ -616,6 +618,134 @@ def quantize_model(
             subset[name].weight.data = quantized_weight.to(subset[name].weight.dtype)
 
 
+def joint_pq(
+        model,
+        tokenizer,
+        prune_n=0,
+        prune_m=0,
+        nsamples=128,
+        bitwidth=4,
+        sparsity_ratio=0.5,
+        weight_tile_size=256,
+        mixing_factor=2.1,
+        seed=0
+):
+
+    is_llama = isinstance(model, LlamaForCausalLM)
+
+    dataloader, _ = get_loaders("c4", nsamples=nsamples, seed=seed, seqlen=model.seqlen,
+                                tokenizer=tokenizer)
+    with torch.no_grad():
+        if is_llama:
+            inps, outs, attention_mask, position_ids = prepare_calibration_input(model, dataloader)
+        else:
+            inps, outs, attention_mask = prepare_calibration_input(model, dataloader)
+
+    layers = get_layers_list(model)
+
+    quantizer = AutoQuantizer("input", num_bits=bitwidth, group_size=weight_tile_size)
+
+    for i in range(len(layers)):
+        layer = layers[i]
+        layer_name = f'model.layers.{i}'
+
+        subset = find_layers(layer)
+
+        try:
+            if f"model.layers.{i}" in model.hf_device_map:  ## handle the case for llama-30B and llama-65B, when the device map has multiple GPUs;
+                dev = model.hf_device_map[f"model.layers.{i}"]
+                if is_llama:
+                    inps, outs, attention_mask, position_ids = inps.to(dev), outs.to(dev), attention_mask.to(
+                        dev), position_ids.to(dev)
+                else:
+                    inps, outs, attention_mask = inps.to(dev), outs.to(dev), attention_mask.to(dev)
+        except:
+            pass
+
+        wrapped_layers = {}
+        for name in subset:
+            wrapped_layers[name] = WrappedGPT(subset[name])
+
+        print(f"Get scales of layer {i} and pruning")
+        act_scales = {}
+
+        def stat_tensor(name, tensor):
+            hidden_dim = tensor.shape[-1]
+            tensor = tensor.view(-1, hidden_dim).abs().detach()
+            comming_max = torch.max(tensor, dim=0)[0].float().cpu()
+
+            if name in act_scales:
+                act_scales[layer_name + '.' + name] = torch.max(act_scales[name], comming_max)
+            else:
+                act_scales[layer_name + '.' + name] = comming_max
+
+        def add_batch(name):
+            def tmp(_, inp, out):
+                inp = clip_matrix(inp[0].data, True, 0, 1e-2)
+                stat_tensor(name, inp)
+                wrapped_layers[name].add_batch(inp, out.data)
+
+            return tmp
+
+        handles = []
+        for name in wrapped_layers:
+            handles.append(subset[name].register_forward_hook(add_batch(name)))
+
+        for j in range(nsamples):
+            with torch.no_grad():
+                if is_llama:
+                    outs[j] = layer(inps[j].unsqueeze(0).cuda(), attention_mask=attention_mask,
+                                    position_ids=position_ids)[0].to(outs.device)
+                else:
+                    outs[j] = layer(inps[j].unsqueeze(0).cuda(), attention_mask=attention_mask)[0].to(
+                        outs.device)
+        for h in handles:
+            h.remove()
+
+        for name in subset:
+            print(f"pruning layer {i} name {name}")
+            weight = torch.abs(subset[name].weight.data)
+            activation = torch.sqrt(wrapped_layers[name].scaler_row.reshape((1, -1)))
+
+            ss = generate_ss(wrapped_layers[name].inp_sum / wrapped_layers[name].inp_num, subset[name].weight.data)
+            W_metric = weight * activation
+            W_metric = W_metric + mixing_factor * ss
+
+            W_mask = (torch.zeros_like(W_metric) == 1)
+            if prune_n != 0:
+                # structured n:m sparsity
+                for ii in range(W_metric.shape[1]):
+                    if ii % prune_m == 0:
+                        tmp = W_metric[:, ii:(ii + prune_m)].float()
+                        W_mask.scatter_(1, ii + torch.topk(tmp, prune_n, dim=1, largest=False)[1], True)
+            else:
+                sort_res = torch.sort(W_metric, dim=-1, stable=True)
+                # unstructured pruning
+                indices = sort_res[1][:, :int(W_metric.shape[1] * sparsity_ratio)]
+                W_mask.scatter_(1, indices, True)
+
+            subset[name].weight.data[W_mask] = 0  ## set weights to zero
+
+        for j in range(nsamples):
+            with torch.no_grad():
+                if is_llama:
+                    outs[j] = layer(inps[j].unsqueeze(0).cuda(), attention_mask=attention_mask,
+                                    position_ids=position_ids)[0].to(outs.device)
+                else:
+                    outs[j] = layer(inps[j].unsqueeze(0).cuda(), attention_mask=attention_mask)[0].to(
+                        outs.device)
+
+        print(f"smoothing layer {i}")
+        smooth_layer(layer_name, layer, act_scales, 0.5)
+
+        print(f"quantizing layer {i}")
+        quantized_weight = quantizer.quantize(subset[name].weight)
+        subset[name].weight.data = quantizer.dequantize_input(quantized_weight).half()
+
+        inps, outs = outs, inps
+
+    torch.cuda.empty_cache()
+
 
 def prune_and_quantize(
         model,
@@ -637,6 +767,7 @@ def prune_and_quantize(
         lora_tile_size=256,
         separate_lora=True,
         seed=0,
+        joint_pq_mixing_factor=2.1,
 ):
     """
     Prune and quantize a model and add low-rank adapter to it.
@@ -648,7 +779,7 @@ def prune_and_quantize(
         slim_quant: bool - Use SLiM-Quant
         weight_tiled_quantization: bool - Use block quantization
         weight_tile_size: int - The size of the block for block quantization
-        prune_method: str - The pruning method to use, one of "wanda", "magnitude", "sparsegpt"
+        prune_method: str - The pruning method to use, one of "wanda", "magnitude", "sparsegpt", "joint_pq"
         sparsity_ratio: float - The ratio of weights to prune
         sparsity_type: str - The type of sparsity to use (unstructured, dense, N:M)
         quantize_weight: bool - Whether to quantize weights
@@ -661,6 +792,7 @@ def prune_and_quantize(
         lora_tile_size: int - The size of the block for block quantization of the low-rank adapter
         separate_lora: bool - Whether to separate the low-rank adapter
         seed: int - The seed to use for calibration
+        joint_pq_mixing_factor: float - The mixing factor for joint pruning and quantization
 
     Returns:
         None
@@ -780,6 +912,27 @@ def prune_and_quantize(
                 bitwidth,
                 weight_tiled_quantization,
                 weight_tile_size,
+            )
+        elif prune_method == "joint_pq":
+            if weight_tiled_quantization is False:
+                raise NotImplementedError("Joint pruning and quantization only supports block quantization")
+            if lora_rank > 0:
+                raise NotImplementedError("LoRA approximation not implemented for Joint Pruning and Quantization")
+            if slim_quant:
+                raise NotImplementedError("Joint pruning and quantization only supports AbsMax")
+            if quantize_weight is False:
+                raise NotImplementedError("Joint pruning and quantization requires quantizing weights")
+            joint_pq(
+                model,
+                tokenizer,
+                prune_n,
+                prune_m,
+                nsamples,
+                bitwidth,
+                sparsity_ratio,
+                weight_tile_size,
+                joint_pq_mixing_factor,
+                seed,
             )
         else:
             raise NotImplementedError(f"Pruning method {prune_method} not implemented")

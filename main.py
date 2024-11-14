@@ -67,8 +67,7 @@ def main():
     parser.add_argument('--sparsity_ratio', type=float, default=0, help='Sparsity level')
     parser.add_argument("--sparsity_type", type=str)
     parser.add_argument("--prune_method", type=str, choices=["magnitude", "wanda", "sparsegpt",
-                                                             "ablate_mag_seq", "ablate_wanda_seq", "ablate_mag_iter",
-                                                             "ablate_wanda_iter", "search"])
+                                                             "ablate_wanda_seq",  "joint_pq"])
     parser.add_argument("--cache_dir", default="llm_weights", type=str)
 
     parser.add_argument("--slim_lora", action="store_true")
@@ -102,6 +101,7 @@ def main():
     parser.add_argument("--optimizer", type=str, default="adamw_torch",
                         help="Optimizer for fien-tuning models")
     parser.add_argument("--hf_token", type=str, default="")
+    parser.add_argument("--joint_pq_mixing_factor", type=float, default=2.1)
 
 
     args = parser.parse_args()
@@ -149,6 +149,7 @@ def main():
         lora_tile_size=args.lora_tile_size,
         separate_lora=args.separate_lora,
         seed=args.seed,
+        joint_pq_mixing_factor=args.joint_pq_mixing_factor,
     )
     report_gpu_memory("After pruning")
 
