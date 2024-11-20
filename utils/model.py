@@ -29,18 +29,8 @@ def get_llm(model_name,
         token=hf_token,
         local_files_only=local_files_only,
         **kwargs
-    )
-    if device_map == None:
-        layer_num_params = 0
-        for param in model.parameters():
-            layer_num_params += param.numel()
-        model_size = layer_num_params * 2
-        free_mem, total_mem = torch.cuda.mem_get_info()
-        if model_size < 0.75 * free_mem:
-            print("Loading model in GPU...")
-            model = model.cuda()
-        else:
-            print("Model does not fit in GPUs. Loading model in CPU...")
+    ).cuda()
+
 
     model.seqlen = model.config.max_position_embeddings
     return model
