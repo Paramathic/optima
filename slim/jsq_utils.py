@@ -56,5 +56,5 @@ def generate_ss(activation, weight):
         min_values, _ = torch.min(out, dim=0)
         row_ss = (max_values - min_values)
         ss[:, i] = row_ss
-    ss = torch.where(torch.isinf(ss), torch.tensor(100), ss)
+    ss = torch.where(torch.isinf(ss), torch.tensor(100, device=ss.device), ss)
     return ss
