@@ -4,12 +4,11 @@ from .sparsegpt import SparseGPT
 from .sparsegpt import Quantizer as SparseGPTQuantizer
 from .layerwrapper import WrappedGPT
 from .data import get_loaders
-from .utils import get_layers_list, shift_zeros, find_layers, prune_nm, report_gpu_memory
+from .utils import get_layers_list, shift_zeros, find_layers, prune_nm
 from .lora import add_lora
-from .quantization import Quantizer as AutoQuantizer
+from slim.quantization.quantization import Quantizer as AutoQuantizer, QuantizedMatmul
 from transformers import LlamaForCausalLM
 import tqdm.auto as tqdm
-import numpy as np
 from .jsq_utils import clip_matrix, generate_ss
 from .smooth import smooth_layer
 
@@ -134,7 +133,13 @@ def prune_magnitude(
     progress_bar = tqdm.tqdm(range(len(layers)))
 
     if quantize_weight:
-        quantizer = AutoQuantizer("weight")
+        quantizer = AutoQuantizer(
+            "weight",
+            num_bits=bitwidth,
+            slim_quant=slim_quant,
+            block_quantization=tiled_weight_quantization,
+            block_dim=weight_tile_size,
+        )
     else:
         quantizer = None
 
@@ -155,12 +160,7 @@ def prune_magnitude(
             W[W_mask] = 0
             subset[name].weight.data = W
             if quantizer is not None:
-                quantized_weight = quantizer.quantize_weight(subset[name].weight.data,
-                                                             bitwidth,
-                                                             slim_quant=slim_quant,
-                                                             block_quantization=tiled_weight_quantization,
-                                                             block_dim=int(np.sqrt(weight_tile_size)),
-                                                             )
+                quantized_weight = quantizer.quantize_weight(subset[name].weight.data)
                 subset[name].weight.data = quantizer.dequantize_absmax(quantized_weight).half()
                 if not tiled_weight_quantization:
                     subset[name].scaling_factor = quantizer.scaling_factor
@@ -235,7 +235,13 @@ def prune_wanda(
             inps, outs, attention_mask = prepare_calibration_input(model, dataloader)
 
     if quantize_weight:
-        quantizer = AutoQuantizer("weight")
+        quantizer = AutoQuantizer(
+            "weight",
+            num_bits=bitwidth,
+            slim_quant=slim_quant,
+            block_quantization=tiled_weight_quantization,
+            block_dim=weight_tile_size,
+        )
     else:
         quantizer = None
 
@@ -330,12 +336,8 @@ def prune_wanda(
                          slim_lora=slim_lora,
                          activations=wrapped_layers[name],
                          quantizer=quantizer,
-                         bitwidth=bitwidth,
-                         slim_quant=slim_quant,
                          prune_lora=prune_lora,
                          separate_lora=separate_lora,
-                         block_quantization=tiled_weight_quantization,
-                         weight_tile_size=weight_tile_size,
                          lora_tile_size=lora_tile_size if quantize_lora else None,
                          )
 
@@ -347,8 +349,24 @@ def prune_wanda(
 
                 if separate_lora:
                     def add_lora_hook(module, input, output):
-                        output += torch.matmul(torch.matmul(input[0].to(module.lora_left.dtype) , module.lora_left / torch.sqrt(module.lora_rank)),
-                                               module.lora_right / torch.sqrt(module.lora_rank))
+                        if hasattr(module, "quantizer"):
+                            xl = QuantizedMatmul.apply(
+                                input[0].to(module.lora_left.dtype) / torch.sqrt(module.lora_rank),
+                                module.lora_left,
+                                module.quantizer
+                            )
+                            xlr = QuantizedMatmul.apply(
+                                xl / torch.sqrt(module.lora_rank),
+                                module.lora_right,
+                                module.quantizer
+                            )
+                            output += xlr
+
+                        else:
+                            output += torch.matmul(
+                                torch.matmul(input[0].to(module.lora_left.dtype),
+                                             module.lora_left / torch.sqrt(module.lora_rank)),
+                                module.lora_right / torch.sqrt(module.lora_rank))
 
 
                     subset[name].lora_rank = torch.tensor(subset[name].lora_left.shape[1])
@@ -360,12 +378,7 @@ def prune_wanda(
             else:
                 subset[name].weight.data[W_mask] = 0  ## set weights to zero
                 if quantizer is not None:
-                    quantized_weight = quantizer.quantize_weight(subset[name].weight.data,
-                                                                 bitwidth,
-                                                                 slim_quant=slim_quant,
-                                                                 block_quantization=tiled_weight_quantization,
-                                                                 block_dim=int(np.sqrt(weight_tile_size)),
-                                                                 )
+                    quantized_weight = quantizer.quantize_weight(subset[name].weight.data)
                     subset[name].weight.data = quantizer.dequantize_absmax(quantized_weight).half()
                     if quantizer is not None:
                         if not tiled_weight_quantization:
@@ -592,7 +605,13 @@ def quantize_model(
     Returns:
         None
     """
-    quantizer = AutoQuantizer("weight")
+    quantizer = AutoQuantizer(
+        "weight",
+        num_bits=bitwidth,
+        slim_quant=slim_quant,
+        block_quantization=weight_tiled_quantization,
+        block_dim=weight_tile_size,
+    )
     layers = get_layers_list(model)
 
     progress_bar = tqdm.tqdm(range(len(layers)))
@@ -606,13 +625,7 @@ def quantize_model(
             progress_bar.set_description(f"Layer {i} - Quantizing {name}")
             
             quantized_weight = quantizer.dequantize_absmax(
-                quantizer.quantize_weight(
-                    subset[name].weight.data,
-                    bitwidth,
-                    slim_quant=slim_quant,
-                    block_quantization=weight_tiled_quantization,
-                    block_dim=int(np.sqrt(weight_tile_size)),
-                )
+                quantizer.quantize_weight(subset[name].weight.data)
             )
             
             subset[name].weight.data = quantized_weight.to(subset[name].weight.dtype)
@@ -643,7 +656,13 @@ def joint_pq(
 
     layers = get_layers_list(model)
 
-    quantizer = AutoQuantizer("input", num_bits=bitwidth, group_size=weight_tile_size)
+    quantizer = AutoQuantizer(
+            "weight",
+            num_bits=bitwidth,
+            slim_quant=False,
+            block_quantization=True,
+            block_dim=weight_tile_size,
+        )
 
     for i in range(len(layers)):
         layer = layers[i]

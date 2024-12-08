@@ -17,47 +17,47 @@ do
     then   
         MODEL_PREFIX=facebook/opt-
         MODEL_POSTFIX=""
-        MODEL_SIZE_LIST="125m 350m 1.3b 2.7b" # 6.7b 13b"
+        MODEL_SIZE_LIST="125m" # 350m 1.3b 2.7b" # 6.7b 13b"
     fi
 
 
     for MODEL_SIZE in $MODEL_SIZE_LIST
     do
-        for STRUCTURE in 2:4 unstructured
+        for STRUCTURE in 2:4 #unstructured
         do
             for METHOD in wanda #joint_pq
             do
-                for LORA_RANK in 0
+                for LORA_RANK in 0.1
                 do
                     for SLIM_LORA in '--slim_lora'
                     do
                         for NUM_CALIBRATION_SAMPLES in 128
                         do
-                            for QUANTIZE_WEIGHT in '' #'--quantize_weight'
+                            for QUANTIZE_WEIGHT in '--quantize_weight'
                             do
 #                                LOCAL_FILES_ONLY='--local_files_only'
                                 SPARSITY_RATIO=0.5
                                 SHIFT_ZERO_METRICS='--shift_zero_metrics'
                                 EVAL_DATASET='wikitext2'
                                 BITWIDTH=4
-                                if [ $QUANTIZE_WEIGHT == '--quantize_weight' ]; then
-                                    QUANTIZE_INPUT='--quantize_input'
-#                                    TILED_INPUT_QUANTIZATION='--tiled_input_quantization'
-                                fi
+#                                if [ $QUANTIZE_WEIGHT == '--quantize_weight' ]; then
+#                                    QUANTIZE_INPUT='--quantize_input'
+##                                    TILED_INPUT_QUANTIZATION='--tiled_input_quantization'
+#                                fi
                                 INPUT_BITWIDTH=8
                                 INPUT_GROUP_SIZE=128
-#                                SLIM_QUANT='--slim_quant'
+                                SLIM_QUANT='--slim_quant'
                                 EVAL_BATCH_SIZE=1
                                 SEPARATE_LORA='--separate_lora'
 #                                TEST_LMHARNESS='--test_lmharness'
-#                                FINE_TUNE='--fine_tune'
+                                FINE_TUNE='--fine_tune'
                                 EVALUATE_PERPLEXITY='--evaluate_perplexity'
                                 OPTIMIZER="adafactor"
 #                                PRUNE_LORA="--prune_lora"
-#                                QUANTIZE_LORA="--quantize_lora"
-                                LORA_TILE_SIZE=256
-                                TILED_WEIGHT_QUANTIZATION="--tiled_weight_quantization"
-                                WEIGHT_TILE_SIZE=256
+                                QUANTIZE_LORA="--quantize_lora"
+                                LORA_TILE_SIZE=128
+#                                TILED_WEIGHT_QUANTIZATION="--tiled_weight_quantization"
+                                WEIGHT_TILE_SIZE=128
                                 JOINT_PQ_MIXING_FACTOR=2.1
 
                                 CUDA_VISIBLE_DEVICES=0 python main.py \

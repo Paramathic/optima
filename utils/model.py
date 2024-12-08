@@ -48,7 +48,7 @@ def add_empty_lora(
         for name in subset:
             layer_rank = int(min(subset[name].weight.shape) * lora_rank)
             if lora_tile_size is not None:
-                tile_dim = int(np.sqrt(lora_tile_size))
+                tile_dim = lora_tile_size
                 residue = layer_rank % tile_dim
                 if residue != 0:
                     layer_rank = layer_rank + (tile_dim - residue)

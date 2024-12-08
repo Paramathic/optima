@@ -246,6 +246,12 @@ class Quantizer(nn.Module):
             return quantize(x, self.scale, self.zero, self.maxq)
         return x
 
+    def quantize_weight(self, x):
+        return torch.clamp(torch.round(x / self.scale) + self.zero, 0, self.maxq)
+
+    def dequantize_absmax(self, x):
+        return self.scale * (x - self.zero)
+
     def enabled(self):
         return self.maxq > 0
 

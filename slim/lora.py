@@ -1,6 +1,5 @@
 import torch
-import numpy as np
-from .quantization import Quantizer as AutoQuantizer
+from slim.quantization.quantization import Quantizer as AutoQuantizer
 import tqdm.auto as tqdm
 from .utils import prune_nm, get_layers_list, find_layers
 
@@ -71,7 +70,12 @@ def quantize_lora(
         None
     """
 
-    quantizer = AutoQuantizer("weight")
+    quantizer = AutoQuantizer(
+        "weight",
+        num_bits=bitwidth,
+        block_quantization=True,
+        block_dim=lora_tile_size,
+    )
     layers = get_layers_list(model)
 
     progress_bar = tqdm.tqdm(range(len(layers)))
@@ -85,27 +89,16 @@ def quantize_lora(
             progress_bar.set_description(f"Layer {i} - Quantizing LoRA for {name}")
 
             quantized_lora_left = quantizer.dequantize_absmax(
-                quantizer.quantize_weight(
-                    subset[name].lora_left.data,
-                    bitwidth,
-                    slim_quant=False,
-                    block_quantization=True,
-                    block_dim=int(np.sqrt(lora_tile_size)),
-                )
+                quantizer.quantize_weight(subset[name].lora_left.data)
             )
 
             quantized_lora_right = quantizer.dequantize_absmax(
-                quantizer.quantize_weight(
-                    subset[name].lora_right.data,
-                    bitwidth,
-                    slim_quant=False,
-                    block_quantization=True,
-                    block_dim=int(np.sqrt(lora_tile_size)),
-                )
+                quantizer.quantize_weight(subset[name].lora_right.data)
             )
 
             subset[name].lora_left.data = quantized_lora_left.to(subset[name].weight.dtype)
             subset[name].lora_right.data = quantized_lora_right.to(subset[name].weight.dtype)
+            subset[name].quantizer = quantizer
 
 
 
@@ -116,12 +109,8 @@ def add_lora(
         slim_lora=False,
         activations=None,
         quantizer=None,
-        bitwidth=8,
-        slim_quant=False,
         prune_lora=False,
         separate_lora=True,
-        block_quantization=False,
-        weight_tile_size=256,
         lora_tile_size=None
 ):
     """
@@ -134,12 +123,8 @@ def add_lora(
         slim_lora: bool, Whether to use slim LoRA
         activations: torch.Tensor, The activations of the layer
         quantizer: Quantizer, The quantizer to use
-        bitwidth: int, The number of bits to quantize the weights to
-        slim_quant: bool, Whether to use slim quantization
         prune_lora: bool, Whether to prune the LoRA matrices
         separate_lora: bool, Whether to use separate LoRA matrices
-        block_quantization: bool, Whether to use block quantization
-        weight_tile_size: int, The size of the weight tiles
         lora_tile_size: int, The size of the LoRA tiles
     """
     if slim_lora and not any(activations.scaler_row == 0):
@@ -152,24 +137,14 @@ def add_lora(
             W_metric = module.weight.data * (torch.sqrt(activations.scaler_row.reshape((1, -1))))
             new_weight = module.weight.data
             new_weight[W_mask] = 0
-            new_weight = quantizer.quantize_weight(new_weight,
-                                                   bitwidth,
-                                                   slim_quant=slim_quant,
-                                                   block_quantization=block_quantization,
-                                                   block_dim=int(np.sqrt(weight_tile_size)),
-                                                   )
+            new_weight = quantizer.quantize_weight(new_weight)
             new_weight = quantizer.dequantize_absmax(new_weight) * (torch.sqrt(activations.scaler_row.reshape((1, -1))))
             error_mat = (W_metric - new_weight)
     else:
         new_weight = module.weight.data.clone().detach()
         new_weight[W_mask] = 0
         if quantizer is not None:
-            new_weight = quantizer.quantize_weight(new_weight,
-                                                   bitwidth,
-                                                   slim_quant=slim_quant,
-                                                   block_quantization=block_quantization,
-                                                   block_dim=int(np.sqrt(weight_tile_size)),
-                                                   )
+            new_weight = quantizer.quantize_weight(new_weight)
             new_weight = quantizer.dequantize_absmax(new_weight)
         error_mat = module.weight.data - new_weight
 
@@ -179,7 +154,7 @@ def add_lora(
     rank = int(rank_ratio * min(error_mat.shape))
 
     if lora_tile_size is not None:
-        tile_dim = int(np.sqrt(lora_tile_size))
+        tile_dim = lora_tile_size
         residue = rank % tile_dim
         if residue != 0:
             rank = rank + (tile_dim - residue)
@@ -205,12 +180,7 @@ def add_lora(
     new_weight = module.weight.data - low_rank_weight
     new_weight[W_mask] = 0
     if quantizer is not None:
-        new_weight = quantizer.quantize_weight(new_weight,
-                                               bitwidth,
-                                               slim_quant=slim_quant,
-                                               block_quantization=block_quantization,
-                                               block_dim=int(np.sqrt(weight_tile_size)),
-                                               )
+        new_weight = quantizer.quantize_weight(new_weight)
         new_weight = quantizer.dequantize_absmax(new_weight)
 
     if separate_lora:

@@ -119,7 +119,7 @@ skip the quantization of the input of the layer if the input quantization error 
 input quantization is only supported for 1-dimensional group quantization using AbsMax and works well with 8 bits.
 
 ```python
-from slim.quantization import attach_input_quantization_hooks
+from slim.quantization.quantization import attach_input_quantization_hooks
 
 attach_input_quantization_hooks(
     model,

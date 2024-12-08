@@ -1,5 +1,6 @@
 import torch
-from .utils import get_layers_list, find_layers
+from slim.utils import get_layers_list, find_layers
+from slim.quantization.utils import compute_quantization_params, quantize_tensor, dequantize_tensor
 
 
 def compute_average_error(pdf, val, index, q):
@@ -91,13 +92,19 @@ class Quantizer:
             num_bits=8,
             group_size=-1,
             symmetric=True,
-            eps=1e-4
+            eps=1e-4,
+            slim_quant=False,
+            block_quantization=False,
+            block_dim=16,
     ):
         self.matrix_type = matrix_type
         self.num_bits = num_bits
         self.group_size = group_size
         self.symmetric = symmetric
         self.eps = eps
+        self.slim_quant = slim_quant
+        self.block_quantization = block_quantization
+        self.block_dim = block_dim
 
     def quantize(
             self,
@@ -125,32 +132,21 @@ class Quantizer:
     def quantize_weight(
             self,
             mat,
-            num_bits=8,
-            slim_quant=False,
-            block_quantization=False,
-            block_dim=16
     ):
-        if block_quantization:
-            assert mat.shape[0] % block_dim == 0 and mat.shape[
-                1] % block_dim == 0, "Input matrix size is not divisible by block size"
-            self.scaling_factor = torch.empty([mat.shape[0] // block_dim, mat.shape[1] // block_dim],
-                                              device=mat.device, dtype=torch.float16)
-            quantized_mat = torch.empty_like(mat)
-            for row in range(0, mat.shape[0], block_dim):
-                for col in range(0, mat.shape[1], block_dim):
-                    row_idx = row // block_dim
-                    col_idx = col // block_dim
-                    quantized_mat[row:row + block_dim, col:col + block_dim], self.scaling_factor[
-                        row_idx, col_idx] = self.quantize_block(
-                        mat[row:row + block_dim, col:col + block_dim],
-                        num_bits,
-                        slim_quant,
-                    )
+        if self.block_quantization:
+            assert mat.shape[0] % self.block_dim == 0 and mat.shape[
+                1] % self.block_dim == 0, "Input matrix size is not divisible by block size"
+            if self.slim_quant:
+                raise NotImplementedError("SLiM-Quant is not supported for block quantization")
+
+            self.dtype = mat.dtype
+            self.scaling_factor, _ = compute_quantization_params(mat, self.block_dim, 1, symmetric=True)
+            quantized_mat = quantize_tensor(mat, self.scaling_factor, None, self.num_bits)
         else:
             quantized_mat, scaling_factor = self.quantize_block(
                 mat,
-                num_bits,
-                slim_quant,
+                self.num_bits,
+                self.slim_quant,
             )
             self.scaling_factor = scaling_factor.reshape(1, 1)
         return quantized_mat
@@ -193,15 +189,16 @@ class Quantizer:
         if scaling_factor.shape == (1, 1):
             deq_mat = quantized_mat / scaling_factor
         else:
-            deq_mat = torch.empty_like(quantized_mat)
-            block_size = deq_mat.shape[0] // scaling_factor.shape[0]
-            for row in range(0, deq_mat.shape[0], block_size):
-                for col in range(0, deq_mat.shape[1], block_size):
-                    row_idx = row // block_size
-                    col_idx = col // block_size
-                    deq_mat[row:row + block_size, col:col + block_size] = quantized_mat[row:row + block_size,
-                                                                          col:col + block_size] / scaling_factor[
-                                                                              row_idx, col_idx]
+            deq_mat = dequantize_tensor(quantized_mat, scaling_factor, None, self.num_bits, dtype=self.dtype)
+            # deq_mat = torch.empty_like(quantized_mat)
+            # block_size = deq_mat.shape[0] // scaling_factor.shape[0]
+            # for row in range(0, deq_mat.shape[0], block_size):
+            #     for col in range(0, deq_mat.shape[1], block_size):
+            #         row_idx = row // block_size
+            #         col_idx = col // block_size
+            #         deq_mat[row:row + block_size, col:col + block_size] = quantized_mat[row:row + block_size,
+            #                                                               col:col + block_size] / scaling_factor[
+            #                                                                   row_idx, col_idx]
 
         return deq_mat
 
@@ -286,3 +283,27 @@ def attach_input_quantization_hooks(
             subset[name].quantize_input = True
             subset[name].input_group_size = input_group_size
             subset[name].quantizer = Quantizer("input", num_bits=num_bits, group_size=input_group_size)
+
+
+class QuantizedMatmul(torch.autograd.Function):
+    """
+    Both forward and backward are static methods.
+    """
+
+    @staticmethod
+    def forward(ctx, input, weight, quantizer):
+        if quantizer is not None:
+            quantized_weight = quantizer.quantize_weight(weight.data)
+            dequantized_weight = quantizer.dequantize_absmax(quantized_weight)
+        else:
+            dequantized_weight = weight
+        ctx.save_for_backward(input, dequantized_weight)
+        result = torch.matmul(input, dequantized_weight)
+        return result
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        input, weight = ctx.saved_tensors
+        grad_input = torch.matmul(grad_output, weight.t())
+        grad_weight = torch.matmul(input.view(-1, input.shape[-1]).t(), grad_output.view(-1, grad_output.shape[-1]))
+        return grad_input, grad_weight, None

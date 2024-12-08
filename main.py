@@ -4,13 +4,11 @@ import numpy as np
 import pandas as pd
 import torch
 from transformers import AutoTokenizer
-from importlib.metadata import version
-
 from slim.prune import  prune_and_quantize
 from slim.eval import eval_ppl
 from slim.utils import report_gpu_memory, check_sparsity
 from slim.lora import quantize_lora
-from slim.quantization import attach_input_quantization_hooks
+from slim.quantization.quantization import attach_input_quantization_hooks
 from utils.model import get_llm, add_empty_lora, contigous_model
 import time
 from slim.fine_tune import fine_tune
@@ -159,6 +157,13 @@ def main():
     print(f"Model Sparsity Ratio: {sparsity_ratio:.2f}")
     print("*" * 30)
     ################################################################
+    if args.quantize_weight and args.quantize_lora:
+        quantize_lora(
+            model,
+            args.bitwidth,
+            args.lora_tile_size,
+        )
+    ################################################################
     if args.fine_tune:
         report_gpu_memory("Before Fine-tuning")
         fine_tune(model, tokenizer, optimizer=args.optimizer)
@@ -171,13 +176,6 @@ def main():
                                         args.input_bitwidth,
                                         args.input_group_size,
                                         )
-    ################################################################
-    if args.quantize_weight and args.quantize_lora:
-        quantize_lora(
-            model,
-            args.bitwidth,
-            args.lora_tile_size,
-        )
     ################################################################
     ppl_test = 0.
     if args.evaluate_perplexity:
