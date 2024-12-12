@@ -98,7 +98,7 @@ def quantize_lora(
 
             subset[name].lora_left.data = quantized_lora_left.to(subset[name].weight.dtype)
             subset[name].lora_right.data = quantized_lora_right.to(subset[name].weight.dtype)
-            subset[name].quantizer = quantizer
+            subset[name].lora_quantizer = quantizer
 
 
 

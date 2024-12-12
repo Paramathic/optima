@@ -353,12 +353,12 @@ def prune_wanda(
                             xl = QuantizedMatmul.apply(
                                 input[0].to(module.lora_left.dtype) / torch.sqrt(module.lora_rank),
                                 module.lora_left,
-                                module.quantizer
+                                module.lora_quantizer
                             )
                             xlr = QuantizedMatmul.apply(
                                 xl / torch.sqrt(module.lora_rank),
                                 module.lora_right,
-                                module.quantizer
+                                module.lora_quantizer
                             )
                             output += xlr
 
