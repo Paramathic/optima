@@ -349,7 +349,7 @@ def prune_wanda(
 
                 if separate_lora:
                     def add_lora_hook(module, input, output):
-                        if hasattr(module, "quantizer"):
+                        if hasattr(module, "lora_quantizer"):
                             xl = QuantizedMatmul.apply(
                                 input[0].to(module.lora_left.dtype) / torch.sqrt(module.lora_rank),
                                 module.lora_left,
