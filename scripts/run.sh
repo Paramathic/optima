@@ -1,12 +1,12 @@
 
 export HF_DATASETS_TRUST_REMOTE_CODE="1"
 export HF_HOME="data"
-#export HF_DATASETS_OFFLINE="1"
-#export HF_HUB_OFFLINE="1"
+export HF_DATASETS_OFFLINE="1"
+export HF_HUB_OFFLINE="1"
 
-HF_TOKEN="--hf_token HUGGINGFACE_ACCESS_TOKEN"
+HF_TOKEN="--hf_token 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"
 
-for MODEL_NAME in opt #llama2
+for MODEL_NAME in opt llama2 #llama3.1
 do
     if [ $MODEL_NAME == 'llama2' ]
     then
@@ -17,13 +17,23 @@ do
     then   
         MODEL_PREFIX=facebook/opt-
         MODEL_POSTFIX=""
-        MODEL_SIZE_LIST="125m" # 350m 1.3b 2.7b" # 6.7b 13b"
+        MODEL_SIZE_LIST="125m 350m 1.3b 2.7b 6.7b 13b"
+    elif [ $MODEL_NAME == 'llama3.2' ]
+    then
+        MODEL_PREFIX=meta-llama/Llama-3.2-
+        MODEL_SIZE_LIST="1B 3B"
+        MODEL_POSTFIX=""
+    elif [ $MODEL_NAME == 'llama3.1' ]
+    then
+        MODEL_PREFIX=meta-llama/Llama-3.1-
+        MODEL_SIZE_LIST="8B"
+        MODEL_POSTFIX=""
     fi
 
 
     for MODEL_SIZE in $MODEL_SIZE_LIST
     do
-        for STRUCTURE in 2:4 #unstructured
+        for STRUCTURE in 2:4 unstructured
         do
             for METHOD in wanda #joint_pq
             do
@@ -35,7 +45,7 @@ do
                         do
                             for QUANTIZE_WEIGHT in '--quantize_weight'
                             do
-#                                LOCAL_FILES_ONLY='--local_files_only'
+                                LOCAL_FILES_ONLY='--local_files_only'
                                 SPARSITY_RATIO=0.5
                                 SHIFT_ZERO_METRICS='--shift_zero_metrics'
                                 EVAL_DATASET='wikitext2'
@@ -49,18 +59,18 @@ do
                                 SLIM_QUANT='--slim_quant'
                                 EVAL_BATCH_SIZE=1
                                 SEPARATE_LORA='--separate_lora'
-#                                TEST_LMHARNESS='--test_lmharness'
+                                TEST_LMHARNESS='--test_lmharness'
                                 FINE_TUNE='--fine_tune'
                                 EVALUATE_PERPLEXITY='--evaluate_perplexity'
                                 OPTIMIZER="adafactor"
 #                                PRUNE_LORA="--prune_lora"
                                 QUANTIZE_LORA="--quantize_lora"
                                 LORA_TILE_SIZE=128
-#                                TILED_WEIGHT_QUANTIZATION="--tiled_weight_quantization"
+                                # TILED_WEIGHT_QUANTIZATION="--tiled_weight_quantization"
                                 WEIGHT_TILE_SIZE=128
                                 JOINT_PQ_MIXING_FACTOR=2.1
 
-                                CUDA_VISIBLE_DEVICES=0 python main.py \
+                                CUDA_VISIBLE_DEVICES=3 python main.py \
                                     --model ${MODEL_PREFIX}${MODEL_SIZE}${MODEL_POSTFIX} \
                                     --prune_method $METHOD \
                                     --sparsity_ratio $SPARSITY_RATIO \
@@ -75,7 +85,7 @@ do
                                     --eval_batch_size $EVAL_BATCH_SIZE \
                                     $SEPARATE_LORA \
                                     $TEST_LMHARNESS \
-                                    --output_csv_path results/logs.csv \
+                                    --output_csv_path results/slim-quantizelora-ft.csv \
                                     $FINE_TUNE \
                                     $EVALUATE_PERPLEXITY \
                                     $LOCAL_FILES_ONLY \
