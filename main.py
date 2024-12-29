@@ -157,7 +157,7 @@ def main():
     print(f"Model Sparsity Ratio: {sparsity_ratio:.2f}")
     print("*" * 30)
     ################################################################
-    if args.quantize_weight and args.quantize_lora:
+    if args.quantize_weight and args.quantize_lora and args.lora_rank > 0.:
         quantize_lora(
             model,
             args.bitwidth,
