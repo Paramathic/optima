@@ -758,8 +758,8 @@ def joint_pq(
         smooth_layer(layer_name, layer, act_scales, 0.5)
 
         print(f"quantizing layer {i}")
-        quantized_weight = quantizer.quantize(subset[name].weight)
-        subset[name].weight.data = quantizer.dequantize_input(quantized_weight).half()
+        quantized_weight = quantizer.quantize_weight(subset[name].weight.data)
+        subset[name].weight.data = quantizer.dequantize_absmax(quantized_weight).half()
 
         inps, outs = outs, inps
 
