@@ -9,14 +9,62 @@ from vllm.model_executor.layers.quantization.gptq_marlin_24 import (
 from vllm import _custom_ops as ops
 import numpy as np
 import torch.utils.benchmark as benchmark
+import csv
+
+def generate_speedup_csv(input_string, output_file="results/speedup_results.csv"):
+    """
+    Parses the input table string, calculates speedups, and saves the results to a CSV file.
+
+    Parameters:
+    - input_string: str, the raw input table as a string.
+    - output_file: str, the name of the output CSV file.
+    """
+    # Parse the input string
+    rows = []
+    for line in input_string.strip().split("\n"):
+        if not line.startswith(" ") and "|" not in line:
+            continue  # Ignore metadata or non-table lines
+        parts = [part.strip() for part in line.split("|")]
+        if len(parts) > 1:  # Ensure it contains data
+            rows.append(parts)
+
+    # Separate header and data
+    header = rows[0]
+    data = rows[1:]
+
+    # Create a list for output with speedup calculations
+    output_data = [["Configuration", "gptq_marlin_24_gemm_speedup", "lora_linear_fp16_speedup", "lora_linear_marlin_int4_speedup"]]
+
+    for row in data:
+        configuration = row[0]
+        pytorch_gemm = float(row[1])
+        speedups = [
+            configuration,
+            pytorch_gemm / float(row[2]),
+            pytorch_gemm / float(row[3]),
+            pytorch_gemm / float(row[4])
+        ]
+        output_data.append(speedups)
+
+    # Write the output CSV
+    with open(output_file, mode="w", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerows(output_data)
+
+    print(f"Speedup results saved to {output_file}")
+
+
 
 
 sizes = []
 
 model_list = {
-    "llama-3.1-8B": {(4096, 4096), (4096, 14336), (14336, 4096)},
-    'llama-3.1-70B': {(8192, 8192), (8192, 28672), (28672, 8192)},
-    'llama-3.1-405B': {(16384, 16384), (16384, 53248), (53248, 16384)},
+    "LLaMA-2-7B": {(4096, 4096), (4096, 11008), (11008, 4096)},
+    "LLaMA-2-13B": {(5120, 5120), (5120, 13824), (13824, 5120)},
+    'LLaMAa-2-70B': {(8192, 8192), (8192, 28672), (28672, 8192)},
+    # "llama-3.1-8B": {(4096, 4096), (4096, 14336), (14336, 4096)},
+    # 'llama-3.1-70B': {(8192, 8192), (8192, 28672), (28672, 8192)},
+    # 'llama-3.1-405B': {(16384, 16384), (16384, 53248), (53248, 16384)},
     }
 
 num_experiments = 100
@@ -30,7 +78,7 @@ results = []
 
 for model in model_list:
     for (d_in, d_out) in model_list[model]:
-        for bs in [1, 8, 16]:
+        for bs in [16, 32, 64]:
             print("Testing model: ", model, " with d_in: ", d_in, " d_out: ", d_out, " bs: ", bs)
             marlin_24_workspace = MarlinWorkspace(d_out, GPTQ_MARLIN_24_MIN_THREAD_N,
                                                     GPTQ_MARLIN_24_MAX_PARALLEL)
@@ -242,4 +290,5 @@ for model in model_list:
 
 
 compare = benchmark.Compare(results)
-compare.print()
+result_tab = str(compare)
+generate_speedup_csv(result_tab)
