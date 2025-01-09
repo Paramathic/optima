@@ -3,14 +3,16 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # Load the CSV data
-file_path = "results/speedup_results.csv"
+gpu_type = "a100" #"rtx3090"
+file_path = f"results/{gpu_type}_speedup_results.csv"
 data = pd.read_csv(file_path)
+
 
 
 def inch_to_pts(inch):
     return inch * 72.27
 
-def set_size(width, fraction=1):
+def set_size(width, fraction=1, y_scale=1.0):
     """Set figure dimensions to avoid scaling in LaTeX.
 
     Parameters
@@ -40,13 +42,19 @@ def set_size(width, fraction=1):
     # Figure height in inches
     fig_height_in = fig_width_in * golden_ratio
 
-    fig_dim = (fig_width_in, fig_height_in)
+    fig_dim = (fig_width_in, fig_height_in * y_scale)
 
     return fig_dim
 
 
 def prepare_figure(size_fraction=1.):
-    fig_dim = set_size(inch_to_pts(5.5), fraction=size_fraction)
+    if gpu_type == "a100":
+        yscale = 1.3
+    else:
+        yscale = 1.0
+    fig_dim = set_size(inch_to_pts(6.75), fraction=size_fraction, y_scale=yscale)
+
+    plt.style.use('seaborn-v0_8')
     tex_fonts = {
         "text.usetex": True,
         "font.family": "serif",
@@ -64,7 +72,6 @@ def prepare_figure(size_fraction=1.):
     }
 
     plt.rcParams.update(tex_fonts)
-    plt.style.use('seaborn-v0_8')
 
 
 def post_process_figure(ax):
@@ -120,7 +127,15 @@ layer_types = data['Layer Type'].unique()
 # Prepare subplots
 prepare_figure(size_fraction=1.0)
 fig, axes = plt.subplots(len(models), len(batch_sizes), sharey=True)
-fig.suptitle("SLiM Speedup on RTX-3090")
+if gpu_type == "a100":
+    title = "SLiM Speedup on A100-40GB"
+elif gpu_type == "rtx3090":
+    title = "SLiM Speedup on RTX 3090"
+elif gpu_type == "rtx3060":
+    title = "SLiM Speedup on RTX 3060"
+else:
+    raise ValueError(f"Unknown GPU type: {gpu_type}")
+fig.suptitle(title, fontsize=10)
 
 # Colors for the bars - Dark Blue for FP16 LoRA, Red for INT4 LoRA
 colors = ["#1f77b4", "#d62728"]
@@ -167,11 +182,14 @@ for i, model in enumerate(models):
 
         # Set y-axis label only for the first column
         if j == 0:
-            ax.set_ylabel(model)
+            ax.set_ylabel(model, fontsize=10)
 
         # Set x-axis labels
         ax.set_xticks([0, 1, 2])
-        ax.set_xticklabels(layer_types, rotation=7, fontsize=7)
+        if i == len(models) - 1:
+            ax.set_xticklabels(layer_types, rotation=15, fontsize=8)
+        else:
+            ax.set_xticklabels([])
         post_process_figure(ax)
 
 # Add a legend
@@ -183,4 +201,4 @@ fig.legend(handles=handles, loc='upper left', fontsize=8)
 
 # Adjust layout
 # plt.show()
-plt.savefig("results/rtx_speedup.pdf", bbox_inches='tight')
+plt.savefig(f"assets/{gpu_type}_speedup.pdf", bbox_inches='tight')
