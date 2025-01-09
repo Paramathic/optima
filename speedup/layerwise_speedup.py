@@ -7,7 +7,6 @@ from vllm.model_executor.layers.quantization.utils.marlin_utils_test import (
 from vllm.model_executor.layers.quantization.gptq_marlin_24 import (
     GPTQ_MARLIN_24_MAX_PARALLEL, GPTQ_MARLIN_24_MIN_THREAD_N)
 from vllm import _custom_ops as ops
-import numpy as np
 import torch.utils.benchmark as benchmark
 import csv
 
@@ -90,7 +89,7 @@ for model in model_list:
                 marlin_24_s) = marlin_24_quantize(w, quant_type, group_size)
 
 
-            lora_type = torch.float16 #torch.int8
+            lora_type = torch.float16
 
             r = int(0.1 * min(d_in, d_out))
             r -= r % lora_group_size
