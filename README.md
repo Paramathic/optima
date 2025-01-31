@@ -9,6 +9,9 @@ while maintaining efficiency in memory-constrained environments.
 
 **SLiM: One-shot Quantized Sparse Plus Low-rank Approximation of LLMs**
 
+*Mohammad Mozaffari and Maryam Mehri Dehnavi*
+
+Paper: [https://arxiv.org/abs/2410.09615](https://arxiv.org/abs/2410.09615)
 
 ![Alt text](./assets/SLiM-Pipeline.png "SLiM Pipeline")
 
@@ -205,7 +208,7 @@ functions, please refer to their dockstrings.
 - `bitwidth`: The bitwidth to be used for quantization.
 - `slim_quant`: Whether to use SLiM-Quant for pruning. If set to 'False', AbsMax or OPTQ (GPTQ) will be used for quantization.
 - `weight_tiled_quantization`: Whether to use weight tiled (group) quantization. We do not recommend using this option with SLiM-Quant.
-- `weight_tile_size`: The size of the weight tiles to be used for weight tiled quantization. The dimension of the tile will be $\sqrt{\text{weight-tile-size}}$.
+- `weight_tile_size`: The size of the weight tiles to be used for weight tiled quantization.
 - `prune_method`: The pruning method to be used. We support `wanda`, `sparsegpt`, and `magnitude`. If using `sparsegpt`, the `slim_quant` should be set to `False`.
 - `sparsity_ratio`: The sparsity ratio to be used for pruning.
 - `sparsity_type`: The sparsity type to be used for pruning. We support `unstructured` and `N:M` sparsity.
@@ -216,7 +219,7 @@ functions, please refer to their dockstrings.
 - `slim_lora`: Whether to use SLiM for low-rank approximation.
 - `prune_lora`: Whether to 2:4 prune the left low-rank adapter `L`. For setting this option, `sparsity_type` should be set to `2:4`.
 - `quantize_lora`: Whether to quantize the low-rank adapters.
-- `lora_tile_size`: The size of the low-rank adapter tiles to be used for low-rank approximation. The dimension of the tile will be $\sqrt{\text{lora-tile-size}}$.
+- `lora_tile_size`: The size of the low-rank adapter tiles to be used for low-rank approximation. 
 - `separate_lora`: Whether to keep the low-rank adapters separate from the model weights. If set to `False`, the low-rank adapters will be merged with the model weights.
 - `seed`: The seed to be used for reproducibility.
 - `joint_pq_mixing_factor`: The mixing factor to be used for joint pruning and quantization (JSQ).
@@ -242,3 +245,13 @@ functions, please refer to their dockstrings.
 ## Acknowledgement
 This repository is build upon the [SparseGPT](https://github.com/IST-DASLab/sparsegpt) and the [Wanda](https://github.com/locuslab/wanda) repository.
 
+## Citation
+If you use SLiM in your research, please cite our paper:
+```angular2html
+@article{slim:2024,
+    title        = {{SLiM: One-shot Quantized Sparse Plus Low-rank Approximation of LLMs}},
+    author       = {Mozaffari, Mohammad and Mehri Dahnavi, Maryam},
+    year         = 2024,
+    journal      = {arXiv preprint}
+}
+```
