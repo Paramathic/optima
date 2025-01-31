@@ -205,7 +205,7 @@ are quantized using 8-bit group quantization. All the group quantization results
 ## Function Documentation
 Here we provide a brief description of a few of the main functions in our code base. For details about the other 
 functions, please refer to their dockstrings.
-### **lib.prune.prune_and_quantize:**
+### **slim.prune.prune_and_quantize:**
 - `model`: The model to be pruned and quantized.
 - `tokenizer`: The tokenizer of the model.
 - `bitwidth`: The bitwidth to be used for quantization.
@@ -225,8 +225,10 @@ functions, please refer to their dockstrings.
 - `lora_tile_size`: The size of the low-rank adapter tiles to be used for low-rank approximation. The dimension of the tile will be $\sqrt{\text{lora-tile-size}}$.
 - `separate_lora`: Whether to keep the low-rank adapters separate from the model weights. If set to `False`, the low-rank adapters will be merged with the model weights.
 - `seed`: The seed to be used for reproducibility.
+- `joint_pq_mixing_factor`: The mixing factor to be used for joint pruning and quantization (JSQ).
+- `calibration_dataset`: The dataset to be used for calibration.
 
-### **lib.fine_tune.fine_tune:**
+### **slim.fine_tune.fine_tune:**
 - `model`: The model to be fine-tuned.
 - `tokenizer`: The tokenizer of the model.
 - `dataset_name`: The dataset to be used for fine-tuning.
