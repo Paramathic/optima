@@ -142,6 +142,55 @@ def get_openwebtext(seed, seqlen, tokenizer, cache_dir='data'):
     valenc = TokenizerWrapper(valenc)
     return trainloader, valenc
 
+
+def get_slimpajama(nsamples, seed, seqlen, tokenizer, cache_dir='data'):
+    """
+    Load and process SlimPajama dataset
+
+    Args:
+        seed: int, The seed to set
+        tokenizer: PreTrainedTokenizer, The tokenizer to use
+        cache_dir: str, The directory to cache the dataset
+
+    Returns:
+        trainloader: list, The list of training samples
+        testenc: TokenizerWrapper, The tokenized test dataset
+    """
+    print("Loading SlimPajama dataset.")
+    # Load train and test datasets
+    if os.path.exists(f"{cache_dir}/slimpajama-rain.pt"):
+        traindata = load_from_disk(f"{cache_dir}/slimpajama-train.pt")
+        testdata = load_from_disk(f"{cache_dir}/slimpajama-test.pt")
+    else:
+        traindata = load_dataset("DKYoon/SlimPajama-6B", split="train", cache_dir=cache_dir)
+        testdata = load_dataset("DKYoon/SlimPajama-6B", split="test", cache_dir=cache_dir)
+        traindata.save_to_disk(f"{cache_dir}/slimpajama-train.pt")
+        testdata.save_to_disk(f"{cache_dir}/slimpajama-test.pt")
+
+
+    # Encode datasets
+    testenc = tokenizer("\n\n".join(testdata['text']), return_tensors='pt')
+
+    # Generate samples from training set
+    random.seed(seed)
+    trainloader = []
+    progress_bar = tqdm.tqdm(range(nsamples))
+    for _ in progress_bar:
+        while True:
+            i = random.randint(0, len(traindata) - 1)
+            trainenc = tokenizer(traindata[i]['text'], return_tensors='pt')
+            if trainenc.input_ids.shape[1] > seqlen:
+                break
+        i = random.randint(0, trainenc.input_ids.shape[1] - seqlen - 1)
+        j = i + seqlen
+        inp = trainenc.input_ids[:, i:j]
+        tar = inp.clone()
+        tar[:, :-1] = -100
+        trainloader.append((inp, tar))
+        progress_bar.set_description("Generating Samples")
+
+    return trainloader, testenc
+
 # Function to select the appropriate loader based on dataset name
 def get_loaders(
         name,
@@ -168,8 +217,11 @@ def get_loaders(
     """
     if 'wikitext2' in name.lower():
         return get_wikitext2(seed, tokenizer, cache_dir)
-    if "c4" in name.lower():
+    elif "c4" in name.lower():
         return get_c4(nsamples, seed, seqlen, tokenizer, cache_dir)
-    if "openwebtext" in name.lower():
+    elif "openwebtext" in name.lower():
         return get_openwebtext(seed, seqlen, tokenizer, cache_dir)
-    raise ValueError(f"Unknown dataset {name}")
+    elif "slimpajama" in name.lower():
+        return get_slimpajama(nsamples, seed, seqlen, tokenizer, cache_dir)
+    else:
+        raise ValueError(f"Unknown dataset {name}")

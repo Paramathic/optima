@@ -188,6 +188,7 @@ def prune_wanda(
         separate_lora=True,
         nsamples=128,
         seed=0,
+        calibration_dataset="c4",
 ):
     """
     Prune a model using WANDA and quantize weights using SLiM-Quant or AbsMax and add low-rank adapter using SLiM or SVD.
@@ -212,6 +213,7 @@ def prune_wanda(
         separate_lora: bool - Whether to separate the low-rank adapter
         nsamples: int - The number of samples to use for calibration
         seed: int - The seed to use for calibration
+        calibration_dataset: str - The dataset to use for calibration
 
     Returns:
         None
@@ -222,7 +224,7 @@ def prune_wanda(
     is_llama = isinstance(model, LlamaForCausalLM)
 
     dataloader, _ = get_loaders(
-        "c4",
+        calibration_dataset,
         nsamples=nsamples,
         seed=seed,
         seqlen=model.config.max_position_embeddings,
@@ -433,6 +435,7 @@ def prune_sparsegpt(
         bitwidth=4,
         tiled_weight_quantization=False,
         weight_tile_size=256,
+        calibration_dataset="c4"
 ):
     """
     Prune a model using SparseGPT and quantize weights using OPTQ (GPTQ).
@@ -451,6 +454,7 @@ def prune_sparsegpt(
         bitwidth: int - The bitwidth to use for quantization
         tiled_weight_quantization: bool - Whether to use block quantization
         weight_tile_size: int - The size of the blocks for block
+        calibration_dataset: str - The dataset to use for calibration
 
     Returns:
         None
@@ -461,7 +465,7 @@ def prune_sparsegpt(
     is_llama = isinstance(model, LlamaForCausalLM)
 
     dataloader, _ = get_loaders(
-        "c4",
+        calibration_dataset,
         nsamples=nsamples,
         seed=seed,
         seqlen=model.config.max_position_embeddings,
@@ -641,12 +645,32 @@ def joint_pq(
         sparsity_ratio=0.5,
         weight_tile_size=256,
         mixing_factor=2.1,
-        seed=0
+        seed=0,
+        calibration_dataset="c4",
 ):
+    """
+    Prune and quantize a model using joint pruning and quantization.
+    
+    Args:
+        model: torch.nn.Module - The model to prune and quantize
+        tokenizer: transformers.Tokenizer - The tokenizer for the model
+        prune_n: int - The number N in N:M pruning
+        prune_m: int - The number M in N:M pruning
+        nsamples: int - The number of samples to use for calibration
+        bitwidth: int - The bitwidth to quantize the model to
+        sparsity_ratio: float - The ratio of weights to prune
+        weight_tile_size: int - The size of the blocks for block quantization
+        mixing_factor: float - The mixing factor for WANDA
+        seed: int - The seed to use for calibration
+        calibration_dataset: str - The dataset to use for calibration
+    
+    Returns:
+        None
+    """
 
     is_llama = isinstance(model, LlamaForCausalLM)
 
-    dataloader, _ = get_loaders("c4", nsamples=nsamples, seed=seed, seqlen=model.seqlen,
+    dataloader, _ = get_loaders(calibration_dataset, nsamples=nsamples, seed=seed, seqlen=model.seqlen,
                                 tokenizer=tokenizer)
     with torch.no_grad():
         if is_llama:
@@ -787,6 +811,7 @@ def prune_and_quantize(
         separate_lora=True,
         seed=0,
         joint_pq_mixing_factor=2.1,
+        calibration_dataset="c4",
 ):
     """
     Prune and quantize a model and add low-rank adapter to it.
@@ -812,6 +837,7 @@ def prune_and_quantize(
         separate_lora: bool - Whether to separate the low-rank adapter
         seed: int - The seed to use for calibration
         joint_pq_mixing_factor: float - The mixing factor for joint pruning and quantization
+        calibration_dataset: str - The dataset to use for calibration
 
     Returns:
         None
@@ -879,6 +905,7 @@ def prune_and_quantize(
                 separate_lora,
                 nsamples,
                 seed,
+                calibration_dataset
             )
         elif prune_method == "magnitude":
             if lora_rank > 0:
@@ -931,6 +958,7 @@ def prune_and_quantize(
                 bitwidth,
                 weight_tiled_quantization,
                 weight_tile_size,
+                calibration_dataset
             )
         elif prune_method == "joint_pq":
             if weight_tiled_quantization is False:
@@ -952,6 +980,7 @@ def prune_and_quantize(
                 weight_tile_size,
                 joint_pq_mixing_factor,
                 seed,
+                calibration_dataset
             )
         else:
             raise NotImplementedError(f"Pruning method {prune_method} not implemented")

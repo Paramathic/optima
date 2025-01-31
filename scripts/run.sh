@@ -4,9 +4,9 @@ export HF_HOME="data"
 export HF_DATASETS_OFFLINE="1"
 export HF_HUB_OFFLINE="1"
 
-HF_TOKEN="--hf_token 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"
+HF_TOKEN="--hf_token HF_TOKEN"
 
-for MODEL_NAME in opt llama2 #llama3.1
+for MODEL_NAME in opt llama2
 do
     if [ $MODEL_NAME == 'llama2' ]
     then
@@ -33,13 +33,13 @@ do
 
     for MODEL_SIZE in $MODEL_SIZE_LIST
     do
-        for STRUCTURE in 2:4 #unstructured
+        for STRUCTURE in 2:4 unstructured
         do
             for METHOD in wanda #sparsegpt #wanda #joint_pq
             do
                 for LORA_RANK in 0.1
                 do
-                    for SLIM_LORA in '' #'--slim_lora'
+                    for SLIM_LORA in '--slim_lora'
                     do
                         for NUM_CALIBRATION_SAMPLES in 128
                         do
@@ -52,11 +52,6 @@ do
                                     SHIFT_ZERO_METRICS='--shift_zero_metrics'
                                     EVAL_DATASET='wikitext2'
                                     BITWIDTH=4
-    #                                if [ $QUANTIZE_WEIGHT == '--quantize_weight' ]; then
-    #                                    QUANTIZE_INPUT='--quantize_input'
-    ##                                    TILED_INPUT_QUANTIZATION='--tiled_input_quantization'
-    #                                fi
-                                    INPUT_BITWIDTH=8
                                     INPUT_GROUP_SIZE=128
                                     SLIM_QUANT='--slim_quant'
                                     EVAL_BATCH_SIZE=1
@@ -66,10 +61,11 @@ do
                                     EVALUATE_PERPLEXITY='--evaluate_perplexity'
                                     OPTIMIZER="adafactor"
     #                                PRUNE_LORA="--prune_lora"
-                                    # QUANTIZE_LORA="--quantize_lora"
+                                    QUANTIZE_LORA="--quantize_lora"
                                     LORA_TILE_SIZE=128
                                     WEIGHT_TILE_SIZE=128
                                     JOINT_PQ_MIXING_FACTOR=2.1
+                                    CALIBRATION_DATASET="c4"
 
                                     CUDA_VISIBLE_DEVICES=0 python main.py \
                                         --model ${MODEL_PREFIX}${MODEL_SIZE}${MODEL_POSTFIX} \
@@ -86,7 +82,7 @@ do
                                         --eval_batch_size $EVAL_BATCH_SIZE \
                                         $SEPARATE_LORA \
                                         $TEST_LMHARNESS \
-                                        --output_csv_path results/wanda-svd-slimquant-ft.csv \
+                                        --output_csv_path results/results.csv \
                                         $FINE_TUNE \
                                         $EVALUATE_PERPLEXITY \
                                         $LOCAL_FILES_ONLY \
@@ -102,7 +98,8 @@ do
                                         $TILED_WEIGHT_QUANTIZATION \
                                         --weight_tile_size $WEIGHT_TILE_SIZE \
                                         $HF_TOKEN \
-                                        --joint_pq_mixing_factor $JOINT_PQ_MIXING_FACTOR
+                                        --joint_pq_mixing_factor $JOINT_PQ_MIXING_FACTOR \
+                                        --calibration_dataset $CALIBRATION_DATASET
                                 done
                             done
                         done

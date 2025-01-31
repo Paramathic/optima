@@ -79,8 +79,10 @@ def main():
     parser.add_argument("--quantize_weight", action="store_true")
     parser.add_argument("--tiled_weight_quantization", action="store_true")
     parser.add_argument("--weight_tile_size", type=int, default=256)
+    parser.add_argument("--calibration_dataset", type=str, default="c4",
+                        choices=["c4", "slimpajama"])
     parser.add_argument("--eval_dataset", type=str, default="wikitext2",
-                        choices=["wikitext2", "c4", "openwebtext"])
+                        choices=["wikitext2", "c4", "openwebtext", "slimpajama"])
     parser.add_argument("--shift_zero_metrics", action="store_true")
     parser.add_argument("--slim_quant", action="store_true")
     parser.add_argument("--eval_batch_size", type=int, default=1)
@@ -148,6 +150,7 @@ def main():
         separate_lora=args.separate_lora,
         seed=args.seed,
         joint_pq_mixing_factor=args.joint_pq_mixing_factor,
+        calibration_dataset=args.calibration_dataset,
     )
     report_gpu_memory("After pruning")
 
@@ -217,7 +220,7 @@ def main():
         if has_lora:
             add_empty_lora(
                 model.model,
-                lora_tile_size=args.lora_tile_size if args.quantize_lora else None,
+                lora_tile_size=args.lora_tile_size,
                 lora_rank=args.lora_rank
             )
         report_gpu_memory("After Creating Model and Adding LoRA")
