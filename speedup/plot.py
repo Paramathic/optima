@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # Load the CSV data
-gpu_type = "a100" #"rtx3090"
+gpu_type = "a100" #"a100" #"rtx3090"
 file_path = f"results/{gpu_type}_speedup_results.csv"
 data = pd.read_csv(file_path)
 
@@ -161,20 +161,43 @@ for i, model in enumerate(models):
             # Plot the bars
             bar_width = 0.4  # Width of the bars
 
-            ax.bar(
+            bars_fp16 = ax.bar(
                 np.arange(len(layer_types)) - bar_width / 2,
                 fpt16_speedups,
                 color=colors[0],
                 width=bar_width,
                 label='FP16 LoRA'
             )
-            ax.bar(
+            bars_int4 = ax.bar(
                 np.arange(len(layer_types)) + bar_width / 2,
                 int4_speedups,
                 color=colors[1],
                 width=bar_width,
                 label='INT4 LoRA'
             )
+
+            # Add value labels on top of the bars
+            for bar in bars_fp16:
+                height = bar.get_height()
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    height,
+                    f'{height:.2f}',
+                    ha='center',
+                    va='bottom',
+                    fontsize=6
+                )
+
+            for bar in bars_int4:
+                height = bar.get_height()
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    height,
+                    f'{height:.2f}',
+                    ha='center',
+                    va='bottom',
+                    fontsize=6
+                )
 
         # Set subplot title
         if i == 0:
@@ -191,6 +214,8 @@ for i, model in enumerate(models):
         else:
             ax.set_xticklabels([])
         post_process_figure(ax)
+
+        ax.set_facecolor("white")
 
 # Add a legend
 handles = [
