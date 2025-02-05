@@ -9,7 +9,7 @@ while maintaining efficiency in memory-constrained environments.
 
 **SLiM: One-shot Quantized Sparse Plus Low-rank Approximation of LLMs**
 
-*Mohammad Mozaffari and Maryam Mehri Dehnavi*
+*Mohammad Mozaffari, Amir Yazdanbakhsh, and Maryam Mehri Dehnavi*
 
 Paper: [https://arxiv.org/abs/2410.09615](https://arxiv.org/abs/2410.09615)
 
@@ -248,10 +248,10 @@ This repository is build upon the [SparseGPT](https://github.com/IST-DASLab/spar
 ## Citation
 If you use SLiM in your research, please cite our paper:
 ```angular2html
-@article{slim:2024,
+@article{slim:2025,
     title        = {{SLiM: One-shot Quantized Sparse Plus Low-rank Approximation of LLMs}},
-    author       = {Mozaffari, Mohammad and Mehri Dahnavi, Maryam},
-    year         = 2024,
+    author       = {Mozaffari, Mohammad, Yazdanbakhsh, Amir, and Mehri Dahnavi, Maryam},
+    year         = 2025,
     journal      = {arXiv preprint}
 }
 ```
