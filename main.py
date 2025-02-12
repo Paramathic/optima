@@ -74,6 +74,8 @@ def main():
     parser.add_argument("--prune_lora", action="store_true")
     parser.add_argument("--quantize_lora", action="store_true")
     parser.add_argument("--lora_tile_size", type=int, default=256)
+    parser.add_argument("--pad_lora", action="store_true", help="Whether to pad LoRA to "
+                        "lora_tile_size (without quantization)")
 
     parser.add_argument("--bitwidth", type=int, default=8)
     parser.add_argument("--quantize_weight", action="store_true")
@@ -151,6 +153,7 @@ def main():
         seed=args.seed,
         joint_pq_mixing_factor=args.joint_pq_mixing_factor,
         calibration_dataset=args.calibration_dataset,
+        pad_lora=args.pad_lora,
     )
     report_gpu_memory("After pruning")
 
@@ -217,10 +220,13 @@ def main():
                     and args.lora_rank > 0
                     and args.separate_lora
                     and args.sparsity_type != "dense")
+        
+        lora_tile_size = args.lora_tile_size if (args.quantize_lora or args.pad_lora) else None
+
         if has_lora:
             add_empty_lora(
                 model.model,
-                lora_tile_size=args.lora_tile_size,
+                lora_tile_size=lora_tile_size,
                 lora_rank=args.lora_rank
             )
         report_gpu_memory("After Creating Model and Adding LoRA")

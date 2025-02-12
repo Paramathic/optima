@@ -114,9 +114,7 @@ if quantize_lora_flag:
 ```
 
 **Input Quantization:** You can emulate input group quantization using the `attach_input_quantization_hooks` function. 
-This function attaches hooks to the linear layers of the model to quantize the input activations. The function will
-skip the quantization of the input of the layer if the input quantization error surpasses 5%. Please note that
-input quantization is only supported for 1-dimensional group quantization using AbsMax and works well with 8 bits.
+This function attaches hooks to the linear layers of the model to quantize the input activations. We use FP8 quantization with a single parameter when `bitwidth=8` and integer group quantization for other values of `bitwidth`. `input_goup_size=-1` uses per-token quantizatoin.
 
 ```python
 from slim.quantization.quantization import attach_input_quantization_hooks
@@ -124,7 +122,7 @@ from slim.quantization.quantization import attach_input_quantization_hooks
 attach_input_quantization_hooks(
     model,
     bitwidth=8,
-    input_group_size=128,
+    input_group_size=128, #Only when bitwidth!=8
 )
 ```
 
@@ -224,6 +222,7 @@ functions, please refer to their dockstrings.
 - `seed`: The seed to be used for reproducibility.
 - `joint_pq_mixing_factor`: The mixing factor to be used for joint pruning and quantization (JSQ).
 - `calibration_dataset`: The dataset to be used for calibration.
+- `pad_lora`: Whether to pad the low-rank adapters to `lora_tile_size` when not using LoRA quantizatoin.
 
 ### **slim.fine_tune.fine_tune:**
 - `model`: The model to be fine-tuned.

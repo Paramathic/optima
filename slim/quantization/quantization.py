@@ -190,15 +190,6 @@ class Quantizer:
             deq_mat = quantized_mat / scaling_factor
         else:
             deq_mat = dequantize_tensor(quantized_mat, scaling_factor, None, self.num_bits, dtype=self.dtype)
-            # deq_mat = torch.empty_like(quantized_mat)
-            # block_size = deq_mat.shape[0] // scaling_factor.shape[0]
-            # for row in range(0, deq_mat.shape[0], block_size):
-            #     for col in range(0, deq_mat.shape[1], block_size):
-            #         row_idx = row // block_size
-            #         col_idx = col // block_size
-            #         deq_mat[row:row + block_size, col:col + block_size] = quantized_mat[row:row + block_size,
-            #                                                               col:col + block_size] / scaling_factor[
-            #                                                                   row_idx, col_idx]
 
         return deq_mat
 
@@ -260,18 +251,22 @@ def attach_input_quantization_hooks(
     Args:
         model: nn.Module, The model to attach the hooks to
         num_bits: int, The number of bits to quantize the input to
-        input_group_size: int, The number of elements to quantize together. If -1, the whole input is quantized together.
+        input_group_size: int, The number of elements to quantize together 
+            when num_bits!=8. If -1, per-token quantization is applied.
     """
     def input_quantization_pre_hook(module, input):
         if module.quantize_input:
-            quantized_input = module.quantizer.quantize(input[0])
-            dequantized_input = module.quantizer.dequantize_input(quantized_input)
-            relative_error = (torch.norm(input[0] - dequantized_input) / torch.norm(input[0])).item()
-            if relative_error > 5e-2:
-                print(f"Skipping input quantization for layer {module}: with relative error {relative_error}.")
-                module.quantize_input = False
+            if num_bits != 8:
+                quantized_input = module.quantizer.quantize(input[0])
+                dequantized_input = module.quantizer.dequantize_input(quantized_input)
             else:
-                input[0].data = dequantized_input
+                max_val = input[0].abs().max()
+                dtype = torch.float8_e4m3fn if max_val < 488 else torch.float8_e5m2
+                dtype_maxval = torch.finfo(dtype).max
+                quantized_input = (input[0] / max_val * (dtype_maxval - 1)).to(dtype)
+                dequantized_input = (quantized_input).to(input[0].dtype) / (dtype_maxval - 1) * max_val
+
+            input[0].data = dequantized_input
 
     layers = get_layers_list(model)
     for i in range(len(layers)):
@@ -281,8 +276,9 @@ def attach_input_quantization_hooks(
         for name in subset:
             subset[name].register_forward_pre_hook(input_quantization_pre_hook)
             subset[name].quantize_input = True
-            subset[name].input_group_size = input_group_size
-            subset[name].quantizer = Quantizer("input", num_bits=num_bits, group_size=input_group_size)
+            if num_bits != 8:
+                subset[name].input_group_size = input_group_size
+                subset[name].quantizer = Quantizer("input", num_bits=num_bits, group_size=input_group_size)
 
 
 class QuantizedMatmul(torch.autograd.Function):

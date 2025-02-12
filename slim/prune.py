@@ -189,6 +189,7 @@ def prune_wanda(
         nsamples=128,
         seed=0,
         calibration_dataset="c4",
+        pad_lora=False,
 ):
     """
     Prune a model using WANDA and quantize weights using SLiM-Quant or AbsMax and add low-rank adapter using SLiM or SVD.
@@ -332,6 +333,7 @@ def prune_wanda(
                 W_mask.scatter_(1, indices, True)
 
             if lora_rank > 0.:
+                lora_tile_size = lora_tile_size if (quantize_lora or pad_lora) else None
                 add_lora(subset[name],
                          W_mask=W_mask,
                          rank_ratio=lora_rank,
@@ -340,7 +342,7 @@ def prune_wanda(
                          quantizer=quantizer,
                          prune_lora=prune_lora,
                          separate_lora=separate_lora,
-                         lora_tile_size=lora_tile_size if quantize_lora else None,
+                         lora_tile_size=lora_tile_size,
                          )
 
                 if quantizer is not None:
@@ -812,6 +814,7 @@ def prune_and_quantize(
         seed=0,
         joint_pq_mixing_factor=2.1,
         calibration_dataset="c4",
+        pad_lora=False,
 ):
     """
     Prune and quantize a model and add low-rank adapter to it.
@@ -838,6 +841,7 @@ def prune_and_quantize(
         seed: int - The seed to use for calibration
         joint_pq_mixing_factor: float - The mixing factor for joint pruning and quantization
         calibration_dataset: str - The dataset to use for calibration
+        pad_lora: bool - Whether to pad the low-rank adapter to the quantization tile size (whithout quantizing)
 
     Returns:
         None
@@ -905,7 +909,8 @@ def prune_and_quantize(
                 separate_lora,
                 nsamples,
                 seed,
-                calibration_dataset
+                calibration_dataset,
+                pad_lora,
             )
         elif prune_method == "magnitude":
             if lora_rank > 0:

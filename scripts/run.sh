@@ -1,4 +1,3 @@
-
 export HF_DATASETS_TRUST_REMOTE_CODE="1"
 export HF_HOME="data"
 export HF_DATASETS_OFFLINE="1"
@@ -66,6 +65,10 @@ do
                                     WEIGHT_TILE_SIZE=128
                                     JOINT_PQ_MIXING_FACTOR=2.1
                                     CALIBRATION_DATASET="c4"
+                                    QUANTIZE_INPUT="--quantize_input"
+                                    INPUT_BITWIDTH=8
+                                    INPUT_GROUP_SIZE=-1
+                                    PAD_LORA='--pad_lora'
 
                                     CUDA_VISIBLE_DEVICES=0 python main.py \
                                         --model ${MODEL_PREFIX}${MODEL_SIZE}${MODEL_POSTFIX} \
@@ -99,7 +102,12 @@ do
                                         --weight_tile_size $WEIGHT_TILE_SIZE \
                                         $HF_TOKEN \
                                         --joint_pq_mixing_factor $JOINT_PQ_MIXING_FACTOR \
-                                        --calibration_dataset $CALIBRATION_DATASET
+                                        --calibration_dataset $CALIBRATION_DATASET \
+                                        $QUANTIZE_INPUT \
+                                        --input_bitwidth $INPUT_BITWIDTH \
+                                        --input_group_size $INPUT_GROUP_SIZE \
+                                        $PAD_LORA
+                                        
                                 done
                             done
                         done
