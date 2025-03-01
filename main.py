@@ -9,9 +9,10 @@ from slim.eval import eval_ppl
 from slim.utils import report_gpu_memory, check_sparsity
 from slim.lora import quantize_lora
 from slim.quantization.quantization import attach_input_quantization_hooks
-from utils.model import get_llm, add_empty_lora, contigous_model
+from utils.model import get_llm
 import time
 from slim.fine_tune import fine_tune
+import lm_eval
 
 
 CSV_COLUMNS = ["model", "prune_method", "sparsity_ratio", "sparsity_type", "lora_rank",
@@ -114,9 +115,8 @@ def main():
 
     model_name = args.model.split("/")[-1]
     print(f"Loading model {model_name}")
-    model = get_llm(
+    model, lm_eval_model = get_llm(
         model_name=args.model,
-        cache_dir=args.cache_dir,
         local_files_only=args.local_files_only,
         hf_token=args.hf_token,
     )
@@ -125,7 +125,6 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(
         args.model,
         use_fast=False,
-        cache_dir="tokenizers",
         token=args.hf_token,
     )
 
@@ -197,48 +196,8 @@ def main():
     
     lmharness_results = {}
     if args.test_lmharness:
-        import lm_eval
-        np.random.seed(np.int64(time.time()))
-        randint = np.random.randint(0, 1000)
-        checkpoint_dir = "/tmp/tmp_ckpt{}".format(randint)
-        contigous_model(model)
-        report_gpu_memory("Before Saving Checkpoint")
-        torch.save(model.state_dict(), checkpoint_dir)
-        del model, tokenizer
-        report_gpu_memory("After Saving Checkpoint")
-
-        model_args = f"pretrained={args.model},dtype=half,local_files_only={args.local_files_only},cache_dir=llm_weights,low_cpu_mem_usage=True"
-        model = lm_eval.api.registry.get_model("hf").create_from_arg_string(
-                model_args,
-                {
-                    "batch_size": None,
-                    "max_batch_size": None,
-                    "device": None,
-                },
-            )
-        has_lora = (args.prune_method == "wanda"
-                    and args.lora_rank > 0
-                    and args.separate_lora
-                    and args.sparsity_type != "dense")
-        
-        lora_tile_size = args.lora_tile_size if (args.quantize_lora or args.pad_lora) else None
-
-        if has_lora:
-            add_empty_lora(
-                model.model,
-                lora_tile_size=lora_tile_size,
-                lora_rank=args.lora_rank
-            )
-        report_gpu_memory("After Creating Model and Adding LoRA")
-        model.model.load_state_dict(torch.load(checkpoint_dir, map_location="cpu"))
-        report_gpu_memory("After Loading State Dictionary")
-        os.remove(checkpoint_dir)
-        if args.quantize_input:
-            attach_input_quantization_hooks(model.model,
-                                            args.input_bitwidth,
-                                            args.input_group_size)
         results = lm_eval.simple_evaluate(
-            model=model,
+            model=lm_eval_model,
             tasks=["mmlu", "piqa", "arc_easy", "arc_challenge", "winogrande", "openbookqa"],
             verbosity="ERROR"
         )

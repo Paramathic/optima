@@ -1,39 +1,33 @@
-from transformers import  AutoModelForCausalLM
 from slim.utils import get_layers_list, find_layers
-import numpy as np
 import torch
+import lm_eval
 
 
 def get_llm(model_name,
-            cache_dir="llm_weights",
-            device_map=None,
             local_files_only=False,
             hf_token="",
+            seqlen=2048
             ):
     """
     Load a model from transformers
     model_name: str, the name of the model to load
-    cache_dir: str, the directory to save the model weights
-    local_checkpoint_dir: str, the directory to load the model weights from
-    device_map: dict, a dictionary mapping device names to device objects
     local_files_only: bool, whether to only load local files
+    hf_token: str, the huggingface token to use
+    seqlen: int, the maximum sequence length to use
     """
-    kwargs = {}
-    if device_map is not None:
-        kwargs["device_map"] = device_map
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        torch_dtype=torch.float16,
-        cache_dir=cache_dir,
-        low_cpu_mem_usage=True,
-        token=hf_token,
-        local_files_only=local_files_only,
-        **kwargs
-    ).cuda()
-
-
-    model.seqlen = model.config.max_position_embeddings
-    return model
+    model_args = f"pretrained={model_name},dtype=half,local_files_only={local_files_only},low_cpu_mem_usage=True,token={hf_token}"
+    lm_eval_model = lm_eval.api.registry.get_model("hf").create_from_arg_string(
+        model_args,
+        {
+            "batch_size": None,
+            "max_batch_size": None,
+            "device": None,
+        },
+    )
+    model = lm_eval_model._model
+    model.config.max_position_embeddings = seqlen
+    model.seqlen = seqlen
+    return model, lm_eval_model
 
 
 def add_empty_lora(

@@ -41,7 +41,7 @@ if lmharness:
 
     results = lm_eval.simple_evaluate(
         model="hf",
-        model_args=f"pretrained=facebook/opt-125m,dtype=half,parallelize=True,cache_dir=llm_weights",
+        model_args=f"pretrained=facebook/opt-125m,dtype=half,parallelize=True",
         tasks=["mmlu", "piqa", "arc_easy", "arc_challenge", "winogrande", "openbookqa"],
         verbosity="ERROR"
     )
@@ -102,7 +102,6 @@ for size in sizes:
             cache_dir=model_cache_dir,
             low_cpu_mem_usage=True,
             token=hf_token,
-            # device_map='auto'
             )
     except:
         pass

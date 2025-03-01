@@ -49,7 +49,6 @@ model.eval()
 tokenizer = AutoTokenizer.from_pretrained(
     model_name,
     use_fast=False,
-    cache_dir="tokenizers",
 )
 ```
 
