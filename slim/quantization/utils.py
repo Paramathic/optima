@@ -3,6 +3,12 @@ import torch
 import triton
 import triton.language as tl
 
+
+@triton.jit
+def pow(x, y):
+    return tl.exp(tl.log(x) * y)
+
+
 @triton.jit
 def quantize(x_vals, alpha, beta, q):
     """ Returns (x[i*block_size1:(i+1)*block_size1, j*block_size2:(j+1)*block_size2] - betas[i, j]) / alphas[i, j]
@@ -11,10 +17,7 @@ def quantize(x_vals, alpha, beta, q):
         beta: 2D array of FP16
         q: quantization bitwidth
        """
-    if q == 4:
-        max_val = 7. #TODO: Change to (2 ** (q - 1) - 1)
-    else:
-        max_val = 127.
+    max_val = pow(2., q-1) - 1
 
     if beta is not None:
         x_vals = (x_vals - beta) / alpha * max_val
@@ -36,10 +39,7 @@ def dequantize(x_vals, alpha, beta, q):
         beta: 2D array of FP16
         q: quantization bitwidth
        """
-    if q == 4:
-        max_val = 7.0
-    else:
-        max_val = 127.0
+    max_val = pow(2., q-1) - 1
 
     x_vals = x_vals.to(tl.float16) / max_val * alpha
     if beta is not None:
@@ -122,7 +122,7 @@ def _quantize_tensor(x,
 
 def quantize_tensor(x, alphas, betas, q):
     row_block_size, col_block_size = x.shape[0] // alphas.shape[0], x.shape[1] // alphas.shape[1]
-    y = torch.empty_like(x, dtype=torch.int8).cuda()
+    y = torch.empty_like(x, dtype=torch.int8, device=x.device)
     grid = lambda meta: (alphas.shape[0], alphas.shape[1])
     _quantize_tensor[grid](x, y, alphas, betas, row_block_size, col_block_size, x.shape[1], x.shape[0], q)
     return y
@@ -195,11 +195,11 @@ def dequantize_tensor(x, alphas, betas, q, dtype=torch.float16):
 
 def compute_quantization_params_torch(x, block_size_row, block_size_col, symmetric=False):
     param_row_cnt, param_col_cnt = x.shape[0] // block_size_row, x.shape[1] // block_size_col
-    alphas = torch.empty(param_row_cnt, param_col_cnt, device='cuda', dtype=x.dtype)
+    alphas = torch.empty(param_row_cnt, param_col_cnt, device=x.device, dtype=x.dtype)
     if symmetric:
         betas = None
     else:
-        betas = torch.empty(param_row_cnt, param_col_cnt, device='cuda', dtype=x.dtype)
+        betas = torch.empty(param_row_cnt, param_col_cnt, device=x.device, dtype=x.dtype)
     for i in range(param_row_cnt):
         for j in range(param_col_cnt):
             block = x[i*block_size_row:(i+1)*block_size_row, j*block_size_col:(j+1)*block_size_col]
@@ -253,11 +253,11 @@ def _compute_quantization_params(x,
 
 def compute_quantization_params(x, block_size_row, block_size_col, symmetric=False):
     param_row_cnt, param_col_cnt = x.shape[0] // block_size_row, x.shape[1] // block_size_col
-    alphas = torch.empty(param_row_cnt, param_col_cnt, device='cuda', dtype=x.dtype)
+    alphas = torch.empty(param_row_cnt, param_col_cnt, device=x.device, dtype=x.dtype)
     if symmetric:
         betas = None
     else:
-        betas = torch.empty(param_row_cnt, param_col_cnt, device='cuda', dtype=x.dtype)
+        betas = torch.empty(param_row_cnt, param_col_cnt, device=x.device, dtype=x.dtype)
 
     # reshape input data into 2D tensor
     x_arg = x.reshape(-1, x.shape[-1])
