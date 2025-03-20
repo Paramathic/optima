@@ -6,7 +6,7 @@ import lm_eval
 def get_llm(model_name,
             local_files_only=False,
             hf_token="",
-            seqlen=2048
+            seqlen=2048,
             ):
     """
     Load a model from transformers
@@ -66,3 +66,41 @@ def contigous_model(model):
         for param in layer.parameters():
             param.data = param.data.contiguous()
     return model
+
+
+if __name__ == "__main__":
+    from transformers import AutoTokenizer
+
+    token = None #"HF_TOKEN"
+
+    def load_model_and_tokenizer(model_name):
+        print("Loading model", model_name)
+        get_llm(model_name, hf_token=token)
+        AutoTokenizer.from_pretrained(model_name, token=token)
+
+
+
+    #Load LLaMA-2 models
+    for size in ["7b", "13b"]:
+        model_name = f"meta-llama/Llama-2-{size}-hf"
+        load_model_and_tokenizer(model_name)
+
+    #Load LLaMA-3.1 models
+    for size in ["8B"]:
+        model_name = f"meta-llama/Llama-3.1-{size}"
+        load_model_and_tokenizer(model_name)
+
+    #Load LLaMA-3.2 models
+    for size in ["1B", "3B"]:
+        model_name = f"meta-llama/Llama-3.2-{size}"
+        load_model_and_tokenizer(model_name)
+
+    #Load OPT models
+    for size in ["125m", "350m", "1.3b", "2.7b", "6.7b", "13b"]:
+        model_name = f"facebook/opt-{size}"
+        load_model_and_tokenizer(model_name)
+
+    # Load Gemma-3 models
+    for size in ["1b", "4b", "12b"]:
+        model_name = f"google/gemma-3-{size}-pt"
+        load_model_and_tokenizer(model_name)

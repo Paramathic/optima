@@ -1,6 +1,5 @@
 import torch
 import numpy as np
-from transformers.modeling_utils import Conv1D
 
 def check_sparsity(model):
     """
