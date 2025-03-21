@@ -121,6 +121,8 @@ def main():
         hf_token=args.hf_token,
     )
 
+    model = model.to(torch.bfloat16).cuda()
+
     model.eval()
     tokenizer = AutoTokenizer.from_pretrained(
         args.model,

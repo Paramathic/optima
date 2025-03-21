@@ -7,7 +7,6 @@ from .data import get_loaders
 from .utils import get_layers_list, shift_zeros, find_layers, prune_nm
 from .lora import add_lora
 from slim.quantization.quantization import Quantizer as AutoQuantizer, QuantizedMatmul
-from transformers import LlamaForCausalLM
 import tqdm.auto as tqdm
 from .jsq_utils import clip_matrix, generate_ss
 from .smooth import smooth_layer
@@ -16,6 +15,7 @@ from .smooth import smooth_layer
 def prepare_calibration_input(
         model,
         dataloader,
+        nsamples=128
 ):
     """
     Prepare inputs for calibration.
@@ -50,11 +50,10 @@ def prepare_calibration_input(
 
     dtype = next(iter(model.parameters())).dtype
     torch.cuda.empty_cache()
-    inps = torch.zeros((128, model.config.max_position_embeddings, model.config.hidden_size), dtype=dtype, device="cpu")
+    inps = torch.zeros((nsamples, model.config.max_position_embeddings, model.config.hidden_size), dtype=dtype, device="cpu")
     input_device = "cpu"
     inps.requires_grad = False
     cache = {'i': 0, 'attention_mask': None, "position_ids": None}
-    is_llama = isinstance(model, LlamaForCausalLM)
 
     class Catcher(nn.Module):
         def __init__(self, module):
@@ -64,9 +63,8 @@ def prepare_calibration_input(
         def forward(self, inp, **kwargs):
             inps[cache['i']] = inp.to(input_device)
             cache['i'] += 1
-            cache['attention_mask'] = kwargs['attention_mask']
-            if is_llama:
-                cache['position_ids'] = kwargs['position_ids']
+            for key in kwargs:
+                cache[key] = kwargs[key]
             raise ValueError
 
     layers[0] = Catcher(layers[0])
@@ -91,14 +89,9 @@ def prepare_calibration_input(
         torch.cuda.empty_cache()
 
     outs = torch.zeros_like(inps)
-    attention_mask = cache['attention_mask']
-    if is_llama:
-        position_ids = cache['position_ids']
     model.config.use_cache = use_cache
-
-    if is_llama:
-        return inps, outs, attention_mask, position_ids
-    return inps, outs, attention_mask
+    del cache['i']
+    return inps, outs, cache
 
 
 def prune_magnitude(
@@ -161,7 +154,7 @@ def prune_magnitude(
             subset[name].weight.data = W
             if quantizer is not None:
                 quantized_weight = quantizer.quantize_weight(subset[name].weight.data)
-                subset[name].weight.data = quantizer.dequantize_absmax(quantized_weight).half()
+                subset[name].weight.data = quantizer.dequantize_absmax(quantized_weight).to(torch.bfloat16)
                 if not tiled_weight_quantization:
                     subset[name].scaling_factor = quantizer.scaling_factor
                 else:
@@ -222,8 +215,6 @@ def prune_wanda(
     use_cache = model.config.use_cache
     model.config.use_cache = False
 
-    is_llama = isinstance(model, LlamaForCausalLM)
-
     dataloader, _ = get_loaders(
         calibration_dataset,
         nsamples=nsamples,
@@ -232,10 +223,7 @@ def prune_wanda(
         tokenizer=tokenizer
     )
     with torch.no_grad():
-        if is_llama:
-            inps, outs, attention_mask, position_ids = prepare_calibration_input(model, dataloader)
-        else:
-            inps, outs, attention_mask = prepare_calibration_input(model, dataloader)
+        inps, outs, kwargs = prepare_calibration_input(model, dataloader, nsamples)
 
     if quantize_weight:
         quantizer = AutoQuantizer(
@@ -259,16 +247,6 @@ def prune_wanda(
         layer = layers[i].cuda() if use_cpu else layers[i]
 
         subset = find_layers(layer)
-        try:
-            if f"model.layers.{i}" in model.hf_device_map:  ## handle the case for llama-30B and llama-65B, when the device map has multiple GPUs;
-                dev = model.hf_device_map[f"model.layers.{i}"]
-                if is_llama:
-                    inps, outs, attention_mask, position_ids = inps.to(dev), outs.to(dev), attention_mask.to(
-                        dev), position_ids.to(dev)
-                else:
-                    inps, outs, attention_mask = inps.to(dev), outs.to(dev), attention_mask.to(dev)
-        except:
-            pass
         wrapped_layers = {}
         for name in subset:
             wrapped_layers[name] = WrappedGPT(subset[name])
@@ -286,30 +264,25 @@ def prune_wanda(
             with torch.no_grad():
                 if not cpu_only:
                     try:
-                        if is_llama:
-                            outs[j] = layer(inps[j].unsqueeze(0).cuda(), attention_mask=attention_mask,
-                                            position_ids=position_ids)[0].to(outs.device)
-                        else:
-                            outs[j] = layer(inps[j].unsqueeze(0).cuda(), attention_mask=attention_mask)[0].to(
-                                outs.device)
+                        for key in kwargs:
+                            if isinstance(kwargs[key], torch.Tensor):
+                                kwargs[key] = kwargs[key].cuda()
+
+                        outs[j] = layer(inps[j].unsqueeze(0).cuda(), **kwargs)[0].to(outs.device)
+
                     except:
                         print("Block does not fit in a single GPU. Doing all the computation in CPU.")
                         cpu_only = True
 
+                        for key in kwargs:
+                            if isinstance(kwargs[key], torch.Tensor):
+                                kwargs[key] = kwargs[key].cpu()
+
                         layer = layer.cpu().float()
-                        if is_llama:
-                            outs[j] = layer(inps[j].unsqueeze(0),
-                                            attention_mask=attention_mask,
-                                            position_ids=position_ids)[0]
-                        else:
-                            outs[j] = layer(inps[j].unsqueeze(0).float(), attention_mask=attention_mask.cpu() if attention_mask is not None else attention_mask)[0].half()
+
+                        outs[j] = layer(inps[j].unsqueeze(0), **kwargs)[0].to(torch.bfloat16)
                 else:
-                    if is_llama:
-                        outs[j] = layer(inps[j].unsqueeze(0),
-                                        attention_mask=attention_mask,
-                                        position_ids=position_ids)[0]
-                    else:
-                        outs[j] = layer(inps[j].unsqueeze(0).float(), attention_mask=attention_mask.cpu())[0].half()
+                    outs[j] = layer(inps[j].unsqueeze(0).float(), **kwargs)[0].to(torch.bfloat16)
 
         for h in handles:
             h.remove()
@@ -383,7 +356,7 @@ def prune_wanda(
                 subset[name].weight.data[W_mask] = 0  ## set weights to zero
                 if quantizer is not None:
                     quantized_weight = quantizer.quantize_weight(subset[name].weight.data)
-                    subset[name].weight.data = quantizer.dequantize_absmax(quantized_weight).half()
+                    subset[name].weight.data = quantizer.dequantize_absmax(quantized_weight).to(torch.bfloat16)
                     if quantizer is not None:
                         if not tiled_weight_quantization:
                             subset[name].scaling_factor = quantizer.scaling_factor
@@ -399,20 +372,10 @@ def prune_wanda(
         for j in range(nsamples):
             with torch.no_grad():
                 if not cpu_only:
-                    if is_llama:
-                        outs[j] = layer(inps[j].unsqueeze(0).cuda(),
-                                        attention_mask=attention_mask,
-                                        position_ids=position_ids)[0].to(outs[j].device)
-                    else:
-                        outs[j] = layer(inps[j].unsqueeze(0).cuda(),
-                                        attention_mask=attention_mask)[0].to(outs[j].device)
+
+                    outs[j] = layer(inps[j].unsqueeze(0).cuda(), **kwargs)[0].to(outs[j].device)
                 else:
-                    if is_llama:
-                        outs[j] = layer(inps[j].unsqueeze(0).float(),
-                                        attention_mask=attention_mask.cpu(),
-                                        position_ids=position_ids)[0].half()
-                    else:
-                        outs[j] = layer(inps[j].unsqueeze(0).float(), attention_mask=attention_mask.cpu())[0].half()
+                    outs[j] = layer(inps[j].unsqueeze(0).float(), **kwargs)[0].to(torch.bfloat16)
         inps, outs = outs, inps
 
         if use_cpu:
@@ -464,8 +427,6 @@ def prune_sparsegpt(
     use_cache = model.config.use_cache
     model.config.use_cache = False
 
-    is_llama = isinstance(model, LlamaForCausalLM)
-
     dataloader, _ = get_loaders(
         calibration_dataset,
         nsamples=nsamples,
@@ -475,10 +436,7 @@ def prune_sparsegpt(
     )
 
     with torch.no_grad():
-        if is_llama:
-            inps, outs, attention_mask, position_ids = prepare_calibration_input(model, dataloader)
-        else:
-            inps, outs, attention_mask = prepare_calibration_input(model, dataloader)
+        inps, outs, kwargs = prepare_calibration_input(model, dataloader, nsamples)
 
     layers = get_layers_list(model)
 
@@ -517,31 +475,23 @@ def prune_sparsegpt(
         for j in range(nsamples):
             if not cpu_only:
                 try:
-                    if is_llama:
-                        outs[j] = layer(inps[j].unsqueeze(0).cuda(), attention_mask=attention_mask,
-                                        position_ids=position_ids)[0].to(outs.device)
-                    else:
-                        outs[j] = layer(inps[j].unsqueeze(0).cuda(), attention_mask=attention_mask)[0].to(
-                            outs.device)
+                    for key in kwargs:
+                        if isinstance(kwargs[key], torch.Tensor):
+                            kwargs[key] = kwargs[key].cuda()
+
+                    outs[j] = layer(inps[j].unsqueeze(0).cuda(), **kwargs)[0].to(outs.device)
                 except:
                     print("Block does not fit in a single GPU. Doing all the computation in CPU.")
                     cpu_only = True
 
                     layer = layer.cpu().float()
+                    for key in kwargs:
+                        if isinstance(kwargs[key], torch.Tensor):
+                            kwargs[key] = kwargs[key].cpu()
 
-                    if is_llama:
-                        outs[j] = layer(inps[j].unsqueeze(0),
-                                        attention_mask=attention_mask,
-                                        position_ids=position_ids)[0]
-                    else:
-                        outs[j] = layer(inps[j].unsqueeze(0).float(), attention_mask=attention_mask.cpu())[0].half()
+                    outs[j] = layer(inps[j].unsqueeze(0), **kwargs)[0].to(torch.bfloat16)
             else:
-                if is_llama:
-                    outs[j] = layer(inps[j].unsqueeze(0),
-                                    attention_mask=attention_mask,
-                                    position_ids=position_ids)[0]
-                else:
-                    outs[j] = layer(inps[j].unsqueeze(0).float(), attention_mask=attention_mask.cpu())[0].half()
+                outs[j] = layer(inps[j].unsqueeze(0).float(), **kwargs)[0].to(torch.bfloat16)
 
         for h in handles:
             h.remove()
@@ -562,20 +512,9 @@ def prune_sparsegpt(
         for j in range(nsamples):
             with torch.no_grad():
                 if not cpu_only:
-                    if is_llama:
-                        outs[j] = layer(inps[j].unsqueeze(0).cuda(),
-                                        attention_mask=attention_mask,
-                                        position_ids=position_ids)[0].to(outs[j].device)
-                    else:
-                        outs[j] = layer(inps[j].unsqueeze(0).cuda(),
-                                        attention_mask=attention_mask)[0].to(outs[j].device)
+                    outs[j] = layer(inps[j].unsqueeze(0).cuda(), **kwargs)[0].to(outs[j].device)
                 else:
-                    if is_llama:
-                        outs[j] = layer(inps[j].unsqueeze(0).float(),
-                                        attention_mask=attention_mask.cpu(),
-                                        position_ids=position_ids)[0].half()
-                    else:
-                        outs[j] = layer(inps[j].unsqueeze(0).float(), attention_mask=attention_mask.cpu())[0].half()
+                    outs[j] = layer(inps[j].unsqueeze(0).float(), **kwargs)[0].to(torch.bfloat16)
 
         layers[i] = layer
         torch.cuda.empty_cache()
