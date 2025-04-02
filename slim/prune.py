@@ -183,6 +183,7 @@ def prune_wanda(
         seed=0,
         calibration_dataset="c4",
         pad_lora=False,
+        quantize_first=True,
 ):
     """
     Prune a model using WANDA and quantize weights using SLiM-Quant or AbsMax and add low-rank adapter using SLiM or SVD.
@@ -268,7 +269,7 @@ def prune_wanda(
                             if isinstance(kwargs[key], torch.Tensor):
                                 kwargs[key] = kwargs[key].cuda()
 
-                        outs[j] = layer(inps[j].unsqueeze(0).cuda(), **kwargs)[0].to(outs.device)
+                        outs[j] = layer(inps[j].unsqueeze(0).cuda(), **kwargs)[0].to(outs[j].device)
 
                     except:
                         print("Block does not fit in a single GPU. Doing all the computation in CPU.")
@@ -316,6 +317,7 @@ def prune_wanda(
                          prune_lora=prune_lora,
                          separate_lora=separate_lora,
                          lora_tile_size=lora_tile_size,
+                         quantize_first=quantize_first
                          )
 
                 if quantizer is not None:
@@ -353,15 +355,26 @@ def prune_wanda(
 
 
             else:
-                subset[name].weight.data[W_mask] = 0  ## set weights to zero
-                if quantizer is not None:
-                    quantized_weight = quantizer.quantize_weight(subset[name].weight.data)
-                    subset[name].weight.data = quantizer.dequantize_absmax(quantized_weight).to(torch.bfloat16)
+                if quantize_first:
                     if quantizer is not None:
-                        if not tiled_weight_quantization:
-                            subset[name].scaling_factor = quantizer.scaling_factor
-                        else:
-                            subset[name].scaling_factor = None
+                        quantized_weight = quantizer.quantize_weight(subset[name].weight.data)
+                        subset[name].weight.data = quantizer.dequantize_absmax(quantized_weight).to(torch.bfloat16)
+                        if quantizer is not None:
+                            if not tiled_weight_quantization:
+                                subset[name].scaling_factor = quantizer.scaling_factor
+                            else:
+                                subset[name].scaling_factor = None
+                    subset[name].weight.data[W_mask] = 0  ## set weights to zero
+                else:
+                    subset[name].weight.data[W_mask] = 0  ## set weights to zero
+                    if quantizer is not None:
+                        quantized_weight = quantizer.quantize_weight(subset[name].weight.data)
+                        subset[name].weight.data = quantizer.dequantize_absmax(quantized_weight).to(torch.bfloat16)
+                        if quantizer is not None:
+                            if not tiled_weight_quantization:
+                                subset[name].scaling_factor = quantizer.scaling_factor
+                            else:
+                                subset[name].scaling_factor = None
 
 
         if cpu_only:
@@ -372,7 +385,6 @@ def prune_wanda(
         for j in range(nsamples):
             with torch.no_grad():
                 if not cpu_only:
-
                     outs[j] = layer(inps[j].unsqueeze(0).cuda(), **kwargs)[0].to(outs[j].device)
                 else:
                     outs[j] = layer(inps[j].unsqueeze(0).float(), **kwargs)[0].to(torch.bfloat16)

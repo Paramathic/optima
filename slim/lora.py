@@ -48,8 +48,8 @@ def prune_and_optimize_lora(
                 scheduler.get_lr()[0]
             )
         )
-    L.data = L_param.data.half()
-    R.data = R_param.data.half()
+    L.data = L_param.data.to(torch.bfloat16)
+    R.data = R_param.data.to(torch.bfloat16)
     return L_mask
 
 
@@ -111,7 +111,8 @@ def add_lora(
         quantizer=None,
         prune_lora=False,
         separate_lora=True,
-        lora_tile_size=None
+        lora_tile_size=None,
+        quantize_first=False
 ):
     """
     Add low-rank adapters to compensate for the compression loss.
@@ -136,16 +137,27 @@ def add_lora(
         else:
             W_metric = module.weight.data * (torch.sqrt(activations.scaler_row.reshape((1, -1))))
             new_weight = module.weight.data
-            new_weight[W_mask] = 0
-            new_weight = quantizer.quantize_weight(new_weight)
-            new_weight = quantizer.dequantize_absmax(new_weight) * (torch.sqrt(activations.scaler_row.reshape((1, -1))))
+            if quantize_first:
+                new_weight = quantizer.quantize_weight(new_weight)
+                new_weight = quantizer.dequantize_absmax(new_weight) * (torch.sqrt(activations.scaler_row.reshape((1, -1))))
+                new_weight[W_mask] = 0            
+            else:
+                new_weight[W_mask] = 0
+                new_weight = quantizer.quantize_weight(new_weight)
+                new_weight = quantizer.dequantize_absmax(new_weight) * (torch.sqrt(activations.scaler_row.reshape((1, -1))))
             error_mat = (W_metric - new_weight)
     else:
         new_weight = module.weight.data.clone().detach()
-        new_weight[W_mask] = 0
-        if quantizer is not None:
-            new_weight = quantizer.quantize_weight(new_weight)
-            new_weight = quantizer.dequantize_absmax(new_weight)
+        if quantize_first:
+            if quantizer is not None:
+                new_weight = quantizer.quantize_weight(new_weight)
+                new_weight = quantizer.dequantize_absmax(new_weight)     
+            new_weight[W_mask] = 0
+        else:
+            new_weight[W_mask] = 0
+            if quantizer is not None:
+                new_weight = quantizer.quantize_weight(new_weight)
+                new_weight = quantizer.dequantize_absmax(new_weight)
         error_mat = module.weight.data - new_weight
 
     # Use SVD on the error matrix to find the best low-rank approximation
@@ -161,16 +173,16 @@ def add_lora(
         assert rank % tile_dim == 0
 
     if separate_lora:
-        lora_left = (torch.diag_embed(S[:rank]).half() @ V[:, :rank].half().T).t()
-        lora_right = U[:, :rank].half().t()
+        lora_left = (torch.diag_embed(S[:rank]).to(torch.bfloat16) @ V[:, :rank].to(torch.bfloat16).T).t()
+        lora_right = U[:, :rank].to(torch.bfloat16).t()
         if prune_lora:
             lora_left_mask = prune_and_optimize_lora(lora_left, lora_right)
     else:
-        low_rank_weight = U[:, :rank].half() @ torch.diag_embed(S[:rank]).half() @ V[:, :rank].half().T
+        low_rank_weight = U[:, :rank].to(torch.bfloat16) @ torch.diag_embed(S[:rank]).to(torch.bfloat16) @ V[:, :rank].to(torch.bfloat16).T
         if prune_lora:
             raise NotImplementedError
     if slim_lora and not any(activations.scaler_row == 0):
-        denom = (torch.sqrt(activations.scaler_row.reshape((1, -1)))).half()
+        denom = (torch.sqrt(activations.scaler_row.reshape((1, -1)))).to(torch.bfloat16)
         if separate_lora:
             lora_left = lora_left / (denom.t())
         else:
@@ -184,10 +196,10 @@ def add_lora(
         new_weight = quantizer.dequantize_absmax(new_weight)
 
     if separate_lora:
-        module.lora_left = torch.nn.Parameter(lora_left).half().contiguous()
-        module.lora_right = torch.nn.Parameter(lora_right).half().contiguous()
-        module.weight.data = new_weight.half().contiguous()
+        module.lora_left = torch.nn.Parameter(lora_left).to(torch.bfloat16).contiguous()
+        module.lora_right = torch.nn.Parameter(lora_right).to(torch.bfloat16).contiguous()
+        module.weight.data = new_weight.to(torch.bfloat16).contiguous()
         if prune_lora:
             module.lora_left_mask = lora_left_mask
     else:
-        module.weight.data = (new_weight + low_rank_weight).half()
+        module.weight.data = (new_weight + low_rank_weight).to(torch.bfloat16)
