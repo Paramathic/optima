@@ -19,8 +19,6 @@ def get_llm(model_name,
     lm_eval_model = lm_eval.api.registry.get_model("hf").create_from_arg_string(
         model_args,
         {
-            "batch_size": None,
-            "max_batch_size": None,
             "device": None,
         },
     )
