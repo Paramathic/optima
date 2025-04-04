@@ -52,10 +52,9 @@ def generate_speedup_csv(input_string, output_file="results/speedup_results.csv"
 
     print(f"Speedup results saved to {output_file}")
 
-
-
-
 sizes = []
+
+quantize_only = True
 
 model_list = {
     "LLaMA-2-7B": {(4096, 4096), (4096, 11008), (11008, 4096)},
@@ -70,7 +69,7 @@ num_experiments = 100
 
 
 quant_type = scalar_types.uint4b8
-group_size=-1
+group_size = -1
 lora_group_size=128
 
 results = []
@@ -85,8 +84,22 @@ for model in model_list:
 
             x = torch.randn(bs, d_in, dtype=torch.half, device='cuda')
             w = torch.randn(d_in, d_out, dtype=torch.half, device='cuda')
-            (marlin_24_w_ref, marlin_24_q_w_comp, marlin_24_meta,
-                marlin_24_s) = marlin_24_quantize(w, quant_type, group_size)
+            if quantize_only:
+                (
+                    marlin_w_ref ,
+                    marlin_q_w,
+                    marlin_s_w,
+                    marlin_g_idx_w,
+                    marlin_sort_indices_w,
+                    marlin_rand_perm_w,
+                ) = marlin_quantize(w, quant_type, group_size, act_order=False)
+                marlin_zp_w = torch.zeros_like(marlin_s_w, dtype=torch.int)
+                (marlin_24_w_ref, marlin_24_q_w_comp, marlin_24_meta, marlin_24_s) = None, None, None, None
+            else:
+                (marlin_24_w_ref, marlin_24_q_w_comp, marlin_24_meta,
+                    marlin_24_s) = marlin_24_quantize(w, quant_type, group_size)
+                (marlin_w_ref, marlin_q_w, marlin_s_w, marlin_g_idx_w, marlin_sort_indices_w,
+                    marlin_rand_perm_w, marlin_zp_w) = None, None, None, None, None, None, None
 
 
             lora_type = torch.float16
@@ -119,10 +132,43 @@ for model in model_list:
             print("Metadata Generate - Used GPU Memory: ", torch.cuda.memory_allocated() // 1024 // 1024, " MB")
 
 
-            def lora_linear_fp16(x, l, r, marlin_24_q_w_comp, marlin_24_meta, marlin_24_s, marlin_24_workspace, quant_type):
+            def lora_linear_fp16(
+                    x,
+                    l,
+                    r,
+                    marlin_24_q_w_comp,
+                    marlin_24_meta,
+                    marlin_24_s,
+                    marlin_q_w,
+                    marlin_s_w,
+                    marlin_zp_w,
+                    marlin_g_idx_w,
+                    marlin_sort_indices_w,
+                    marlin_24_workspace,
+                    quantize_only,
+                    quant_type
+            ):
                 bs, d_in = x.shape
                 d_out = r.shape[1]
-                xw = ops.gptq_marlin_24_gemm(x, marlin_24_q_w_comp, marlin_24_meta, marlin_24_s, marlin_24_workspace.scratch, quant_type, bs, d_out, d_in)
+                if quantize_only:
+                    xw = ops.gptq_marlin_gemm(
+                        x,
+                        marlin_q_w,
+                        marlin_s_w,
+                        marlin_zp_w,
+                        marlin_g_idx_w,
+                        marlin_sort_indices_w,
+                        marlin_24_workspace.scratch,
+                        quant_type,
+                        bs,
+                        d_out,
+                        d_in,
+                        is_k_full=True,
+                        has_zp=False,
+                        use_fp32_reduce=False
+                    )
+                else:
+                    xw = ops.gptq_marlin_24_gemm(x, marlin_24_q_w_comp, marlin_24_meta, marlin_24_s, marlin_24_workspace.scratch, quant_type, bs, d_out, d_in)
 
                 xl = torch.matmul(x, l)
                 torch.addmm(xw, xl, r, out=xw)
@@ -132,11 +178,17 @@ for model in model_list:
 
             def lora_linear_marlin_int4(
                     x,
-                    marlin_24_workspace,
                     marlin_24_q_w_comp,
                     marlin_24_meta,
                     marlin_24_s,
+                    marlin_q_w,
+                    marlin_s_w,
+                    marlin_zp_w,
+                    marlin_g_idx_w,
+                    marlin_sort_indices_w,
+                    quantize_only,
                     quant_type,
+                    marlin_24_workspace,
                     marlin_q_L,
                     marlin_s_L,
                     marlin_zp_L,
@@ -149,18 +201,37 @@ for model in model_list:
                     marlin_sort_indices_R,
             ):
                 bs, d_in = x.shape
-                d_out = marlin_24_q_w_comp.shape[1] // 2
-                xw = ops.gptq_marlin_24_gemm(
-                    x,
-                    marlin_24_q_w_comp,
-                    marlin_24_meta,
-                    marlin_24_s,
-                    marlin_24_workspace.scratch,
-                    quant_type,
-                    bs,
-                    d_out,
-                    d_in,
-                )
+                if quantize_only:
+                    d_out = marlin_q_w.shape[1] // 2
+                    xw = ops.gptq_marlin_gemm(
+                        x,
+                        marlin_q_w,
+                        marlin_s_w,
+                        marlin_zp_w,
+                        marlin_g_idx_w,
+                        marlin_sort_indices_w,
+                        marlin_24_workspace.scratch,
+                        quant_type,
+                        bs,
+                        d_out,
+                        d_in,
+                        is_k_full=True,
+                        has_zp=False,
+                        use_fp32_reduce=False
+                    )
+                else:
+                    d_out = marlin_24_q_w_comp.shape[1] // 2
+                    xw = ops.gptq_marlin_24_gemm(
+                        x,
+                        marlin_24_q_w_comp,
+                        marlin_24_meta,
+                        marlin_24_s,
+                        marlin_24_workspace.scratch,
+                        quant_type,
+                        bs,
+                        d_out,
+                        d_in,
+                    )
 
                 bs, xl_din = x.shape
                 xl_dout = marlin_q_L.shape[1] // 2
@@ -204,6 +275,7 @@ for model in model_list:
 
             globals = {
                     # Gen params
+                    "quantize_only": quantize_only,
                     "quant_type": quant_type,
                     "group_size": group_size,
                     "lora_group_size": lora_group_size,
@@ -217,10 +289,18 @@ for model in model_list:
                     "marlin_24_meta": marlin_24_meta,
                     "marlin_24_s": marlin_24_s,
                     "marlin_24_workspace": marlin_24_workspace,
+                    # Marlin params
+                    "marlin_w_ref": marlin_w_ref,
+                    "marlin_q_w": marlin_q_w,
+                    "marlin_s_w": marlin_s_w,
+                    "marlin_zp_w": marlin_zp_w,
+                    "marlin_g_idx_w": marlin_g_idx_w,
+                    "marlin_sort_indices_w": marlin_sort_indices_w,
                     # Kernels
                     "gptq_marlin_gemm": ops.gptq_marlin_gemm,
                     "gptq_marlin_24_gemm": ops.gptq_marlin_24_gemm,
                     "gptq_marlin_repack": ops.gptq_marlin_repack,
+                    # LoRA params
                     "lora_linear_fp16": lora_linear_fp16,
                     "lora_linear_marlin_int4": lora_linear_marlin_int4,
                     "L_fp16": L.half(),
@@ -247,20 +327,48 @@ for model in model_list:
             sub_label = f"{model} - group_size={group_size}, bs={bs}, d_out={d_out}, d_in={d_in}"
 
             print("Testing Torch Matmul")
+            dense_cmd = "torch.matmul(x, marlin_w_ref)" if quantize_only else "torch.matmul(x, marlin_24_w_ref)"
             results.append(
                 benchmark.Timer(
-                    stmt="torch.matmul(x, marlin_24_w_ref)",
+                    stmt=dense_cmd,
                     globals=globals,
                     label=label,
                     sub_label=sub_label,
                     description="pytorch_gemm",
                 ).blocked_autorange(min_run_time=min_run_time))
 
-            print("Testing 2:4 Matmul")
+            print("Testing compressed Matmul")
+            if quantize_only:
+                compressed_cmd = ("output = gptq_marlin_gemm("
+                                  "x, "
+                                  "marlin_q_w, "
+                                  "marlin_s_w, "
+                                  "marlin_zp_w, "
+                                  "marlin_g_idx_w, "
+                                  "marlin_sort_indices_w, "
+                                  "marlin_24_workspace.scratch, "
+                                  "quant_type, "
+                                  "bs, "
+                                  "d_out, "
+                                  "d_in, "
+                                  "is_k_full=True, "
+                                  "has_zp=False, "
+                                  "use_fp32_reduce=False)")
+            else:
+                compressed_cmd = ("output = gptq_marlin_24_gemm("
+                                  "x, "
+                                  "marlin_24_q_w_comp, "
+                                  "marlin_24_meta, "
+                                  "marlin_24_s, "
+                                  "marlin_24_workspace.scratch, "
+                                  "quant_type, "
+                                  "bs, "
+                                  "d_out, "
+                                  "d_in)")
+
             results.append(
                 benchmark.Timer(
-                    stmt=
-                    "output = gptq_marlin_24_gemm(x, marlin_24_q_w_comp, marlin_24_meta, marlin_24_s, marlin_24_workspace.scratch, quant_type, bs, d_out, d_in)",  # noqa: E501
+                    stmt=compressed_cmd,
                     globals=globals,
                     label=label,
                     sub_label=sub_label,
@@ -268,9 +376,24 @@ for model in model_list:
                 ).blocked_autorange(min_run_time=min_run_time))
 
             print("Testing LoRA FP16")
+            fp16_cmd = ("lora_linear_fp16("
+                        "x, "
+                        "L_fp16, "
+                        "R_fp16, "
+                        "marlin_24_q_w_comp, "
+                        "marlin_24_meta, "
+                        "marlin_24_s, "
+                        "marlin_q_w, "
+                        "marlin_s_w, "
+                        "marlin_zp_w, "
+                        "marlin_g_idx_w, "
+                        "marlin_sort_indices_w, "
+                        "marlin_24_workspace, "
+                        "quantize_only, "
+                        "quant_type)")
             results.append(
                 benchmark.Timer(
-                    stmt="lora_linear_fp16(x, L_fp16, R_fp16, marlin_24_q_w_comp, marlin_24_meta, marlin_24_s, marlin_24_workspace, quant_type)",
+                    stmt=fp16_cmd,
                     globals=globals,
                     label=label,
                     sub_label=sub_label,
@@ -278,9 +401,32 @@ for model in model_list:
                 ).blocked_autorange(min_run_time=min_run_time))
             
             print("Testing LoRA Marlin Int4")
+            int4_cmd = ("lora_linear_marlin_int4("
+                        "x, "
+                        "marlin_24_q_w_comp, "
+                        "marlin_24_meta, "
+                        "marlin_24_s, "
+                        "marlin_q_w, "
+                        "marlin_s_w, "
+                        "marlin_zp_w, "
+                        "marlin_g_idx_w, "
+                        "marlin_sort_indices_w, "
+                        "quantize_only, "
+                        "quant_type, "
+                        "marlin_24_workspace, "
+                        "marlin_q_L, "
+                        "marlin_s_L, "
+                        "marlin_zp_L, "
+                        "marlin_g_idx_L, "
+                        "marlin_sort_indices_L, "
+                        "marlin_q_R, "
+                        "marlin_s_R, "
+                        "marlin_zp_R, "
+                        "marlin_g_idx_R, "
+                        "marlin_sort_indices_R)")
             results.append(
                 benchmark.Timer(
-                    stmt="lora_linear_marlin_int4(x, marlin_24_workspace, marlin_24_q_w_comp, marlin_24_meta, marlin_24_s, quant_type, marlin_q_L, marlin_s_L, marlin_zp_L, marlin_g_idx_L, marlin_sort_indices_L, marlin_q_R, marlin_s_R, marlin_zp_R, marlin_g_idx_R, marlin_sort_indices_R)",
+                    stmt=int4_cmd,
                     globals=globals,
                     label=label,
                     sub_label=sub_label,
@@ -290,4 +436,5 @@ for model in model_list:
 
 compare = benchmark.Compare(results)
 result_tab = str(compare)
-generate_speedup_csv(result_tab)
+output_file = "results/speedup_results.csv" if not quantize_only else "results/speedup_results_quantize_only.csv"
+generate_speedup_csv(result_tab, output_file=output_file)

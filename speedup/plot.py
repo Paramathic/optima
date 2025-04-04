@@ -2,12 +2,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 
-# Load the CSV data
-gpu_type = "a100" #"a100" #"rtx3090"
-file_path = f"results/{gpu_type}_speedup_results.csv"
-data = pd.read_csv(file_path)
-
-
 
 def inch_to_pts(inch):
     return inch * 72.27
@@ -109,121 +103,144 @@ def determine_layer_type(row):
 def determine_model(row):
     return row["Configuration"].split(" ")[0]
 
-# Add a 'Layer Type' column
-data['Layer Type'] = data.apply(determine_layer_type, axis=1)
 
-# Add a 'Model' column
-data['Model'] = data.apply(determine_model, axis=1)
+def plot_speedup(data, fig=None, axes=None):
+    # Add a 'Layer Type' column
+    data['Layer Type'] = data.apply(determine_layer_type, axis=1)
 
-# Extract batch sizes
-data['Batch Size'] = data['Configuration'].str.extract(r'bs=(\d+)').astype(int)
+    # Add a 'Model' column
+    data['Model'] = data.apply(determine_model, axis=1)
+
+    # Extract batch sizes
+    data['Batch Size'] = data['Configuration'].str.extract(r'bs=(\d+)').astype(int)
 
 
-# Get unique models and batch sizes
-models = data['Model'].unique()
-batch_sizes = sorted(data['Batch Size'].unique())
-layer_types = data['Layer Type'].unique()
+    # Get unique models and batch sizes
+    models = data['Model'].unique()
+    batch_sizes = sorted(data['Batch Size'].unique())
+    layer_types = data['Layer Type'].unique()
 
-# Prepare subplots
-prepare_figure(size_fraction=1.0)
-fig, axes = plt.subplots(len(models), len(batch_sizes), sharey=True)
-if gpu_type == "a100":
-    title = "SLiM Speedup on A100-40GB"
-elif gpu_type == "rtx3090":
-    title = "SLiM Speedup on RTX 3090"
-elif gpu_type == "rtx3060":
-    title = "SLiM Speedup on RTX 3060"
-else:
-    raise ValueError(f"Unknown GPU type: {gpu_type}")
-fig.suptitle(title, fontsize=10)
+    # Prepare subplots
+    if fig is None or axes is None:
+        prepare_figure(size_fraction=1.0)
+        fig, axes = plt.subplots(len(models), len(batch_sizes), sharey=True)
+        # Colors for the bars - Dark Blue for FP16 LoRA, Red for INT4 LoRA
+        colors = ["#2fa7c4", "#d84748"]
+        second_plot = False
+    else:
+        # Choose similar but brighter colors for the second plot
+        colors = ["#87d3e0", "#f08a8b"]
+        second_plot = True
+    if gpu_type == "a100":
+        title = "SLiM Speedup on A100-40GB"
+    elif gpu_type == "rtx3090":
+        title = "SLiM Speedup on RTX 3090"
+    elif gpu_type == "rtx3060":
+        title = "SLiM Speedup on RTX 3060"
+    else:
+        raise ValueError(f"Unknown GPU type: {gpu_type}")
+    fig.suptitle(title, fontsize=10)
 
-# Colors for the bars - Dark Blue for FP16 LoRA, Red for INT4 LoRA
-colors = ["#1f77b4", "#d62728"]
 
-# Plot the data
-for i, model in enumerate(models):
-    for j, batch_size in enumerate(batch_sizes):
-        ax = axes[i, j]
-        # Filter data for the specific model and batch size
-        subset = data[(data['Model'] == model) & (data['Batch Size'] == batch_size)]
-        if not subset.empty:
-            fpt16_speedups = []
-            int4_speedups = []
-            for layer_type in layer_types:
-                layer_subset = subset[subset['Layer Type'] == layer_type]
-                if not layer_subset.empty:
-                    fpt16_speedups.append(layer_subset['lora_linear_fp16_speedup'].values[0])
-                    int4_speedups.append(layer_subset['lora_linear_marlin_int4_speedup'].values[0])
-                else:
-                    fpt16_speedups.append(0)
-                    int4_speedups.append(0)
+    # Plot the data
+    for i, model in enumerate(models):
+        for j, batch_size in enumerate(batch_sizes):
+            ax = axes[i, j]
+            # Filter data for the specific model and batch size
+            subset = data[(data['Model'] == model) & (data['Batch Size'] == batch_size)]
+            if not subset.empty:
+                fpt16_speedups = []
+                int4_speedups = []
+                for layer_type in layer_types:
+                    layer_subset = subset[subset['Layer Type'] == layer_type]
+                    if not layer_subset.empty:
+                        fpt16_speedups.append(layer_subset['lora_linear_fp16_speedup'].values[0])
+                        int4_speedups.append(layer_subset['lora_linear_marlin_int4_speedup'].values[0])
+                    else:
+                        fpt16_speedups.append(0)
+                        int4_speedups.append(0)
 
-            # Plot the bars
-            bar_width = 0.4  # Width of the bars
+                # Plot the bars
+                bar_width = 0.4  # Width of the bars
 
-            bars_fp16 = ax.bar(
-                np.arange(len(layer_types)) - bar_width / 2,
-                fpt16_speedups,
-                color=colors[0],
-                width=bar_width,
-                label='FP16 LoRA'
-            )
-            bars_int4 = ax.bar(
-                np.arange(len(layer_types)) + bar_width / 2,
-                int4_speedups,
-                color=colors[1],
-                width=bar_width,
-                label='INT4 LoRA'
-            )
-
-            # Add value labels on top of the bars
-            for bar in bars_fp16:
-                height = bar.get_height()
-                ax.text(
-                    bar.get_x() + bar.get_width() / 2,
-                    height,
-                    f'{height:.2f}',
-                    ha='center',
-                    va='bottom',
-                    fontsize=6
+                bars_fp16 = ax.bar(
+                    np.arange(len(layer_types)) - bar_width / 2,
+                    fpt16_speedups,
+                    color=colors[0],
+                    width=bar_width,
+                    label='FP16 LoRA'
+                )
+                bars_int4 = ax.bar(
+                    np.arange(len(layer_types)) + bar_width / 2,
+                    int4_speedups,
+                    color=colors[1],
+                    width=bar_width,
+                    label='INT4 LoRA'
                 )
 
-            for bar in bars_int4:
-                height = bar.get_height()
-                ax.text(
-                    bar.get_x() + bar.get_width() / 2,
-                    height,
-                    f'{height:.2f}',
-                    ha='center',
-                    va='bottom',
-                    fontsize=6
-                )
+                if not second_plot:
+                    # Add value labels on top of the bars
+                    for bar in bars_fp16:
+                        height = bar.get_height()
+                        ax.text(
+                            bar.get_x() + bar.get_width() / 2,
+                            height,
+                            f'{height:.2f}',
+                            ha='center',
+                            va='bottom',
+                            fontsize=6
+                        )
 
-        # Set subplot title
-        if i == 0:
-            ax.set_title(f"Batch Size {batch_size}", fontsize=10)
+                    for bar in bars_int4:
+                        height = bar.get_height()
+                        ax.text(
+                            bar.get_x() + bar.get_width() / 2,
+                            height,
+                            f'{height:.2f}',
+                            ha='center',
+                            va='bottom',
+                            fontsize=6
+                        )
 
-        # Set y-axis label only for the first column
-        if j == 0:
-            ax.set_ylabel(model, fontsize=10)
+            # Set subplot title
+            if i == 0:
+                ax.set_title(f"Batch Size {batch_size}", fontsize=10)
 
-        # Set x-axis labels
-        ax.set_xticks([0, 1, 2])
-        if i == len(models) - 1:
-            ax.set_xticklabels(layer_types, rotation=15, fontsize=8)
-        else:
-            ax.set_xticklabels([])
-        post_process_figure(ax)
+            # Set y-axis label only for the first column
+            if j == 0:
+                ax.set_ylabel(model, fontsize=10)
 
-        ax.set_facecolor("white")
+            # Set x-axis labels
+            ax.set_xticks([0, 1, 2])
+            if i == len(models) - 1:
+                ax.set_xticklabels(layer_types, rotation=15, fontsize=8)
+            else:
+                ax.set_xticklabels([])
+            post_process_figure(ax)
 
-# Add a legend
-handles = [
-    plt.Line2D([0], [0], color=colors[0], label='FP16 LoRA'),
-    plt.Line2D([0], [0], color=colors[1], label='INT4 LoRA')
-]
-fig.legend(handles=handles, loc='upper left', fontsize=8)
+            ax.set_facecolor("white")
 
-# Adjust layout
-# plt.show()
-plt.savefig(f"assets/{gpu_type}_speedup.pdf", bbox_inches='tight')
+    # Add a legend
+    handles = [
+        plt.Line2D([0], [0], color=colors[0], label='FP16 LoRA'),
+        plt.Line2D([0], [0], color=colors[1], label='INT4 LoRA')
+    ]
+    fig.legend(handles=handles, loc='upper left', fontsize=8)
+
+    # Adjust layout
+    # plt.show()
+    plt.savefig(f"assets/{gpu_type}_speedup.pdf", bbox_inches='tight')
+    return fig, axes
+
+
+if __name__ == "__main__":
+    # Load the CSV data
+    gpu_type = "rtx3060"  # "a100" #"rtx3090"
+    file_path = f"results/{gpu_type}_speedup_results.csv"
+    quantization_file_path = f"results/{gpu_type}_speedup_results_quantize_only.csv"
+    data = pd.read_csv(file_path)
+    plot_breakdown = True
+    fig, axes = plot_speedup(data)
+    if plot_breakdown:
+        quantization_data = pd.read_csv(quantization_file_path)
+        plot_speedup(quantization_data, fig, axes)
