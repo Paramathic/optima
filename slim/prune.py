@@ -184,6 +184,7 @@ def prune_wanda(
         calibration_dataset="c4",
         pad_lora=False,
         quantize_first=True,
+        scale_important_weights=False,
 ):
     """
     Prune a model using WANDA and quantize weights using SLiM-Quant or AbsMax and add low-rank adapter using SLiM or SVD.
@@ -317,7 +318,8 @@ def prune_wanda(
                          prune_lora=prune_lora,
                          separate_lora=separate_lora,
                          lora_tile_size=lora_tile_size,
-                         quantize_first=quantize_first
+                         quantize_first=quantize_first,
+                         scale_important_weights=scale_important_weights
                          )
 
                 if quantizer is not None:
@@ -355,9 +357,15 @@ def prune_wanda(
 
 
             else:
+                if scale_important_weights:
+                    # Get 1% of largest activations
+                    important_weights = wrapped_layers[name].scaler_row.topk(
+                        int(0.01 * wrapped_layers[name].scaler_row.numel()), largest=True, sorted=False)[1]
+                else:
+                    important_weights = None
                 if quantize_first:
                     if quantizer is not None:
-                        quantized_weight = quantizer.quantize_weight(subset[name].weight.data)
+                        quantized_weight = quantizer.quantize_weight(subset[name].weight.data, important_weights)
                         subset[name].weight.data = quantizer.dequantize_absmax(quantized_weight).to(torch.bfloat16)
                         if quantizer is not None:
                             if not tiled_weight_quantization:
@@ -368,7 +376,7 @@ def prune_wanda(
                 else:
                     subset[name].weight.data[W_mask] = 0  ## set weights to zero
                     if quantizer is not None:
-                        quantized_weight = quantizer.quantize_weight(subset[name].weight.data)
+                        quantized_weight = quantizer.quantize_weight(subset[name].weight.data, important_weights)
                         subset[name].weight.data = quantizer.dequantize_absmax(quantized_weight).to(torch.bfloat16)
                         if quantizer is not None:
                             if not tiled_weight_quantization:
@@ -580,7 +588,7 @@ def quantize_model(
         
         for name in subset:
             progress_bar.set_description(f"Layer {i} - Quantizing {name}")
-            
+
             quantized_weight = quantizer.dequantize_absmax(
                 quantizer.quantize_weight(subset[name].weight.data)
             )
@@ -607,7 +615,8 @@ def joint_pq(
         lora_tile_size=256,
         separate_lora=True,
         quantize_first=True, 
-        pad_lora=False,   
+        pad_lora=False,
+        scale_important_weights=False,
 ):
     """
     Prune and quantize a model using joint pruning and quantization.
@@ -631,6 +640,8 @@ def joint_pq(
         lora_tile_size: int - The size of the blocks for block quantization of the low-rank adapter
         separate_lora: bool - Whether to separate the low-rank adapter
         quantize_first: bool - Whether to quantize the weights before or after pruning
+        pad_lora: bool - Whether to pad the LoRA weights
+        scale_important_weights: bool - Whether to scale the important weights
     
     Returns:
         None
@@ -738,7 +749,8 @@ def joint_pq(
                             prune_lora=prune_lora,
                             separate_lora=separate_lora,
                             lora_tile_size=lora_tile_size,
-                            quantize_first=quantize_first
+                            quantize_first=quantize_first,
+                            scale_important_weights=scale_important_weights,
                             )
 
                 if quantizer is not None:
@@ -771,8 +783,14 @@ def joint_pq(
                     subset[name].lora_right = torch.nn.Parameter(subset[name].lora_right * torch.sqrt(subset[name].lora_rank))
                     subset[name].register_forward_hook(add_lora_hook)
             else:
+                if scale_important_weights:
+                    # Get 1% of largest activations
+                    important_weights = wrapped_layers[name].scaler_row.topk(
+                        int(0.01 * wrapped_layers[name].scaler_row.numel()), largest=True, sorted=False)[1]
+                else:
+                    important_weights = None
                 progress_bar.set_description(f"Layer {i} - Quantizing {name}")
-                quantized_weight = quantizer.quantize_weight(subset[name].weight.data)
+                quantized_weight = quantizer.quantize_weight(subset[name].weight.data, important_weights)
                 subset[name].weight.data = quantizer.dequantize_absmax(quantized_weight).to(torch.bfloat16)
 
         inps, outs = outs, inps
@@ -803,6 +821,7 @@ def prune_and_quantize(
         joint_pq_mixing_factor=2.1,
         calibration_dataset="c4",
         pad_lora=False,
+        scale_important_weights=False,
 ):
     """
     Prune and quantize a model and add low-rank adapter to it.
@@ -830,6 +849,7 @@ def prune_and_quantize(
         joint_pq_mixing_factor: float - The mixing factor for joint pruning and quantization
         calibration_dataset: str - The dataset to use for calibration
         pad_lora: bool - Whether to pad the low-rank adapter to the quantization tile size (whithout quantizing)
+        scale_important_weights: bool - Whether to scale the important weights before quantization
 
     Returns:
         None
@@ -899,8 +919,12 @@ def prune_and_quantize(
                 seed,
                 calibration_dataset,
                 pad_lora,
+                scale_important_weights=scale_important_weights
             )
         elif prune_method == "magnitude":
+            if scale_important_weights and quantize_weight:
+                raise NotImplementedError("Scaling important weights not implemented for magnitude pruning and "
+                                          "quantization")
             if lora_rank > 0:
                 raise NotImplementedError("LoRA approximation not implemented for magnitude pruning")
             if quantize_weight:
@@ -927,6 +951,9 @@ def prune_and_quantize(
                 weight_tile_size,
             )
         elif prune_method == "sparsegpt":
+            if scale_important_weights and quantize_weight:
+                raise NotImplementedError("Scaling important weights not implemented for magnitude pruning and "
+                                          "quantization")
             if lora_rank > 0:
                 raise NotImplementedError("LoRA approximation not implemented for SparseGPT")
             if slim_quant:
@@ -978,7 +1005,8 @@ def prune_and_quantize(
                 quantize_lora,
                 lora_tile_size,
                 separate_lora,
-                pad_lora
+                pad_lora,
+                scale_important_weights
             )
         else:
             raise NotImplementedError(f"Pruning method {prune_method} not implemented")

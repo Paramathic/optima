@@ -96,6 +96,7 @@ class Quantizer:
             slim_quant=False,
             block_quantization=False,
             block_dim=16,
+            scale_by_activations=False,
     ):
         self.matrix_type = matrix_type
         self.num_bits = num_bits
@@ -132,7 +133,13 @@ class Quantizer:
     def quantize_weight(
             self,
             mat,
+            important_columns=None
     ):
+        if important_columns is not None:
+            mat[:, important_columns] /= 2.
+            self.important_columns = important_columns
+        else:
+            self.important_columns = None
         if self.block_quantization:
             assert mat.shape[0] % self.block_dim == 0 and mat.shape[
                 1] % self.block_dim == 0, "Input matrix size is not divisible by block size"
@@ -149,6 +156,8 @@ class Quantizer:
                 self.slim_quant,
             )
             self.scaling_factor = scaling_factor.reshape(1, 1)
+        if important_columns is not None:
+            mat[:, important_columns] *= 2.
         return quantized_mat
 
     def quantize_block(
@@ -190,6 +199,8 @@ class Quantizer:
             deq_mat = quantized_mat / scaling_factor
         else:
             deq_mat = dequantize_tensor(quantized_mat, scaling_factor, None, self.num_bits, dtype=self.dtype)
+        if self.important_columns is not None:
+            deq_mat[:, self.important_columns] *= 2.
 
         return deq_mat
 

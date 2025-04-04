@@ -112,7 +112,8 @@ def add_lora(
         prune_lora=False,
         separate_lora=True,
         lora_tile_size=None,
-        quantize_first=False
+        quantize_first=False,
+        scale_important_weights=False
 ):
     """
     Add low-rank adapters to compensate for the compression loss.
@@ -128,6 +129,12 @@ def add_lora(
         separate_lora: bool, Whether to use separate LoRA matrices
         lora_tile_size: int, The size of the LoRA tiles
     """
+    if scale_important_weights:
+        # Get 1% of largest activations
+        important_weights = activations.scaler_row.topk(
+            int(0.01 * activations.scaler_row.numel()), largest=True, sorted=False)[1]
+    else:
+        important_weights = None
     if slim_lora and not any(activations.scaler_row == 0):
         if quantizer is None:
             W_metric = module.weight.data * (torch.sqrt(activations.scaler_row.reshape((1, -1))))
@@ -138,19 +145,19 @@ def add_lora(
             W_metric = module.weight.data * (torch.sqrt(activations.scaler_row.reshape((1, -1))))
             new_weight = module.weight.data
             if quantize_first:
-                new_weight = quantizer.quantize_weight(new_weight)
+                new_weight = quantizer.quantize_weight(new_weight, important_weights)
                 new_weight = quantizer.dequantize_absmax(new_weight) * (torch.sqrt(activations.scaler_row.reshape((1, -1))))
                 new_weight[W_mask] = 0            
             else:
                 new_weight[W_mask] = 0
-                new_weight = quantizer.quantize_weight(new_weight)
+                new_weight = quantizer.quantize_weight(new_weight, important_weights)
                 new_weight = quantizer.dequantize_absmax(new_weight) * (torch.sqrt(activations.scaler_row.reshape((1, -1))))
             error_mat = (W_metric - new_weight)
     else:
         new_weight = module.weight.data.clone().detach()
         if quantize_first:
             if quantizer is not None:
-                new_weight = quantizer.quantize_weight(new_weight)
+                new_weight = quantizer.quantize_weight(new_weight, important_weights)
                 new_weight = quantizer.dequantize_absmax(new_weight)     
             new_weight[W_mask] = 0
         else:
@@ -192,7 +199,7 @@ def add_lora(
     new_weight = module.weight.data - low_rank_weight
     new_weight[W_mask] = 0
     if quantizer is not None:
-        new_weight = quantizer.quantize_weight(new_weight)
+        new_weight = quantizer.quantize_weight(new_weight, important_weights)
         new_weight = quantizer.dequantize_absmax(new_weight)
 
     if separate_lora:

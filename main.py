@@ -105,6 +105,7 @@ def main():
                         help="Optimizer for fien-tuning models")
     parser.add_argument("--hf_token", type=str, default="")
     parser.add_argument("--joint_pq_mixing_factor", type=float, default=2.1)
+    parser.add_argument("--scale_important_weights", action="store_true",)
 
 
     args = parser.parse_args()
@@ -155,6 +156,7 @@ def main():
         joint_pq_mixing_factor=args.joint_pq_mixing_factor,
         calibration_dataset=args.calibration_dataset,
         pad_lora=args.pad_lora,
+        scale_important_weights=args.scale_important_weights,
     )
     report_gpu_memory("After pruning")
 
