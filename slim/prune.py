@@ -600,6 +600,14 @@ def joint_pq(
         mixing_factor=2.1,
         seed=0,
         calibration_dataset="c4",
+        lora_rank=0.,
+        slim_lora=True,
+        prune_lora=False,
+        quantize_lora=False,
+        lora_tile_size=256,
+        separate_lora=True,
+        quantize_first=True, 
+        pad_lora=False,   
 ):
     """
     Prune and quantize a model using joint pruning and quantization.
@@ -616,20 +624,22 @@ def joint_pq(
         mixing_factor: float - The mixing factor for WANDA
         seed: int - The seed to use for calibration
         calibration_dataset: str - The dataset to use for calibration
+        lora_rank: float - The rank ratio for low-rank adapter
+        slim_lora: bool - Whether to use SLiM for low-rank adapter
+        prune_lora: bool - Whether to prune the low-rank adapter
+        quantize_lora: bool - Whether to quantize the low-rank adapter
+        lora_tile_size: int - The size of the blocks for block quantization of the low-rank adapter
+        separate_lora: bool - Whether to separate the low-rank adapter
+        quantize_first: bool - Whether to quantize the weights before or after pruning
     
     Returns:
         None
     """
 
-    is_llama = isinstance(model, LlamaForCausalLM)
-
     dataloader, _ = get_loaders(calibration_dataset, nsamples=nsamples, seed=seed, seqlen=model.seqlen,
                                 tokenizer=tokenizer)
     with torch.no_grad():
-        if is_llama:
-            inps, outs, attention_mask, position_ids = prepare_calibration_input(model, dataloader)
-        else:
-            inps, outs, attention_mask = prepare_calibration_input(model, dataloader)
+        inps, outs, kwargs = prepare_calibration_input(model, dataloader, nsamples)
 
     layers = get_layers_list(model)
 
@@ -641,28 +651,19 @@ def joint_pq(
             block_dim=weight_tile_size,
         )
 
-    for i in range(len(layers)):
+    progress_bar = tqdm.tqdm(range(len(layers)))
+
+    for i in progress_bar:
         layer = layers[i]
         layer_name = f'model.layers.{i}'
 
         subset = find_layers(layer)
 
-        try:
-            if f"model.layers.{i}" in model.hf_device_map:  ## handle the case for llama-30B and llama-65B, when the device map has multiple GPUs;
-                dev = model.hf_device_map[f"model.layers.{i}"]
-                if is_llama:
-                    inps, outs, attention_mask, position_ids = inps.to(dev), outs.to(dev), attention_mask.to(
-                        dev), position_ids.to(dev)
-                else:
-                    inps, outs, attention_mask = inps.to(dev), outs.to(dev), attention_mask.to(dev)
-        except:
-            pass
-
         wrapped_layers = {}
         for name in subset:
             wrapped_layers[name] = WrappedGPT(subset[name])
 
-        print(f"Get scales of layer {i} and pruning")
+        progress_bar.set_description(f"Layer {i} - Gathering data")
         act_scales = {}
 
         def stat_tensor(name, tensor):
@@ -689,17 +690,12 @@ def joint_pq(
 
         for j in range(nsamples):
             with torch.no_grad():
-                if is_llama:
-                    outs[j] = layer(inps[j].unsqueeze(0).cuda(), attention_mask=attention_mask,
-                                    position_ids=position_ids)[0].to(outs.device)
-                else:
-                    outs[j] = layer(inps[j].unsqueeze(0).cuda(), attention_mask=attention_mask)[0].to(
-                        outs.device)
+                outs[j] = layer(inps[j].unsqueeze(0).cuda(), **kwargs)[0].to(outs.device)
         for h in handles:
             h.remove()
 
         for name in subset:
-            print(f"pruning layer {i} name {name}")
+            progress_bar.set_description(f"Layer {i} - Pruning {name}")
             weight = torch.abs(subset[name].weight.data)
             activation = torch.sqrt(wrapped_layers[name].scaler_row.reshape((1, -1)))
 
@@ -724,19 +720,60 @@ def joint_pq(
 
         for j in range(nsamples):
             with torch.no_grad():
-                if is_llama:
-                    outs[j] = layer(inps[j].unsqueeze(0).cuda(), attention_mask=attention_mask,
-                                    position_ids=position_ids)[0].to(outs.device)
-                else:
-                    outs[j] = layer(inps[j].unsqueeze(0).cuda(), attention_mask=attention_mask)[0].to(
-                        outs.device)
+                outs[j] = layer(inps[j].unsqueeze(0).cuda(), **kwargs)[0].to(outs.device)
 
-        print(f"smoothing layer {i}")
+        progress_bar.set_description(f"Layer {i} - Smoothing {name}")
         smooth_layer(layer_name, layer, act_scales, 0.5)
 
-        print(f"quantizing layer {i}")
-        quantized_weight = quantizer.quantize_weight(subset[name].weight.data)
-        subset[name].weight.data = quantizer.dequantize_absmax(quantized_weight).half()
+        for name in subset:
+            if lora_rank > 0.:
+                progress_bar.set_description(f"Layer {i} - Quantizing and Adding LoRA to {name}")
+                lora_tile_size = lora_tile_size if (quantize_lora or pad_lora) else None
+                add_lora(subset[name],
+                            W_mask=subset[name].weight.data == 0,
+                            rank_ratio=lora_rank,
+                            slim_lora=slim_lora,
+                            activations=wrapped_layers[name],
+                            quantizer=quantizer,
+                            prune_lora=prune_lora,
+                            separate_lora=separate_lora,
+                            lora_tile_size=lora_tile_size,
+                            quantize_first=quantize_first
+                            )
+
+                if quantizer is not None:
+                    subset[name].scaling_factor = None
+
+                if separate_lora:
+                    def add_lora_hook(module, input, output):
+                        if hasattr(module, "lora_quantizer"):
+                            xl = QuantizedMatmul.apply(
+                                input[0].to(module.lora_left.dtype) / torch.sqrt(module.lora_rank),
+                                module.lora_left,
+                                module.lora_quantizer
+                            )
+                            xlr = QuantizedMatmul.apply(
+                                xl / torch.sqrt(module.lora_rank),
+                                module.lora_right,
+                                module.lora_quantizer
+                            )
+                            output += xlr
+
+                        else:
+                            output += torch.matmul(
+                                torch.matmul(input[0].to(module.lora_left.dtype),
+                                                module.lora_left / torch.sqrt(module.lora_rank)),
+                                module.lora_right / torch.sqrt(module.lora_rank))
+
+
+                    subset[name].lora_rank = torch.tensor(subset[name].lora_left.shape[1])
+                    subset[name].lora_left = torch.nn.Parameter(subset[name].lora_left * torch.sqrt(subset[name].lora_rank))
+                    subset[name].lora_right = torch.nn.Parameter(subset[name].lora_right * torch.sqrt(subset[name].lora_rank))
+                    subset[name].register_forward_hook(add_lora_hook)
+            else:
+                progress_bar.set_description(f"Layer {i} - Quantizing {name}")
+                quantized_weight = quantizer.quantize_weight(subset[name].weight.data)
+                subset[name].weight.data = quantizer.dequantize_absmax(quantized_weight).to(torch.bfloat16)
 
         inps, outs = outs, inps
 
@@ -919,8 +956,6 @@ def prune_and_quantize(
         elif prune_method == "joint_pq":
             if weight_tiled_quantization is False:
                 raise NotImplementedError("Joint pruning and quantization only supports block quantization")
-            if lora_rank > 0:
-                raise NotImplementedError("LoRA approximation not implemented for Joint Pruning and Quantization")
             if slim_quant:
                 raise NotImplementedError("Joint pruning and quantization only supports AbsMax")
             if quantize_weight is False:
@@ -936,7 +971,14 @@ def prune_and_quantize(
                 weight_tile_size,
                 joint_pq_mixing_factor,
                 seed,
-                calibration_dataset
+                calibration_dataset,
+                lora_rank,
+                slim_lora,
+                prune_lora,
+                quantize_lora,
+                lora_tile_size,
+                separate_lora,
+                pad_lora
             )
         else:
             raise NotImplementedError(f"Pruning method {prune_method} not implemented")
