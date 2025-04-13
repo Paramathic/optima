@@ -359,8 +359,9 @@ def prune_wanda(
             else:
                 if scale_important_weights:
                     # Get 1% of largest activations
-                    important_weights = wrapped_layers[name].scaler_row.topk(
-                        int(0.01 * wrapped_layers[name].scaler_row.numel()), largest=True, sorted=False)[1]
+                    metric = subset[name].scaler_row * subset[name].weight.data.abs().sum(dim=0)
+                    important_weights = metric.topk(
+                        int(0.01 * metric.numel()), largest=True, sorted=False)[1]
                 else:
                     important_weights = None
                 if quantize_first:
@@ -785,8 +786,9 @@ def joint_pq(
             else:
                 if scale_important_weights:
                     # Get 1% of largest activations
-                    important_weights = wrapped_layers[name].scaler_row.topk(
-                        int(0.01 * wrapped_layers[name].scaler_row.numel()), largest=True, sorted=False)[1]
+                    metric = subset[name].scaler_row * subset[name].weight.data.abs().sum(dim=0)
+                    important_weights = metric.topk(
+                        int(0.01 * metric.numel()), largest=True, sorted=False)[1]
                 else:
                     important_weights = None
                 progress_bar.set_description(f"Layer {i} - Quantizing {name}")

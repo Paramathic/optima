@@ -96,7 +96,6 @@ class Quantizer:
             slim_quant=False,
             block_quantization=False,
             block_dim=16,
-            scale_by_activations=False,
     ):
         self.matrix_type = matrix_type
         self.num_bits = num_bits
@@ -106,6 +105,7 @@ class Quantizer:
         self.slim_quant = slim_quant
         self.block_quantization = block_quantization
         self.block_dim = block_dim
+        self.important_columns_scaling_factor = (1 / 2.)
 
     def quantize(
             self,
@@ -135,11 +135,7 @@ class Quantizer:
             mat,
             important_columns=None
     ):
-        if important_columns is not None:
-            mat[:, important_columns] /= 2.
-            self.important_columns = important_columns
-        else:
-            self.important_columns = None
+        self.important_columns = important_columns
         if self.block_quantization:
             assert mat.shape[0] % self.block_dim == 0 and mat.shape[
                 1] % self.block_dim == 0, "Input matrix size is not divisible by block size"
@@ -148,6 +144,7 @@ class Quantizer:
 
             self.dtype = mat.dtype
             self.scaling_factor, _ = compute_quantization_params(mat, self.block_dim, 1, symmetric=True)
+            self.scale_important_columns(mat)
             quantized_mat = quantize_tensor(mat, self.scaling_factor, None, self.num_bits)
         else:
             quantized_mat, scaling_factor = self.quantize_block(
@@ -156,15 +153,29 @@ class Quantizer:
                 self.slim_quant,
             )
             self.scaling_factor = scaling_factor.reshape(1, 1)
-        if important_columns is not None:
-            mat[:, important_columns] *= 2.
+        self.scale_important_columns(mat, multiply=True)
         return quantized_mat
+    
+
+    def scale_important_columns(
+            self,
+            mat, 
+            multiply=False):
+        if self.important_columns is not None:
+            if multiply:
+                mat[:, self.important_columns] *= self.important_columns_scaling_factor
+            else:
+                mat[:, self.important_columns] /= self.important_columns_scaling_factor
+        else:
+            self.important_columns = None
+
 
     def quantize_block(
             self,
             mat,
             num_bits=8,
             slim_quant=False,
+            important_columns=None
     ):
         """absmax quantization"""
         dtype = self.get_dtype(num_bits)
@@ -177,6 +188,8 @@ class Quantizer:
             )
         else:
             abs_max = mat.abs().max()
+        
+        self.scale_important_columns(mat, important_columns)
 
         scaling_factor = max_q / abs_max
         quantized_mat = torch.round((mat * scaling_factor).float())
@@ -199,8 +212,7 @@ class Quantizer:
             deq_mat = quantized_mat / scaling_factor
         else:
             deq_mat = dequantize_tensor(quantized_mat, scaling_factor, None, self.num_bits, dtype=self.dtype)
-        if self.important_columns is not None:
-            deq_mat[:, self.important_columns] *= 2.
+        self.scale_important_columns(deq_mat, multiply=True)
 
         return deq_mat
 
