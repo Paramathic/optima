@@ -7,8 +7,6 @@ from .data import get_loaders
 
 import tqdm.auto as tqdm
 
-hf_token = "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"
-
 
 # Function to evaluate perplexity (ppl) on a specified model and tokenizer
 def eval_ppl(
