@@ -24,6 +24,7 @@ def parse_args():
                         default=1024)
     parser.add_argument("--lora_rank", type=float, help='Rank for LoRA compression', default=0.1)
     parser.add_argument("--compress_model", action='store_true', help='Compress the model')
+    parser.add_argument("--quantize_lora", action='store_true', help='Quantize LoRA')
     return parser.parse_args()
 
 def generate_token_chunks(dataset_iter, tokenizer, token_size):
@@ -81,7 +82,7 @@ if __name__ == "__main__":
 
     model.eval()
     if args.compress_model:
-        compress_model(model, skip_layers=[model.lm_head], lora_rank=args.lora_rank)
+        compress_model(model, skip_layers=[model.lm_head], lora_rank=args.lora_rank, quantize_lora=args.quantize_lora)
 
     model = model.cuda()
 

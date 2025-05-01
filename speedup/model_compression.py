@@ -41,6 +41,70 @@ def slim_forward(module, input):
         output += module.bias
     return output
 
+def quantized_slim_forward(module, input):
+    if input.dim() == 3:
+        bs, seqlen, d_in = input.shape
+    else:
+        bs, d_in = input.shape
+        seqlen = 1
+    # if seqlen == 1:
+    xw = ops.gptq_marlin_24_gemm(input.view(-1, d_in),
+                                 module.marlin_24_q_w_comp,
+                                 module.marlin_24_meta,
+                                 module.marlin_24_s,
+                                 module.marlin_24_workspace.scratch,
+                                 module.quant_type,
+                                 bs*seqlen,
+                                 module.d_out,
+                                 d_in)
+    if hasattr(module, "lora_left"):
+        xl_dout = module.marlin_q_L.shape[1] // 2
+        xl = ops.gptq_marlin_gemm(
+            input.view(-1, d_in),
+            module.marlin_q_L,
+            module.marlin_s_L,
+            torch.empty(1),
+            module.marlin_g_idx_L,
+            module.marlin_sort_indices_L,
+            module.marlin_24_workspace.scratch,
+            module.quant_type,
+            bs*seqlen,
+            xl_dout,
+            d_in,
+            is_k_full=False,
+            has_zp=False,
+            use_fpt32_reduce=False
+        )
+        xlr_dout = module.marling_q_R.shape[1] // 2
+        xlr = ops.gptq_marlin_gemm(
+            xl,
+            module.marlin_q_R,
+            module.marlin_s_R,
+            torch.empty(1),
+            module.marlin_g_idx_R,
+            module.marlin_sort_indices_R,
+            module.marlin_24_workspace.scratch,
+            module.quant_type,
+            bs*seqlen,
+            xlr_dout,
+            xl_dout,
+            is_k_full=False,
+            has_zp=False,
+            use_fpt32_reduce=False
+        )
+        xw.add_(xlr)
+    if input.dim() == 3:
+        output = xw.view(bs, seqlen, module.d_out)
+    else:
+        output = xw
+    # else:
+    #     # raise NotImplementedError("Not implemented for seqlen > 1")
+    #     output = torch.matmul(input, module.weight.t())
+
+    if not module.bias is None:
+        output += module.bias
+    return output
+
 
 def compress_model(
         model,
@@ -95,7 +159,28 @@ def compress_model(
             torch.cuda.empty_cache()
 
             if quantize_lora:
-                raise NotImplementedError("Quantizing LoRA is not supported yet.")
+                if lora_rank > 0:
+                    (marlin_ref_lora_left,
+                         layer.marlin_q_L,
+                         layer.marlin_s_L,
+                         layer.marlin_g_idx_L,
+                         layer.marlin_sort_indices_L,
+                         layer.marlin_rank_perfm_L) = marlin_quantize(lora_left,
+                                                                       quant_type,
+                                                                       lora_group_size,
+                                                                       act_order=False)
+                    (marlin_ref_lora_right,
+                        layer.marlin_q_R,
+                        layer.marlin_s_R,
+                        layer.marlin_g_idx_R,
+                        layer.marlin_sort_indices_R,
+                        layer.marlin_rank_perfm_R) = marlin_quantize(lora_right,
+                                                                    quant_type,
+                                                                    lora_group_size,
+                                                                    act_order=False)
+
+                layer.forward = MethodType(quantized_slim_forward, layer)
+
             else:
                 if lora_rank > 0:
                     layer.lora_left = lora_left

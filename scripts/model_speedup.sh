@@ -13,7 +13,7 @@ SINGLE_TOKEN_GENERATOIN='--single_token_generation'
 #TIME_PREFILL='--time_prefill'
 INPUT_TOKEN_STEP=1024
 
-for SETTING in sparse #slim
+for SETTING in quantized_slim #sparse #slim
 do
     if [ $SETTING == "dense" ]; then
         COMPRESS_MODEL=''
@@ -24,6 +24,10 @@ do
     elif [ $SETTING == "slim" ]; then
         COMPRESS_MODEL='--compress_model'
         LORA_RANK=0.1
+    elif [ $SETTING == "quantized_slim" ]; then
+        COMPRESS_MODEL='--compress_model'
+        LORA_RANK=0.1
+        QUANTIZE_LORA='--quantize_lora'
     fi
 
     echo "Setting: $SETTING"
@@ -36,5 +40,6 @@ do
         --input_token_step $INPUT_TOKEN_STEP \
         $TIME_PREFILL \
         $COMPRESS_MODEL \
-        --lora_rank $LORA_RANK
+        --lora_rank $LORA_RANK \
+        $QUANTIZE_LORA
 done
