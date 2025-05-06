@@ -1,6 +1,10 @@
 from slim.utils import get_layers_list, find_layers
 import torch
 import lm_eval
+import subprocess
+import re
+import psutil
+from accelerate import infer_auto_device_map, dispatch_model
 
 
 def get_llm(model_name,
@@ -19,7 +23,7 @@ def get_llm(model_name,
     lm_eval_model = lm_eval.api.registry.get_model("hf").create_from_arg_string(
         model_args,
         {
-            "device": None,
+            "device": "cpu",
         },
     )
     model = lm_eval_model._model
@@ -64,6 +68,60 @@ def contigous_model(model):
         for param in layer.parameters():
             param.data = param.data.contiguous()
     return model
+
+def get_gpu_info_torch():
+    if not torch.cuda.is_available():
+        return {}
+    gpu_info = {}
+    device_count = torch.cuda.device_count()
+    for i in range(device_count):
+        total_memory_bytes = torch.cuda.get_device_properties(i).total_memory
+        total_memory_gb = total_memory_bytes / 1024**3
+        gpu_info[i] = f"{total_memory_gb:.2f}GB"
+    return gpu_info
+
+
+def get_cpu_memory():
+    mem = psutil.virtual_memory()
+    free_memory_gb = mem.available / 1024**3
+    return f"{free_memory_gb:.2f}GB"
+
+
+def get_max_memory():
+    gpu_info = get_gpu_info_torch()
+
+    max_memory = gpu_info
+    max_memory["cpu"] = get_cpu_memory()
+    return max_memory
+
+
+def distribute_model(model, activation_buffer_percentage=0.30):
+    """
+    Distribute the model across all available GPUs
+    """
+    max_memory = get_max_memory()
+    for device in max_memory:
+        if device == "cpu":
+            continue
+        mem = max_memory[device]
+        mem = re.sub(r'[^0-9.]', '', mem)
+        mem = float(mem) * 1024**3
+        mem = int(mem * (1 - activation_buffer_percentage))
+        max_memory[device] = f"{mem // 1e9}GB"
+    layer_list = get_layers_list(model)
+
+    device_map = infer_auto_device_map(
+        model,
+        max_memory=max_memory,
+        no_split_module_classes=[str(type(layer_list[0])).split('.')[-1]],
+        verbose=True,
+    )
+    print(device_map)
+    if any(d == 'meta' for d in device_map.values()):
+        raise ValueError("Device map contains 'meta'. This shouldn't happen if model is already on CPU.")
+    model = dispatch_model(model, device_map=device_map)
+    return model
+
 
 
 if __name__ == "__main__":

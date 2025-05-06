@@ -9,8 +9,7 @@ from slim.eval import eval_ppl
 from slim.utils import report_gpu_memory, check_sparsity
 from slim.lora import quantize_lora
 from slim.quantization.quantization import attach_input_quantization_hooks
-from utils.model import get_llm
-import time
+from utils.model import get_llm, distribute_model
 from slim.fine_tune import fine_tune
 import lm_eval
 
@@ -122,7 +121,7 @@ def main():
         hf_token=args.hf_token,
     )
 
-    model = model.to(torch.bfloat16).cuda()
+    model = model.to(torch.bfloat16)
 
     model.eval()
     tokenizer = AutoTokenizer.from_pretrained(
@@ -160,11 +159,8 @@ def main():
     )
     report_gpu_memory("After pruning")
 
-    ################################################################
-    print("*" * 30)
-    sparsity_ratio = check_sparsity(model)
-    print(f"Model Sparsity Ratio: {sparsity_ratio:.2f}")
-    print("*" * 30)
+    model = distribute_model(model)
+
     ################################################################
     if args.quantize_weight and args.quantize_lora and args.lora_rank > 0.:
         quantize_lora(
@@ -196,6 +192,11 @@ def main():
         )
         print(f"Perplexity: {ppl_test:.2f}")
         print("*" * 30)
+    ################################################################
+    print("*" * 30)
+    sparsity_ratio = check_sparsity(model)
+    print(f"Model Sparsity Ratio: {sparsity_ratio:.2f}")
+    print("*" * 30)
     ################################################################
     
     lmharness_results = {}

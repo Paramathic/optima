@@ -191,9 +191,9 @@ def fine_tune(
     """
     bf16 = transformers.utils.import_utils.is_torch_bf16_gpu_available()
     if not bf16:
-        model = model.float().cuda()
+        model = model.float()
     else:
-        model = model.to(torch.bfloat16).cuda()
+        model = model.to(torch.bfloat16)
     training_args = TrainingArguments(
         output_dir="output",
         overwrite_output_dir=True,

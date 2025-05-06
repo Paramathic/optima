@@ -29,24 +29,10 @@ def prepare_calibration_input(
         outs: torch.Tensor - The output tensor for calibration
         attention_mask: torch.Tensor - The attention mask for calibration
     """
-    use_cpu = model.device == torch.device("cpu")
     use_cache = model.config.use_cache
     model.config.use_cache = False
     layers = get_layers_list(model)
 
-
-    if use_cpu:
-        if hasattr(model.model, "decoder"): #OPT
-            model.model.decoder.embed_tokens = model.model.decoder.embed_tokens.cuda()
-            model.model.decoder.embed_positions = model.model.decoder.embed_positions.cuda()
-            if hasattr(model.model.decoder, 'project_out') and model.model.decoder.project_out:
-                model.model.decoder.project_out = model.model.decoder.project_out.cuda()
-            if hasattr(model.model.decoder, 'project_in') and model.model.decoder.project_in:
-                model.model.decoder.project_in = model.model.decoder.project_in.cuda()
-        if hasattr(model.model, "layers"): #LLaMA
-            model.model.embed_tokens = model.model.embed_tokens.cuda()
-
-        layers[0] = layers[0].cuda()
 
     dtype = next(iter(model.parameters())).dtype
     torch.cuda.empty_cache()
@@ -70,23 +56,10 @@ def prepare_calibration_input(
     layers[0] = Catcher(layers[0])
     for batch in dataloader:
         try:
-            model(batch[0].to(model.device))
+            model(batch[0])
         except ValueError:
             pass
     layers[0] = layers[0].module
-
-    if use_cpu:
-        layers[0] = layers[0].cpu()
-        if hasattr(model.model, "decoder"): #OPT
-            model.model.decoder.embed_tokens = model.model.decoder.embed_tokens.cpu()
-            model.model.decoder.embed_positions = model.model.decoder.embed_positions.cpu()
-            if hasattr(model.model.decoder, 'project_out') and model.model.decoder.project_out:
-                model.model.decoder.project_out = model.model.decoder.project_out.cpu()
-            if hasattr(model.model.decoder, 'project_in') and model.model.decoder.project_in:
-                model.model.decoder.project_in = model.model.decoder.project_in.cpu()
-        if hasattr(model.model, "layers"): #LLaMA
-            model.model.embed_tokens = model.model.embed_tokens.cpu()
-        torch.cuda.empty_cache()
 
     outs = torch.zeros_like(inps)
     model.config.use_cache = use_cache
@@ -244,9 +217,7 @@ def prune_wanda(
 
     for i in progress_bar:
         progress_bar.set_description(f"Layer {i} - Gathering data")
-        use_cpu = model.device == torch.device("cpu")
-        cpu_only = False
-        layer = layers[i].cuda() if use_cpu else layers[i]
+        layer = layers[i].cuda()
 
         subset = find_layers(layer)
         wrapped_layers = {}
@@ -264,27 +235,11 @@ def prune_wanda(
             handles.append(subset[name].register_forward_hook(add_batch(name)))
         for j in range(nsamples):
             with torch.no_grad():
-                if not cpu_only:
-                    try:
-                        for key in kwargs:
-                            if isinstance(kwargs[key], torch.Tensor):
-                                kwargs[key] = kwargs[key].cuda()
+                for key in kwargs:
+                    if isinstance(kwargs[key], torch.Tensor):
+                        kwargs[key] = kwargs[key].cuda()
 
-                        outs[j] = layer(inps[j].unsqueeze(0).cuda(), **kwargs)[0].to(outs[j].device)
-
-                    except:
-                        print("Block does not fit in a single GPU. Doing all the computation in CPU.")
-                        cpu_only = True
-
-                        for key in kwargs:
-                            if isinstance(kwargs[key], torch.Tensor):
-                                kwargs[key] = kwargs[key].cpu()
-
-                        layer = layer.cpu().float()
-
-                        outs[j] = layer(inps[j].unsqueeze(0), **kwargs)[0].to(torch.bfloat16)
-                else:
-                    outs[j] = layer(inps[j].unsqueeze(0).float(), **kwargs)[0].to(torch.bfloat16)
+                outs[j] = layer(inps[j].unsqueeze(0).cuda(), **kwargs)[0].to(outs[j].device)
 
         for h in handles:
             h.remove()
@@ -386,23 +341,16 @@ def prune_wanda(
                                 subset[name].scaling_factor = None
 
 
-        if cpu_only:
-            layer = layer.float()
-
         progress_bar.set_description(f"Layer {i} - Evaluating Output")
 
         for j in range(nsamples):
             with torch.no_grad():
-                if not cpu_only:
-                    outs[j] = layer(inps[j].unsqueeze(0).cuda(), **kwargs)[0].to(outs[j].device)
-                else:
-                    outs[j] = layer(inps[j].unsqueeze(0).float(), **kwargs)[0].to(torch.bfloat16)
+                outs[j] = layer(inps[j].unsqueeze(0).cuda(), **kwargs)[0].to(outs[j].device)
         inps, outs = outs, inps
 
-        if use_cpu:
-            layers[i] = layer.cpu()
-            del layer
-            torch.cuda.empty_cache()
+        layers[i] = layer.cpu()
+        del layer
+        torch.cuda.empty_cache()
 
     model.config.use_cache = use_cache
     torch.cuda.empty_cache()
@@ -465,9 +413,7 @@ def prune_sparsegpt(
 
     for i in progress_bar:
         progress_bar.set_description(f"Layer {i} - Gathering data")
-        use_cpu = model.device == torch.device("cpu")
-        cpu_only = False
-        layer = layers[i].cuda() if use_cpu else layers[i]
+        layer = layers[i].cuda()
 
         subset = find_layers(layer)
 
@@ -494,25 +440,11 @@ def prune_sparsegpt(
             handles.append(subset[name].register_forward_hook(add_batch(name)))
 
         for j in range(nsamples):
-            if not cpu_only:
-                try:
-                    for key in kwargs:
-                        if isinstance(kwargs[key], torch.Tensor):
-                            kwargs[key] = kwargs[key].cuda()
+            for key in kwargs:
+                if isinstance(kwargs[key], torch.Tensor):
+                    kwargs[key] = kwargs[key].cuda()
 
-                    outs[j] = layer(inps[j].unsqueeze(0).cuda(), **kwargs)[0].to(outs.device)
-                except:
-                    print("Block does not fit in a single GPU. Doing all the computation in CPU.")
-                    cpu_only = True
-
-                    layer = layer.cpu().float()
-                    for key in kwargs:
-                        if isinstance(kwargs[key], torch.Tensor):
-                            kwargs[key] = kwargs[key].cpu()
-
-                    outs[j] = layer(inps[j].unsqueeze(0), **kwargs)[0].to(torch.bfloat16)
-            else:
-                outs[j] = layer(inps[j].unsqueeze(0).float(), **kwargs)[0].to(torch.bfloat16)
+            outs[j] = layer(inps[j].unsqueeze(0).cuda(), **kwargs)[0].to(outs.device)
 
         for h in handles:
             h.remove()
@@ -527,25 +459,19 @@ def prune_sparsegpt(
                     subset[name].scaling_factor = None
             gpts[name].free()
 
-        if cpu_only:
-            layer = layer.float()
         progress_bar.set_description(f"Layer {i} - Evaluating Output")
         for j in range(nsamples):
             with torch.no_grad():
-                if not cpu_only:
-                    outs[j] = layer(inps[j].unsqueeze(0).cuda(), **kwargs)[0].to(outs[j].device)
-                else:
-                    outs[j] = layer(inps[j].unsqueeze(0).float(), **kwargs)[0].to(torch.bfloat16)
+                outs[j] = layer(inps[j].unsqueeze(0).cuda(), **kwargs)[0].to(outs[j].device)
 
         layers[i] = layer
         torch.cuda.empty_cache()
 
         inps, outs = outs, inps
 
-        if use_cpu:
-            layers[i] = layer.cpu()
-            del layer
-            torch.cuda.empty_cache()
+        layers[i] = layer.cpu()
+        del layer
+        torch.cuda.empty_cache()
 
     model.config.use_cache = use_cache
     torch.cuda.empty_cache()
@@ -666,7 +592,7 @@ def joint_pq(
     progress_bar = tqdm.tqdm(range(len(layers)))
 
     for i in progress_bar:
-        layer = layers[i]
+        layer = layers[i].cuda()
         layer_name = f'model.layers.{i}'
 
         subset = find_layers(layer)
@@ -796,6 +722,9 @@ def joint_pq(
                 subset[name].weight.data = quantizer.dequantize_absmax(quantized_weight).to(torch.bfloat16)
 
         inps, outs = outs, inps
+        layers[i] = layer.cpu()
+        del layer
+        torch.cuda.empty_cache()
 
     torch.cuda.empty_cache()
 

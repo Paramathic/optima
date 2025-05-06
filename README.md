@@ -29,7 +29,9 @@ example and a brief description of how to use our code base. For a more automate
 [srcipts/run.sh](scripts/run.sh).
 
 **Model and Tokenizer Instantiation:** Our code base supports models from HuggingFace's transformers library. In this example, we use
-the OPT-125M model from [facebook/opt-125m](https://huggingface.co/facebook/opt-125m).
+the OPT-125M model from [facebook/opt-125m](https://huggingface.co/facebook/opt-125m). Please note that we load the model in CPU to reduce memory overheads 
+on GPUs. Our code supports single-GPU compression of very large models, as long as a single transformer block of the 
+model fits in the GPU memory.
 
 ```python
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -40,9 +42,9 @@ model_name = "facebook/opt-125m"
 
 model = AutoModelForCausalLM.from_pretrained(
         model_name,
-        torch_dtype=torch.float16,
+        torch_dtype=torch.bfloat16,
         low_cpu_mem_usage=True,
-    ).cuda()
+    )
 
 model.eval()
 

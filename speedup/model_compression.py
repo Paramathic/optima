@@ -133,10 +133,6 @@ def compress_model(
             (marlin_24_w_ref, layer.marlin_24_q_w_comp, layer.marlin_24_meta,
              layer.marlin_24_s) = marlin_24_quantize(weight.t(), quant_type, group_size)
 
-            # layer.weight.data[marlin_24_w_ref == 0] = 0
-            # print(torch.norm(layer.weight - marlin_24_w_ref.float()) / torch.norm(layer.weight.float()))
-            # print(layer.weight[0:8, 0:8])
-            # print(marlin_24_w_ref[0:8, 0:8])
             if lora_rank > 0:
                 rank = int(min(layer.weight.shape) * lora_rank)
                 if pad_lora:

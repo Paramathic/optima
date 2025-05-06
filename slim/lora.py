@@ -131,7 +131,7 @@ def add_lora(
     """
     if scale_important_weights:
         # Get 1% of largest activations
-        metric = activations.scaler_row * activations.weight.data.abs().sum(dim=0)
+        metric = activations.scaler_row * module.weight.data.abs().sum(dim=0)
         important_weights = metric.topk(
             int(0.01 * metric.numel()), largest=True, sorted=False)[1]
     else:
