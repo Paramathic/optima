@@ -238,7 +238,8 @@ def prune_wanda(
                 for key in kwargs:
                     if isinstance(kwargs[key], torch.Tensor):
                         kwargs[key] = kwargs[key].cuda()
-
+                    if isinstance(kwargs[key], tuple):
+                        kwargs[key] = tuple([k.cuda() for k in kwargs[key]])
                 outs[j] = layer(inps[j].unsqueeze(0).cuda(), **kwargs)[0].to(outs[j].device)
 
         for h in handles:
@@ -443,6 +444,8 @@ def prune_sparsegpt(
             for key in kwargs:
                 if isinstance(kwargs[key], torch.Tensor):
                     kwargs[key] = kwargs[key].cuda()
+                if isinstance(kwargs[key], tuple):
+                    kwargs[key] = tuple([k.cuda() for k in kwargs[key]])
 
             outs[j] = layer(inps[j].unsqueeze(0).cuda(), **kwargs)[0].to(outs.device)
 
