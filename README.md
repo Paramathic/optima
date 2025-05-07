@@ -225,6 +225,7 @@ functions, please refer to their dockstrings.
 - `joint_pq_mixing_factor`: The mixing factor to be used for joint pruning and quantization (JSQ).
 - `calibration_dataset`: The dataset to be used for calibration.
 - `pad_lora`: Whether to pad the low-rank adapters to `lora_tile_size` when not using LoRA quantizatoin.
+- `scale_important_weights`: Whether to scale the important weights in quantization (similar to AWQ).
 
 ### **slim.fine_tune.fine_tune:**
 - `model`: The model to be fine-tuned.
