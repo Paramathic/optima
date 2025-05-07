@@ -44,9 +44,11 @@ def set_size(width, fraction=1, y_scale=1.0):
 def prepare_figure(size_fraction=1.):
     if gpu_type == "a100":
         yscale = 1.3
+        size = 6.75
     else:
-        yscale = 1.0
-    fig_dim = set_size(inch_to_pts(6.75), fraction=size_fraction, y_scale=yscale)
+        yscale = 2.0
+        size = 3.25
+    fig_dim = set_size(inch_to_pts(size), fraction=size_fraction, y_scale=yscale)
 
     plt.style.use('seaborn-v0_8')
     tex_fonts = {
@@ -105,6 +107,23 @@ def determine_model(row):
 
 
 def plot_speedup(data, fig=None, axes=None):
+    if gpu_type == "a100":
+        angle = 0
+        xlabel_fontsize = 10
+        title_fontsize = 12
+        legend_fontsize = 8
+        text_fontsize = 8
+        main_title_fontsize = 14
+        ylabel_fontsize = 12
+    else:
+        angle = 40
+        xlabel_fontsize = 6
+        title_fontsize = 8
+        legend_fontsize = 6
+        text_fontsize = 6
+        main_title_fontsize = 12
+        ylabel_fontsize = 8
+
     # Add a 'Layer Type' column
     data['Layer Type'] = data.apply(determine_layer_type, axis=1)
 
@@ -123,7 +142,7 @@ def plot_speedup(data, fig=None, axes=None):
     # Prepare subplots
     if fig is None or axes is None:
         prepare_figure(size_fraction=1.0)
-        fig, axes = plt.subplots(len(models), len(batch_sizes), sharey=True)
+        fig, axes = plt.subplots(len(models), len(batch_sizes), sharey='row')
         # Colors for the bars - Dark Blue for FP16 LoRA, Red for INT4 LoRA
         colors = ["#2fa7c4", "#d84748"]
         second_plot = False
@@ -139,7 +158,7 @@ def plot_speedup(data, fig=None, axes=None):
         title = "SLiM Speedup on RTX 3060"
     else:
         raise ValueError(f"Unknown GPU type: {gpu_type}")
-    fig.suptitle(title, fontsize=10)
+    fig.suptitle(title, fontsize=main_title_fontsize)
 
 
     # Plot the data
@@ -161,7 +180,7 @@ def plot_speedup(data, fig=None, axes=None):
                         int4_speedups.append(0)
 
                 # Plot the bars
-                bar_width = 0.4  # Width of the bars
+                bar_width = 0.45  # Width of the bars
 
                 bars_fp16 = ax.bar(
                     np.arange(len(layer_types)) - bar_width / 2,
@@ -185,10 +204,11 @@ def plot_speedup(data, fig=None, axes=None):
                         ax.text(
                             bar.get_x() + bar.get_width() / 2,
                             height,
-                            f'{height:.2f}',
+                            f'{height:.1f}',
                             ha='center',
                             va='bottom',
-                            fontsize=6
+                            fontsize=text_fontsize,
+                            rotation=angle,
                         )
 
                     for bar in bars_int4:
@@ -196,26 +216,31 @@ def plot_speedup(data, fig=None, axes=None):
                         ax.text(
                             bar.get_x() + bar.get_width() / 2,
                             height,
-                            f'{height:.2f}',
+                            f'{height:.1f}',
                             ha='center',
                             va='bottom',
-                            fontsize=6
+                            fontsize=text_fontsize,
+                            rotation=angle,
                         )
 
             # Set subplot title
             if i == 0:
-                ax.set_title(f"Batch Size {batch_size}", fontsize=10)
+                ax.set_title(f"Batch Size {batch_size}", fontsize=title_fontsize)
 
             # Set y-axis label only for the first column
             if j == 0:
-                ax.set_ylabel(model, fontsize=10)
+                ax.set_ylabel(model, fontsize=ylabel_fontsize)
+                if gpu_type != "a100":
+                    ax.set_ylim(0, 4.7)
 
             # Set x-axis labels
             ax.set_xticks([0, 1, 2])
             if i == len(models) - 1:
-                ax.set_xticklabels(layer_types, rotation=15, fontsize=8)
+                ax.set_xticklabels(layer_types, rotation=20, fontsize=xlabel_fontsize)
             else:
                 ax.set_xticklabels([])
+
+
             post_process_figure(ax)
 
             ax.set_facecolor("white")
@@ -225,7 +250,9 @@ def plot_speedup(data, fig=None, axes=None):
         plt.Line2D([0], [0], color=colors[0], label='FP16 LoRA'),
         plt.Line2D([0], [0], color=colors[1], label='INT4 LoRA')
     ]
-    fig.legend(handles=handles, loc='upper left', fontsize=8)
+    fig.legend(handles=handles, loc='upper left', bbox_to_anchor=(0.01, 0.94), ncols=2, fontsize=legend_fontsize)
+
+    plt.subplots_adjust(top=0.84)
 
     # Adjust layout
     # plt.show()
@@ -235,7 +262,7 @@ def plot_speedup(data, fig=None, axes=None):
 
 if __name__ == "__main__":
     # Load the CSV data
-    gpu_type = "rtx3060"  # "a100" #"rtx3090"
+    gpu_type = "a100" #"rtx3090"
     file_path = f"results/{gpu_type}_speedup_results.csv"
     quantization_file_path = f"results/{gpu_type}_speedup_results_quantize_only.csv"
     data = pd.read_csv(file_path)
