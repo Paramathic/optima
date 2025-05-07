@@ -158,6 +158,7 @@ following command.
 bash scripts/run.sh
 ```
 
+**Note:** If your cluster does not have internet access, you can download the models and datasets using the `scripts/download_data.sh` script.
 
 ## Experimental Results
 

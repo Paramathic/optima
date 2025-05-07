@@ -30,7 +30,7 @@ class TokenizerWrapper:
         self.input_ids = input_ids
 
 # Load and process wikitext2 dataset
-def get_wikitext2(seed, tokenizer, cache_dir='data'):
+def get_wikitext2(seed, tokenizer):
     """
     Load and process WikiText2 Test dataset
 
@@ -45,11 +45,7 @@ def get_wikitext2(seed, tokenizer, cache_dir='data'):
     """
     print("Loading WikiText2 dataset.")
     # Load train and test datasets
-    if os.path.exists(f"{cache_dir}/wikitext-train.pt"):
-        testdata = load_from_disk(f"{cache_dir}/wikitext-test.pt")
-    else:
-        testdata = load_dataset('wikitext', 'wikitext-2-raw-v1', split='test', cache_dir=cache_dir)
-        testdata.save_to_disk(f"{cache_dir}/wikitext-test.pt")
+    testdata = load_dataset('wikitext', 'wikitext-2-raw-v1', split='test')
     # Encode datasets
     testenc = tokenizer("\n\n".join(testdata['text']), return_tensors='pt')
 
@@ -59,7 +55,7 @@ def get_wikitext2(seed, tokenizer, cache_dir='data'):
     return trainloader, testenc
 
 # Load and process c4 dataset
-def get_c4(nsamples, seed, seqlen, tokenizer, cache_dir='data'):
+def get_c4(nsamples, seed, seqlen, tokenizer):
     """
     Load and process C4 dataset
 
@@ -76,19 +72,19 @@ def get_c4(nsamples, seed, seqlen, tokenizer, cache_dir='data'):
     """
     print("Loading C4 dataset.")
     # Load train and validation datasets
-    if os.path.exists(f"{cache_dir}/c4-train.pt"):
-        traindata = load_from_disk(f"{cache_dir}/c4-train.pt")
-        valdata = load_from_disk(f"{cache_dir}/c4-val.pt")
+    if os.path.exists(f"data/c4-train.pt"):
+        traindata = load_from_disk(f"data/c4-train.pt")
+        valdata = load_from_disk(f"data/c4-val.pt")
     else:
         try:
-            traindata = load_dataset('allenai/c4', 'allenai--c4', data_files={'train': 'en/c4-train.00000-of-01024.json.gz'}, split='train', cache_dir=cache_dir)
-            valdata = load_dataset('allenai/c4', 'allenai--c4', data_files={'validation': 'en/c4-validation.00000-of-00008.json.gz'}, split='validation', cache_dir=cache_dir)
+            traindata = load_dataset('allenai/c4', 'allenai--c4', data_files={'train': 'en/c4-train.00000-of-01024.json.gz'}, split='train')
+            valdata = load_dataset('allenai/c4', 'allenai--c4', data_files={'validation': 'en/c4-validation.00000-of-00008.json.gz'}, split='validation')
         except:
-            traindata = load_dataset('allenai/c4', data_files={'train': 'en/c4-train.00000-of-01024.json.gz'}, split='train', cache_dir=cache_dir)
-            valdata = load_dataset('allenai/c4', data_files={'validation': 'en/c4-validation.00000-of-00008.json.gz'}, split='validation', cache_dir=cache_dir)
+            traindata = load_dataset('allenai/c4', data_files={'train': 'en/c4-train.00000-of-01024.json.gz'}, split='train')
+            valdata = load_dataset('allenai/c4', data_files={'validation': 'en/c4-validation.00000-of-00008.json.gz'}, split='validation')
         
-        traindata.save_to_disk(f"{cache_dir}/c4-train.pt")
-        valdata.save_to_disk(f"{cache_dir}/c4-val.pt")
+        traindata.save_to_disk(f"data/c4-train.pt")
+        valdata.save_to_disk(f"data/c4-val.pt")
 
     # Generate samples from training set
     random.seed(seed)
@@ -114,7 +110,7 @@ def get_c4(nsamples, seed, seqlen, tokenizer, cache_dir='data'):
     valenc = TokenizerWrapper(valenc)
     return trainloader, valenc
 
-def get_openwebtext(seed, seqlen, tokenizer, cache_dir='data'):
+def get_openwebtext(seed, seqlen, tokenizer):
     """
     Load and process OpenWebText dataset
 
@@ -130,7 +126,7 @@ def get_openwebtext(seed, seqlen, tokenizer, cache_dir='data'):
     """
     # Load train and validation datasets
     print("Loading OpenWebText dataset.")
-    raw_datasets = load_dataset("openwebtext", cache_dir=cache_dir)
+    raw_datasets = load_dataset("openwebtext")
     raw_datasets = raw_datasets["train"].train_test_split(
         test_size=0.05, seed=seed,
         shuffle=True  # Otherwise test will be at the end of the dataset
@@ -143,7 +139,7 @@ def get_openwebtext(seed, seqlen, tokenizer, cache_dir='data'):
     return trainloader, valenc
 
 
-def get_slimpajama(nsamples, seed, seqlen, tokenizer, cache_dir='data'):
+def get_slimpajama(nsamples, seed, seqlen, tokenizer):
     """
     Load and process SlimPajama dataset
 
@@ -158,14 +154,8 @@ def get_slimpajama(nsamples, seed, seqlen, tokenizer, cache_dir='data'):
     """
     print("Loading SlimPajama dataset.")
     # Load train and test datasets
-    if os.path.exists(f"{cache_dir}/slimpajama-rain.pt"):
-        traindata = load_from_disk(f"{cache_dir}/slimpajama-train.pt")
-        testdata = load_from_disk(f"{cache_dir}/slimpajama-test.pt")
-    else:
-        traindata = load_dataset("DKYoon/SlimPajama-6B", split="train", cache_dir=cache_dir)
-        testdata = load_dataset("DKYoon/SlimPajama-6B", split="test", cache_dir=cache_dir)
-        traindata.save_to_disk(f"{cache_dir}/slimpajama-train.pt")
-        testdata.save_to_disk(f"{cache_dir}/slimpajama-test.pt")
+    traindata = load_dataset("DKYoon/SlimPajama-6B", split="train")
+    testdata = load_dataset("DKYoon/SlimPajama-6B", split="test")
 
 
     # Encode datasets
@@ -198,7 +188,6 @@ def get_loaders(
         seed=0,
         seqlen=2048,
         tokenizer=None,
-        cache_dir="data"
 ):
     """
     Get loaders for the specified dataset
@@ -216,12 +205,36 @@ def get_loaders(
         testenc: TokenizerWrapper, The tokenized test dataset
     """
     if 'wikitext2' in name.lower():
-        return get_wikitext2(seed, tokenizer, cache_dir)
+        return get_wikitext2(seed, tokenizer)
     elif "c4" in name.lower():
-        return get_c4(nsamples, seed, seqlen, tokenizer, cache_dir)
+        return get_c4(nsamples, seed, seqlen, tokenizer)
     elif "openwebtext" in name.lower():
-        return get_openwebtext(seed, seqlen, tokenizer, cache_dir)
+        return get_openwebtext(seed, seqlen, tokenizer)
     elif "slimpajama" in name.lower():
-        return get_slimpajama(nsamples, seed, seqlen, tokenizer, cache_dir)
+        return get_slimpajama(nsamples, seed, seqlen, tokenizer)
     else:
         raise ValueError(f"Unknown dataset {name}")
+
+
+if __name__ == "__main__":
+    from transformers import AutoTokenizer
+    import lm_eval
+
+    # try:
+    results = lm_eval.simple_evaluate(
+        model="hf",
+        model_args=f"pretrained=facebook/opt-125m,dtype=half,device=cpu",
+        tasks=["mmlu", "piqa", "arc_easy", "arc_challenge", "winogrande", "openbookqa"],
+        verbosity="ERROR"
+    )
+    # except:
+    #     pass
+
+    # tokenizer = AutoTokenizer.from_pretrained("facebook/opt-125m")
+    # for name in ["wikitext2", "c4", "openwebtext", "slimpajama"]:
+    #     try:
+    #         trainloader, testenc = get_loaders(name, nsamples=128, seqlen=1024, tokenizer=tokenizer)
+    #     except:
+    #         pass
+    
+
