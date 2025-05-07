@@ -114,9 +114,7 @@ def distribute_model(model, activation_buffer_percentage=0.30):
         model,
         max_memory=max_memory,
         no_split_module_classes=[str(type(layer_list[0])).split('.')[-1]],
-        verbose=True,
     )
-    print(device_map)
     if any(d == 'meta' for d in device_map.values()):
         raise ValueError("Device map contains 'meta'. This shouldn't happen if model is already on CPU.")
     model = dispatch_model(model, device_map=device_map)
@@ -127,14 +125,17 @@ def distribute_model(model, activation_buffer_percentage=0.30):
 if __name__ == "__main__":
     from transformers import AutoTokenizer
 
-    token = None #"HF_TOKEN"
+    token = None
 
     def load_model_and_tokenizer(model_name):
         print("Loading model", model_name)
         get_llm(model_name, hf_token=token)
         AutoTokenizer.from_pretrained(model_name, token=token)
 
-
+    #Load OPT models
+    for size in ["125m", "350m", "1.3b", "2.7b", "6.7b", "13b"]:
+        model_name = f"facebook/opt-{size}"
+        load_model_and_tokenizer(model_name)
 
     #Load LLaMA-2 models
     for size in ["7b", "13b"]:
@@ -149,11 +150,6 @@ if __name__ == "__main__":
     #Load LLaMA-3.2 models
     for size in ["1B", "3B"]:
         model_name = f"meta-llama/Llama-3.2-{size}"
-        load_model_and_tokenizer(model_name)
-
-    #Load OPT models
-    for size in ["125m", "350m", "1.3b", "2.7b", "6.7b", "13b"]:
-        model_name = f"facebook/opt-{size}"
         load_model_and_tokenizer(model_name)
 
     # Load Gemma-3 models
