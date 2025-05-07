@@ -9,7 +9,7 @@ from accelerate import infer_auto_device_map, dispatch_model
 
 def get_llm(model_name,
             local_files_only=False,
-            hf_token="",
+            hf_token=None,
             seqlen=2048,
             ):
     """

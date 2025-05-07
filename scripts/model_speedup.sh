@@ -1,19 +1,19 @@
 export HF_DATASETS_TRUST_REMOTE_CODE="1"
 export HF_HOME="data"
-#export HF_DATASETS_OFFLINE="1"
-#export HF_HUB_OFFLINE="1"
-export HF_TOKEN="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"
+export HF_DATASETS_OFFLINE="1"
+export HF_HUB_OFFLINE="1"
+export HF_TOKEN="HF_TOKEN"
 
 
 
-MODEL="facebook/opt-1.3b" #'meta-llama/Llama-3.2-3B'
+MODEL="meta-llama/Llama-2-7b-hf" #'meta-llama/Llama-3.2-3B'
 SEQLEN=2048
-MAX_BATCHSIZE=64
+MAX_BATCHSIZE=16
 SINGLE_TOKEN_GENERATOIN='--single_token_generation'
 #TIME_PREFILL='--time_prefill'
 INPUT_TOKEN_STEP=1024
 
-for SETTING in quantized_slim #sparse #slim
+for SETTING in dense #slim #quantized_slim #sparse #slim
 do
     if [ $SETTING == "dense" ]; then
         COMPRESS_MODEL=''
