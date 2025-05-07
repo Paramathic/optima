@@ -242,16 +242,45 @@ functions, please refer to their dockstrings.
 - `global_batch_size`: The global batch size to be used for fine-tuning.
 - `local_batch_size`: The local batch size to be used for fine-tuning.
 
+## Speedup Experiments
+
+We support both layer-wise and end-to-end model speedup evaluation. 
+
+### Layer-wise Speedup
+
+For layer-wise
+speedup experiments, please refer to `speedup/layerwise_speedup.py`. You can set the 
+`quanti_only` flag to `True` to only evaluate the quantization speedup. If set to `False`,
+both sparsity and quantization speedup will be evaluated. We use [Sparse Marlin](https://github.com/IST-DASLab/Sparse-Marlin)
+integrated in [vLLM](https://github.com/vllm-project/vllm) in our code. The following 
+figures show the SLiM's speedup with FP16 and INT4 low-rank adapters on NVIDIA RTX-3060 and
+A100 GPUs. The bright part shows the contribution of the quantization to the total speedup.
+
+![Alt text](./assets/rtx3060_speedup.png "RTX-3060 Speedup")
+
+![Alt text](./assets/a100_speedup.png "A100 Speedup")
+
+### End-to-End Model Speedup
+
+For end-to-end model speedup experiments, you can run `scripts/model_speeup.sh`. This script will 
+run `speedup/model_speedup.py` file, which supports dense, spase-quantized, and SLiM (with both 
+FP16 and INT4 LoRA)
+model evaluations. Currently, the models are pruned using magnitude pruning and quantized
+using AbsMax. Loading the quantized checkpoints should be a straightforward modification
+to the code, and we will support it in the future. We do not report the end-to-end speedup
+here, since most of the time, the dense FP16 models (baseline) do not fit in a single
+GPU with the batch sizes 16 to 64.
+
 ## Acknowledgement
 This repository is build upon the [SparseGPT](https://github.com/IST-DASLab/sparsegpt) and the [Wanda](https://github.com/locuslab/wanda) repository.
 
 ## Citation
 If you use SLiM in your research, please cite our paper:
 ```angular2html
-@article{slim:2025,
+@article{mozaffari2025slim,
     title        = {{SLiM: One-shot Quantized Sparse Plus Low-rank Approximation of LLMs}},
-    author       = {Mozaffari, Mohammad, Yazdanbakhsh, Amir, and Mehri Dahnavi, Maryam},
+    author       = {Mozaffari, Mohammad and Yazdanbakhsh, Amir and Mehri Dehnavi, Maryam},
     year         = 2025,
-    journal      = {arXiv preprint}
+    url          = {https://openreview.net/forum?id=4UfRP8MopP}
 }
 ```
