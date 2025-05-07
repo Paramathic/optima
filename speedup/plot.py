@@ -43,7 +43,7 @@ def set_size(width, fraction=1, y_scale=1.0):
 
 def prepare_figure(size_fraction=1.):
     if gpu_type == "a100":
-        yscale = 1.3
+        yscale = 1.6
         size = 6.75
     else:
         yscale = 2.0
@@ -262,7 +262,7 @@ def plot_speedup(data, fig=None, axes=None):
 
 if __name__ == "__main__":
     # Load the CSV data
-    gpu_type = "a100" #"rtx3090"
+    gpu_type = "rtx3060" #"a100"
     file_path = f"results/{gpu_type}_speedup_results.csv"
     quantization_file_path = f"results/{gpu_type}_speedup_results_quantize_only.csv"
     data = pd.read_csv(file_path)

@@ -84,6 +84,8 @@ if __name__ == "__main__":
     if args.compress_model:
         compress_model(model, skip_layers=[model.lm_head], lora_rank=args.lora_rank, quantize_lora=args.quantize_lora)
 
+    model.model.layers = model.model.layers[0:16]
+
     model = model.cuda()
 
     memory_after = torch.cuda.memory_allocated()
