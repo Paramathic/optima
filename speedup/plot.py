@@ -109,14 +109,20 @@ def determine_model(row):
 def plot_speedup(data, fig=None, axes=None):
     if gpu_type == "a100":
         angle = 0
-        xlabel_fontsize = 8
-        title_fontsize = 10
+        xlabel_fontsize = 10
+        title_fontsize = 12
         legend_fontsize = 8
+        text_fontsize = 8
+        main_title_fontsize = 14
+        ylabel_fontsize = 12
     else:
         angle = 40
         xlabel_fontsize = 6
         title_fontsize = 8
         legend_fontsize = 6
+        text_fontsize = 6
+        main_title_fontsize = 12
+        ylabel_fontsize = 8
 
     # Add a 'Layer Type' column
     data['Layer Type'] = data.apply(determine_layer_type, axis=1)
@@ -152,7 +158,7 @@ def plot_speedup(data, fig=None, axes=None):
         title = "SLiM Speedup on RTX 3060"
     else:
         raise ValueError(f"Unknown GPU type: {gpu_type}")
-    fig.suptitle(title, fontsize=10)
+    fig.suptitle(title, fontsize=main_title_fontsize)
 
 
     # Plot the data
@@ -201,7 +207,7 @@ def plot_speedup(data, fig=None, axes=None):
                             f'{height:.1f}',
                             ha='center',
                             va='bottom',
-                            fontsize=6,
+                            fontsize=text_fontsize,
                             rotation=angle,
                         )
 
@@ -213,7 +219,7 @@ def plot_speedup(data, fig=None, axes=None):
                             f'{height:.1f}',
                             ha='center',
                             va='bottom',
-                            fontsize=6,
+                            fontsize=text_fontsize,
                             rotation=angle,
                         )
 
@@ -223,7 +229,7 @@ def plot_speedup(data, fig=None, axes=None):
 
             # Set y-axis label only for the first column
             if j == 0:
-                ax.set_ylabel(model, fontsize=10)
+                ax.set_ylabel(model, fontsize=ylabel_fontsize)
                 if gpu_type != "a100":
                     ax.set_ylim(0, 4.7)
 
@@ -246,8 +252,7 @@ def plot_speedup(data, fig=None, axes=None):
     ]
     fig.legend(handles=handles, loc='upper left', bbox_to_anchor=(0.01, 0.94), ncols=2, fontsize=legend_fontsize)
 
-    if gpu_type != "a100":
-        plt.subplots_adjust(top=0.84)
+    plt.subplots_adjust(top=0.84)
 
     # Adjust layout
     # plt.show()
@@ -257,7 +262,7 @@ def plot_speedup(data, fig=None, axes=None):
 
 if __name__ == "__main__":
     # Load the CSV data
-    gpu_type = "rtx3060" #"a100" #"rtx3090"
+    gpu_type = "a100" #"rtx3090"
     file_path = f"results/{gpu_type}_speedup_results.csv"
     quantization_file_path = f"results/{gpu_type}_speedup_results_quantize_only.csv"
     data = pd.read_csv(file_path)
