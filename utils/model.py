@@ -23,10 +23,12 @@ def get_llm(model_name,
     lm_eval_model = lm_eval.api.registry.get_model("hf").create_from_arg_string(
         model_args,
         {
-            "device": "cpu",
+            "device": None, # We load the model to GPU for proper inference through LM-Eval
         },
     )
-    model = lm_eval_model._model
+    # We load the model back to CPU for pruning and other manipulations
+    model = lm_eval_model._model.cpu()
+    torch.cuda.empty_cache()
     model.config.max_position_embeddings = seqlen
     model.seqlen = seqlen
     return model, lm_eval_model
