@@ -106,8 +106,8 @@ if __name__ == "__main__":
     token_sizes = []
     for k in [args.input_token_step * i for i in range(1, model_seqlen // args.input_token_step)]:
         token_sizes.append(model_seqlen - k)  # Example token sizes
-    # Powers of to until args.max_batch_size
-    batch_sizes = [2 ** i for i in range(int(math.log2(args.max_batch_size) + 1))]
+    # Powers of two until args.max_batch_size
+    batch_sizes = [2 ** i for i in range(int(min(16, math.log2(args.max_batch_size))), int(math.log2(args.max_batch_size) + 1))]
 
     # Main benchmarking loop over different token sizes.
     for token_size in token_sizes:

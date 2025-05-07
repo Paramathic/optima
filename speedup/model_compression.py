@@ -16,7 +16,6 @@ def slim_forward(module, input):
     else:
         bs, d_in = input.shape
         seqlen = 1
-    # if seqlen == 1:
     xw = ops.gptq_marlin_24_gemm(input.view(-1, d_in),
                                  module.marlin_24_q_w_comp,
                                  module.marlin_24_meta,
@@ -33,9 +32,6 @@ def slim_forward(module, input):
         output = xw.view(bs, seqlen, module.d_out)
     else:
         output = xw
-    # else:
-    #     # raise NotImplementedError("Not implemented for seqlen > 1")
-    #     output = torch.matmul(input, module.weight.t())
 
     if not module.bias is None:
         output += module.bias
@@ -97,9 +93,6 @@ def quantized_slim_forward(module, input):
         output = xw.view(bs, seqlen, module.d_out)
     else:
         output = xw
-    # else:
-    #     # raise NotImplementedError("Not implemented for seqlen > 1")
-    #     output = torch.matmul(input, module.weight.t())
 
     if not module.bias is None:
         output += module.bias
