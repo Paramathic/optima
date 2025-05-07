@@ -161,6 +161,8 @@ def main():
 
     model = distribute_model(model)
 
+    
+    print("*" * 30)
     ################################################################
     if args.quantize_weight and args.quantize_lora and args.lora_rank > 0.:
         quantize_lora(
@@ -193,7 +195,6 @@ def main():
         print(f"Perplexity: {ppl_test:.2f}")
         print("*" * 30)
     ################################################################
-    print("*" * 30)
     sparsity_ratio = check_sparsity(model)
     print(f"Model Sparsity Ratio: {sparsity_ratio:.2f}")
     print("*" * 30)
