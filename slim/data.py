@@ -220,21 +220,21 @@ if __name__ == "__main__":
     from transformers import AutoTokenizer
     import lm_eval
 
-    # try:
-    results = lm_eval.simple_evaluate(
-        model="hf",
-        model_args=f"pretrained=facebook/opt-125m,dtype=half,device=cpu",
-        tasks=["mmlu", "piqa", "arc_easy", "arc_challenge", "winogrande", "openbookqa"],
-        verbosity="ERROR"
-    )
-    # except:
-    #     pass
+    try:
+        results = lm_eval.simple_evaluate(
+            model="hf",
+            model_args=f"pretrained=facebook/opt-125m,dtype=half,device=cpu",
+            tasks=["mmlu", "piqa", "arc_easy", "arc_challenge", "winogrande", "openbookqa"],
+            verbosity="ERROR"
+        )
+    except:
+        pass
 
-    # tokenizer = AutoTokenizer.from_pretrained("facebook/opt-125m")
-    # for name in ["wikitext2", "c4", "openwebtext", "slimpajama"]:
-    #     try:
-    #         trainloader, testenc = get_loaders(name, nsamples=128, seqlen=1024, tokenizer=tokenizer)
-    #     except:
-    #         pass
+    tokenizer = AutoTokenizer.from_pretrained("facebook/opt-125m")
+    for name in ["wikitext2", "c4", "openwebtext", "slimpajama"]:
+        try:
+            trainloader, testenc = get_loaders(name, nsamples=128, seqlen=1024, tokenizer=tokenizer)
+        except:
+            pass
     
 
