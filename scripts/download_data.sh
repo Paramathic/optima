@@ -3,7 +3,7 @@ export HF_HOME=data
 
 
 # Load datasets
-python -m slim.dataset
+python -m slim.data
 
 # Load models and tokenizers
 python -m utils.model
