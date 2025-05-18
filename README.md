@@ -198,11 +198,6 @@ are quantized using 8-bit group quantization. All the group quantization results
 | **SLiM-LoRA**          | Quantization$^W$         | 35.20    | **35.32**| **41.85** | 43.48     | 47.08     | **47.96**  | **54.26**    | **57.85**     |
 | SLiM-LoRA$^Q$          | Quantization$^W$         | **35.35**| 35.13    | 41.74     | **43.63** | **47.16** | 47.86      | 54.18        | 57.33         |
 
-> \* "Best Method" selects the optimal quantization setting per model.  
-> $^W$: Quantization applied only to weights.  
-> OOM: Out of memory.
-
-
 ## Function Documentation
 Here we provide a brief description of a few of the main functions in our code base. For details about the other 
 functions, please refer to their dockstrings.
