@@ -168,35 +168,39 @@ table below. The weights (and possibly the adapter) are quantize to 4 bits using
 are quantized using 8-bit group quantization. All the group quantization results use a group size of 128.
 
 
-| Pruning/LoRA Method  | Weight Quantization | OPT-125M | OPT-350M | OPT-1.3B | OPT-2.7B | OPT-6.7B | OPT-13B | LLaMA-2-7B | LLaMA-2-13B |
-|----------------------|--------------------|----------|----------|----------|----------|----------|----------|------------|------------|
-| **Dense** | - | 35.9 | 37.1 | 43.4 | 45.5 | 48.3 | 48.7 | 56.6 | 60.8 |
-| **2:4 Sparsity** |  |  |  |  |  |  |  |  |  |
-| Magnitude | Group AbsMax | 32.19 | 31.94 | 33.82 | 33.43 | 34.81 | 34.68 | 44.64 | 44.18 |
-| SparseGPT | Group OPTQ | 33.70 | 33.38 | 38.75 | 40.15 | 44.32 | 45.64 | 45.49 | 51.05 |
-| Wanda | Best Method* | 33.39 | 32.79 | 38.43 | 40.00 | 43.41 | 44.07 | 44.86 | 48.94 |
-| JSQ | JSQ | 31.98 | 31.13 | 36.34 | 31.79 | 41.33 | 37.38 | 45.34 | 49.45 |
-| L²QER | Group AbsMax | 33.34 | 31.68 | 36.68 | 38.11 | 41.37 | OOM | 43.77 | OOM |
-| **LoRA-Based Methods** |  |  |  |  |  |  |  |  |  |
-| Naive-LoRA | SLiM-Quant | 34.28 | 33.38 | 38.36 | 41.21 | 44.91 | 45.25 | 48.45 | 51.94 |
-| SLiM-LoRA | SLiM-Quant | **34.62** | **34.36** | **40.61** | **42.73** | 45.99 | 46.09 | **51.15** | **54.94** |
-| SLiM-LoRA<sup>Q</sup> | SLiM-Quant | 34.43 | 34.30 | 40.11 | 42.37 | **46.33** | **46.24** | 51.02 | 53.55 |
-| **50% Unstructured** |  |  |  |  |  |  |  |  |  |
-| Magnitude | Group AbsMax | 33.34 | 33.51 | 32.12 | 39.90 | 36.44 | 32.33 | 47.03 | 51.04 |
-| SparseGPT | OPTQ | 35.10 | 35.13 | 38.72 | 43.43 | 46.97 | 47.38 | 51.09 | 55.94 |
-| Wanda | Best Method* | 35.11 | 33.89 | 41.02 | 42.89 | 46.52 | 46.84 | 53.62 | 56.76 |
-| JSQ | JSQ | 32.05 | 31.09 | 39.53 | 33.35 | 41.04 | 31.80 | 52.08 | 57.00 |
-| L²QER | Group AbsMax | 34.45 | 34.45 | 38.38 | 41.28 | 45.08 | OOM | 50.60 | OOM |
-| **LoRA-Based Methods** |  |  |  |  |  |  |  |  |  |
-| Naive-LoRA | SLiM-Quant | 34.77 | 34.23 | 40.40 | 43.37 | 46.64 | 47.30 | 51.52 | 55.33 |
-| SLiM-LoRA | SLiM-Quant | 35.20 | **35.32** | **41.85** | 43.48 | 47.08 | **47.96** | **54.26** | **57.85** |
-| SLiM-LoRA<sup>Q</sup> | SLiM-Quant | **35.35** | 35.13 | 41.74 | **43.63** | **47.16** | 47.86 | 54.18 | 57.33 |
 
 **Notes:**
 - *Best Method* refers to the best quantization method among Group AbsMax, AWQ, OmniQuant, and AffineQuant.
 - "OOM" indicates an out-of-memory error.
 - **Bold values** indicate the best performance in each section.
 
+### Accuracy of Pruned and Quantized OPT/LLaMA Models over 6 Zero-shot Tasks
+
+| **Pruning/LoRA Method** | **Weight Quantization** | OPT 125M | OPT 350M | OPT 1.3B | OPT 2.7B | OPT 6.7B | OPT 13B | LLaMA-2 7B | LLaMA-2 13B |
+|-------------------------|--------------------------|----------|----------|-----------|-----------|-----------|------------|--------------|---------------|
+| **Dense**              | -                        | 35.9     | 37.1     | 43.4      | 45.5      | 48.3      | 48.7       | 56.6         | 60.8          |
+| **2:4 Sparsity**       |                          |          |          |           |           |           |            |              |               |
+| Magnitude              | Group AbsMax             | 32.19    | 31.94    | 33.82     | 33.43     | 34.81     | 34.68      | 44.64        | 44.18         |
+| SparseGPT              | Group OPTQ               | 33.70    | 33.38    | 38.75     | 40.15     | 44.32     | 45.64      | 45.49        | 51.05         |
+| Wanda                  | Best Method$^*$          | 33.39    | 32.79    | 38.43     | 40.00     | 43.41     | 44.07      | 44.86        | 48.94         |
+| JSQ                    | JSQ                      | 32.30    | 31.84    | 35.23     | 32.89     | 38.06     | 37.24      | 44.80        | 50.20         |
+| L$^2$QER               | Group AbsMax             | 33.34    | 31.68    | 36.68     | 38.11     | 41.37     | OOM        | 43.77        | OOM           |
+| Naive-LoRA             | Quantization$^W$         | 34.28    | 33.38    | 38.36     | 41.21     | 44.91     | 45.25      | 48.45        | 51.94         |
+| **SLiM-LoRA**          | Quantization$^W$         | **34.62**| **34.36**| **40.61** | **42.73** | 45.99     | 46.09      | **51.15**    | **54.94**     |
+| SLiM-LoRA$^Q$          | Quantization$^W$         | 34.43    | 34.30    | 40.11     | 42.37     | **46.33** | **46.24**  | 51.02        | 53.55         |
+| **50% Unstructured**   |                          |          |          |           |           |           |            |              |               |
+| Magnitude              | Group AbsMax             | 33.34    | 33.51    | 32.12     | 39.90     | 36.44     | 32.33      | 47.03        | 51.04         |
+| SparseGPT              | OPTQ                     | 35.10    | 35.13    | 38.72     | 43.43     | 46.97     | 47.38      | 51.09        | 55.94         |
+| Wanda                  | Best Method$^*$          | 35.11    | 33.89    | 41.02     | 42.89     | 46.52     | 46.84      | 53.62        | 56.76         |
+| JSQ                    | JSQ                      | 32.14    | 30.34    | 38.86     | 35.48     | 42.75     | 30.73      | 52.25        | 57.00         |
+| L$^2$QER               | Group AbsMax             | 34.45    | 34.45    | 38.38     | 41.28     | 45.08     | OOM        | 50.60        | OOM           |
+| Naive-LoRA             | Quantization$^W$         | 34.77    | 34.23    | 40.40     | 43.37     | 46.64     | 47.30      | 51.52        | 55.33         |
+| **SLiM-LoRA**          | Quantization$^W$         | 35.20    | **35.32**| **41.85** | 43.48     | 47.08     | **47.96**  | **54.26**    | **57.85**     |
+| SLiM-LoRA$^Q$          | Quantization$^W$         | **35.35**| 35.13    | 41.74     | **43.63** | **47.16** | 47.86      | 54.18        | 57.33         |
+
+> \* "Best Method" selects the optimal quantization setting per model.  
+> $^W$: Quantization applied only to weights.  
+> OOM: Out of memory.
 
 
 ## Function Documentation
