@@ -631,6 +631,11 @@ def joint_pq(
 
         for j in range(nsamples):
             with torch.no_grad():
+                for key in kwargs:
+                    if isinstance(kwargs[key], torch.Tensor):
+                        kwargs[key] = kwargs[key].cuda()
+                    if isinstance(kwargs[key], tuple):
+                        kwargs[key] = tuple([k.cuda() for k in kwargs[key]])
                 outs[j] = layer(inps[j].unsqueeze(0).cuda(), **kwargs)[0].to(outs.device)
         for h in handles:
             h.remove()
@@ -661,6 +666,11 @@ def joint_pq(
 
         for j in range(nsamples):
             with torch.no_grad():
+                for key in kwargs:
+                    if isinstance(kwargs[key], torch.Tensor):
+                        kwargs[key] = kwargs[key].cuda()
+                    if isinstance(kwargs[key], tuple):
+                        kwargs[key] = tuple([k.cuda() for k in kwargs[key]])
                 outs[j] = layer(inps[j].unsqueeze(0).cuda(), **kwargs)[0].to(outs.device)
 
         progress_bar.set_description(f"Layer {i} - Smoothing {name}")
