@@ -225,6 +225,7 @@ functions, please refer to their dockstrings.
 - `calibration_dataset`: The dataset to be used for calibration.
 - `pad_lora`: Whether to pad the low-rank adapters to `lora_tile_size` when not using LoRA quantizatoin.
 - `scale_important_weights`: Whether to scale the important weights in quantization (similar to AWQ).
+- `mask_checkpoint`: The checkpoint to use for MaskLLM pruning
 
 ### **slim.fine_tune.fine_tune:**
 - `model`: The model to be fine-tuned.

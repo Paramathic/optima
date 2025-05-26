@@ -65,7 +65,7 @@ def main():
     parser.add_argument('--sparsity_ratio', type=float, default=0, help='Sparsity level')
     parser.add_argument("--sparsity_type", type=str)
     parser.add_argument("--prune_method", type=str, choices=["magnitude", "wanda", "sparsegpt",
-                                                             "ablate_wanda_seq",  "joint_pq"])
+                                                             "ablate_wanda_seq",  "joint_pq", "maskllm"])
     parser.add_argument("--cache_dir", default="llm_weights", type=str)
 
     parser.add_argument("--slim_lora", action="store_true")
@@ -105,6 +105,8 @@ def main():
     parser.add_argument("--hf_token", type=str, default="")
     parser.add_argument("--joint_pq_mixing_factor", type=float, default=2.1)
     parser.add_argument("--scale_important_weights", action="store_true",)
+    parser.add_argument("--maskllm_checkpoint", type=str, default=None,
+                        help="Checkpoint for MaskLLM mask")
 
 
     args = parser.parse_args()
@@ -156,6 +158,7 @@ def main():
         calibration_dataset=args.calibration_dataset,
         pad_lora=args.pad_lora,
         scale_important_weights=args.scale_important_weights,
+        mask_checkpoint=args.maskllm_checkpoint,
     )
     report_gpu_memory("After pruning")
 

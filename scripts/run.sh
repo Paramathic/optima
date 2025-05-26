@@ -1,11 +1,11 @@
 export HF_DATASETS_TRUST_REMOTE_CODE="1"
 export HF_HOME="data"
-#export HF_DATASETS_OFFLINE="1"
-#export HF_HUB_OFFLINE="1"
+# export HF_DATASETS_OFFLINE="1"
+# export HF_HUB_OFFLINE="1"
 
 HF_TOKEN="--hf_token HF_TOKEN"
 
-for MODEL_NAME in opt #llama2
+for MODEL_NAME in opt llama2
 do
     if [ $MODEL_NAME == 'llama2' ]
     then
@@ -16,7 +16,7 @@ do
     then   
         MODEL_PREFIX=facebook/opt-
         MODEL_POSTFIX=""
-        MODEL_SIZE_LIST="125m" # 350m 1.3b 2.7b 6.7b 13b"
+        MODEL_SIZE_LIST="125m 350m 1.3b 2.7b 6.7b 13b"
     elif [ $MODEL_NAME == 'llama3.2' ]
     then
         MODEL_PREFIX=meta-llama/Llama-3.2-
@@ -32,17 +32,17 @@ do
 
     for MODEL_SIZE in $MODEL_SIZE_LIST
     do
-        for STRUCTURE in 2:4 #unstructured
+        for STRUCTURE in 2:4 unstructured
         do
-            for METHOD in wanda #wanda #joint_pq
+            for METHOD in wanda #maskllm sparsegpt joint_pq
             do
-                for LORA_RANK in 0.1
+                for LORA_RANK in 0 0.1
                 do
-                    for SLIM_LORA in '--slim_lora'
+                    for SLIM_LORA in '--slim_lora' #''
                     do
                         for NUM_CALIBRATION_SAMPLES in 128
                         do
-                            for QUANTIZE_WEIGHT in '--quantize_weight'
+                            for QUANTIZE_WEIGHT in '--quantize_weight' # ''
                             do
                                 for TILED_WEIGHT_QUANTIZATION in '' #'--tiled_weight_quantization'
                                 do
@@ -55,8 +55,8 @@ do
                                     SLIM_QUANT='--slim_quant'
                                     EVAL_BATCH_SIZE=1
                                     SEPARATE_LORA='--separate_lora'
-#                                    TEST_LMHARNESS='--test_lmharness'
-#                                    FINE_TUNE='--fine_tune'
+                                    TEST_LMHARNESS='--test_lmharness'
+                                    # FINE_TUNE='--fine_tune'
                                     EVALUATE_PERPLEXITY='--evaluate_perplexity'
                                     OPTIMIZER="adafactor"
     #                                PRUNE_LORA="--prune_lora"
@@ -69,7 +69,8 @@ do
                                     INPUT_BITWIDTH=8
                                     INPUT_GROUP_SIZE=-1
                                     PAD_LORA='--pad_lora'
-                                    SCALE_IMPORTANT_WEIGHTS='--scale_important_weights'
+#                                    SCALE_IMPORTANT_WEIGHTS='--scale_important_weights'
+                                    # MASKLLM_CHECKPOINT="--maskllm_checkpoint Vinnnf/LLaMA-2-7B-MaskLLM-C4"
 
                                     CUDA_VISIBLE_DEVICES=0 python main.py \
                                         --model ${MODEL_PREFIX}${MODEL_SIZE}${MODEL_POSTFIX} \
@@ -105,8 +106,8 @@ do
                                         --joint_pq_mixing_factor $JOINT_PQ_MIXING_FACTOR \
                                         --calibration_dataset $CALIBRATION_DATASET \
                                         $PAD_LORA \
-                                        $SCALE_IMPORTANT_WEIGHTS
-                                        
+                                        $SCALE_IMPORTANT_WEIGHTS \
+                                        $MASKLLM_CHECKPOINT
                                 done
                             done
                         done
