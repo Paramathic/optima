@@ -273,6 +273,10 @@ to the code, and we will support it in the future. We do not report the end-to-e
 here, since most of the time, the dense FP16 models (baseline) do not fit in a single
 GPU with the batch sizes 16 to 64.
 
+## Memory Reduction Experiments
+
+You can evaluate the memory reduction of SLiM using `scripts/model_memory_reduction.sh`. This script will call `speeudp/model_memory_reduction.py`, which loads and evaluates the memory usage of dense and compressed models. SLiM with quantized low-rank adapters achieves 0.23x memory reduction for LLaMA-2-7B and LLaMA-2-13B on NVIDIA A100-40GB GPUs.
+
 ## Acknowledgement
 This repository is build upon the [SparseGPT](https://github.com/IST-DASLab/sparsegpt) and the [Wanda](https://github.com/locuslab/wanda) repository.
 
