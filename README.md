@@ -13,7 +13,7 @@ while maintaining efficiency in memory-constrained environments.
 
 Paper: [https://arxiv.org/abs/2410.09615](https://arxiv.org/abs/2410.09615)
 
-![Alt text](./assets/SLiM-Pipeline.png "SLiM Pipeline")
+<img src="./assets/SLiM-Pipeline.png" alt="SLiM Pipeline" width="800">
 
 ## Setup
 
@@ -258,9 +258,9 @@ integrated in [vLLM](https://github.com/vllm-project/vllm) in our code. The foll
 figures show the SLiM's speedup with FP16 and INT4 low-rank adapters on NVIDIA RTX-3060 and
 A100 GPUs. The bright part shows the contribution of the quantization to the total speedup.
 
-![Alt text](./assets/rtx3060_speedup.png "RTX-3060 Speedup")
+<img src="./assets/rtx3060_speedup.png" alt="RTX-3060 Speedup" width="600">
 
-![Alt text](./assets/a100_speedup.png "A100 Speedup")
+<img src="./assets/a100_speedup.png" alt="A100 Speedup" width="600">
 
 ### End-to-End Model Speedup
 
