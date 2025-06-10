@@ -17,3 +17,6 @@ output/*
 .triton/
 tmp/
 offload/
+mohammad/
+.idea/
+assets/*
