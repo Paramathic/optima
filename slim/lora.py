@@ -87,13 +87,14 @@ def quantize_lora(
 
         for name in subset:
             progress_bar.set_description(f"Layer {i} - Quantizing LoRA for {name}")
+            device = subset[name].weight.device
 
             quantized_lora_left = quantizer.dequantize_absmax(
-                quantizer.quantize_weight(subset[name].lora_left.data)
+                quantizer.quantize_weight(subset[name].lora_left.data.to(device))
             )
 
             quantized_lora_right = quantizer.dequantize_absmax(
-                quantizer.quantize_weight(subset[name].lora_right.data)
+                quantizer.quantize_weight(subset[name].lora_right.data.to(device))
             )
 
             subset[name].lora_left.data = quantized_lora_left.to(subset[name].weight.dtype)

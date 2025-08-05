@@ -34,7 +34,7 @@ def compute_error(mat, alpha, num_bits):
 def find_optimal_quantiztion_cap(mat, num_bits=8, num_bins=4096, integrate=True):
     if integrate:
         pdf, val = torch.histogram(mat.data.abs().float().flatten().cpu(), bins=num_bins, density=True)
-        pdf, val = pdf.cuda(), val.cuda()
+        pdf, val = pdf.cuda(0), val.cuda(0)
 
         val = (val[:-1] + val[1:]) / 2
         q = num_bits

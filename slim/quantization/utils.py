@@ -277,7 +277,7 @@ if __name__ == "__main__":
     for dim2 in [512 * i for i in range(2, 32)]:
         # Allocate memory
         dtype = torch.bfloat16
-        x = torch.randn(dim1, dim2).cuda().to(dtype) + (torch.randn(1).cuda().to(dtype) * 3.)
+        x = torch.randn(dim1, dim2).cuda(0).to(dtype) + (torch.randn(1).cuda(0).to(dtype) * 3.)
         q = 8
 
         symmetric = True #False
