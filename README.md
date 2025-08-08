@@ -243,6 +243,7 @@ functions, please refer to their dockstrings.
 - `optimizer`: The optimizer to be used for fine-tuning. We suggest using `adamw_torch` for as the optimizer. In case low avaiable memory, `adafactor` can be used.
 - `global_batch_size`: The global batch size to be used for fine-tuning.
 - `local_batch_size`: The local batch size to be used for fine-tuning.
+- `use_wandb`: Whether to use Weights & Biases for logging the fine-tuning metrics.
 
 ## Speedup Experiments
 
