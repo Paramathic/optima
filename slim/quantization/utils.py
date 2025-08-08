@@ -124,7 +124,9 @@ def quantize_tensor(x, alphas, betas, q):
     row_block_size, col_block_size = x.shape[0] // alphas.shape[0], x.shape[1] // alphas.shape[1]
     y = torch.empty_like(x, dtype=torch.int8, device=x.device)
     grid = lambda meta: (alphas.shape[0], alphas.shape[1])
-    _quantize_tensor[grid](x, y, alphas, betas, row_block_size, col_block_size, x.shape[1], x.shape[0], q)
+    
+    with torch.cuda.device(x.device):
+        _quantize_tensor[grid](x, y, alphas, betas, row_block_size, col_block_size, x.shape[1], x.shape[0], q)
     return y
 
 
@@ -189,7 +191,8 @@ def dequantize_tensor(x, alphas, betas, q, dtype=torch.float16):
     row_block_size, col_block_size = x.shape[0] // alphas.shape[0], x.shape[1] // alphas.shape[1]
     y = torch.empty_like(x, dtype=dtype)
     grid = lambda meta: (alphas.shape[0], alphas.shape[1])
-    _dequantize_tensor[grid](x, y, alphas, betas, row_block_size, col_block_size, x.shape[1], x.shape[0], q)
+    with torch.cuda.device(x.device):
+        _dequantize_tensor[grid](x, y, alphas, betas, row_block_size, col_block_size, x.shape[1], x.shape[0], q)
     return y
 
 
@@ -264,10 +267,11 @@ def compute_quantization_params(x, block_size_row, block_size_col, symmetric=Fal
     M, N = x_arg.shape
     # heuristics for number of warps
     grid_size = (triton.cdiv(M, block_size_row), triton.cdiv(N, block_size_col))
-    _compute_quantization_params[grid_size](
-        x_arg, alphas, betas,
-        block_size_row, block_size_col, N, M,
-        )
+    with torch.cuda.device(x.device):
+        _compute_quantization_params[grid_size](
+            x_arg, alphas, betas,
+            block_size_row, block_size_col, N, M,
+            )
     return alphas, betas
 
 
