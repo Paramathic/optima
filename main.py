@@ -3,6 +3,7 @@ import os
 import numpy as np
 import pandas as pd
 import torch
+import wandb
 from transformers import AutoTokenizer
 from slim.prune import  prune_and_quantize
 from slim.eval import eval_ppl
@@ -107,9 +108,29 @@ def main():
     parser.add_argument("--scale_important_weights", action="store_true",)
     parser.add_argument("--maskllm_checkpoint", type=str, default=None,
                         help="Checkpoint for MaskLLM mask")
+    parser.add_argument("--use_wandb", action="store_true",
+                        help="Enable Weights & Biases logging")
+    parser.add_argument("--wandb_project", type=str, default="SLiM",
+                        help="W&B project name")
+    parser.add_argument("--wandb_run_name", type=str, default=None,
+                        help="W&B run name (optional)")
 
 
     args = parser.parse_args()
+
+    # Initialize wandb if enabled
+    if args.use_wandb:
+        # Create run name if not provided
+        run_name = args.wandb_run_name
+        if run_name is None:
+            model_name = args.model.split("/")[-1]
+            run_name = f"{model_name}-{args.prune_method}-{args.sparsity_ratio}"
+        
+        wandb.init(
+            project=args.wandb_project,
+            name=run_name,
+            config=vars(args)
+        )
 
     # Setting seeds for reproducibility
     np.random.seed(args.seed)
@@ -176,7 +197,7 @@ def main():
     ################################################################
     if args.fine_tune:
         report_gpu_memory("Before Fine-tuning")
-        fine_tune(model, tokenizer, optimizer=args.optimizer)
+        fine_tune(model, tokenizer, optimizer=args.optimizer, use_wandb=args.use_wandb)
         report_gpu_memory("After Fine-tuning")
         print("*" * 30)
     ################################################################
@@ -196,10 +217,20 @@ def main():
             args.eval_batch_size,
         )
         print(f"Perplexity: {ppl_test:.2f}")
+        
+        # Log perplexity to wandb
+        if args.use_wandb:
+            wandb.log({"perplexity": ppl_test})
+        
         print("*" * 30)
     ################################################################
     sparsity_ratio = check_sparsity(model)
     print(f"Model Sparsity Ratio: {sparsity_ratio:.2f}")
+    
+    # Log sparsity ratio to wandb
+    if args.use_wandb:
+        wandb.log({"sparsity_ratio": sparsity_ratio})
+    
     print("*" * 30)
     ################################################################
     
@@ -222,6 +253,10 @@ def main():
         average = np.mean(average)
         lmharness_results["average"] = average
         print("LM Harness Results: ", lmharness_results)
+        
+        # Log LM Harness results to wandb
+        if args.use_wandb:
+            wandb.log(lmharness_results)
 
 
     if args.output_csv_path:
