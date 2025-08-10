@@ -20,3 +20,4 @@ offload/
 mohammad/
 .idea/
 assets/*
+wandb/*
