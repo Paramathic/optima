@@ -113,7 +113,7 @@ def prune_magnitude(
 
     for i in progress_bar:
         progress_bar.set_description(f"Layer {i}")
-        layer = layers[i]
+        layer = layers[i].cuda()
         subset = find_layers(layer)
 
         for name in subset:
@@ -134,7 +134,7 @@ def prune_magnitude(
                     subset[name].scaling_factor = quantizer.scaling_factor
                 else:
                     subset[name].scaling_factor = None
-
+        layer = layer.cpu()
 
 def prune_wanda(
         model,
@@ -890,7 +890,7 @@ def prune_and_quantize(
                 seed,
                 calibration_dataset,
                 pad_lora,
-                scale_important_weights=scale_important_weights
+                scale_important_weights=scale_important_weights,
             )
         elif prune_method == "magnitude":
             if scale_important_weights and quantize_weight:
@@ -949,7 +949,7 @@ def prune_and_quantize(
                 bitwidth,
                 weight_tiled_quantization,
                 weight_tile_size,
-                calibration_dataset
+                calibration_dataset,
             )
         elif prune_method == "joint_pq":
             if weight_tiled_quantization is False:
@@ -977,7 +977,7 @@ def prune_and_quantize(
                 lora_tile_size,
                 separate_lora,
                 pad_lora,
-                scale_important_weights
+                scale_important_weights,
             )
         else:
             raise NotImplementedError(f"Pruning method {prune_method} not implemented")
