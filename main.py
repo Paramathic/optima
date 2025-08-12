@@ -214,17 +214,6 @@ def main():
                                         args.input_group_size,
                                         )
     ################################################################
-    
-    if args.save_model_dir:
-        print("Saving model checkpoint...")
-        os.makedirs(args.save_model_dir, exist_ok=True)
-        ckpt_path = os.path.join(args.save_model_dir, "checkpoint.pth")
-        torch.save(model.state_dict(), ckpt_path)
-        
-        # Also save the config from arguments
-        config_path = os.path.join(args.save_model_dir, "config.json")
-        with open(config_path, "w") as f:
-            json.dump(vars(args), f)
 
     ppl_test = 0.
     if args.evaluate_perplexity:
