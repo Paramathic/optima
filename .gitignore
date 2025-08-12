@@ -21,3 +21,4 @@ mohammad/
 .idea/
 assets/*
 wandb/*
+checkpoints/
