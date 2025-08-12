@@ -130,6 +130,7 @@ def prune_magnitude(
             if quantizer is not None:
                 quantized_weight = quantizer.quantize_weight(subset[name].weight.data)
                 subset[name].weight.data = quantizer.dequantize_absmax(quantized_weight).to(torch.bfloat16)
+                subset[name].register_buffer("quantization_scaling_factor", quantizer.scaling_factor)
                 if not tiled_weight_quantization:
                     subset[name].scaling_factor = quantizer.scaling_factor
                 else:
@@ -285,6 +286,7 @@ def prune_wanda(
                          )
 
                 if quantizer is not None:
+                    subset[name].register_buffer("quantization_scaling_factor", quantizer.scaling_factor)
                     if not tiled_weight_quantization:
                         subset[name].scaling_factor = quantizer.scaling_factor
                     else:
@@ -331,6 +333,7 @@ def prune_wanda(
                         quantized_weight = quantizer.quantize_weight(subset[name].weight.data, important_weights)
                         subset[name].weight.data = quantizer.dequantize_absmax(quantized_weight).to(torch.bfloat16)
                         if quantizer is not None:
+                            subset[name].register_buffer("quantization_scaling_factor", quantizer.scaling_factor)
                             if not tiled_weight_quantization:
                                 subset[name].scaling_factor = quantizer.scaling_factor
                             else:
@@ -342,6 +345,7 @@ def prune_wanda(
                         quantized_weight = quantizer.quantize_weight(subset[name].weight.data, important_weights)
                         subset[name].weight.data = quantizer.dequantize_absmax(quantized_weight).to(torch.bfloat16)
                         if quantizer is not None:
+                            subset[name].register_buffer("quantization_scaling_factor", quantizer.scaling_factor)
                             if not tiled_weight_quantization:
                                 subset[name].scaling_factor = quantizer.scaling_factor
                             else:
@@ -462,6 +466,7 @@ def prune_sparsegpt(
             progress_bar.set_description(f"Layer {i} - Pruning and Quantizing {name}")
             gpts[name].fasterprune(sparsity_ratio, prune_n=prune_n, prune_m=prune_m, percdamp=0.01, blocksize=weight_tile_size)
             if quantize_weight:
+                subset[name].register_buffer("quantization_scaling_factor", 1. / gpts[name].quantizer.scaling_factor)
                 if not tiled_weight_quantization:
                     subset[name].scaling_factor = 1. / gpts[name].quantizer.scale[0]
                 else:
@@ -519,6 +524,7 @@ def quantize_model(
     
     for i in progress_bar:
         layer = layers[i]
+        layer = layer.cuda()
 
         subset = find_layers(layer)
         
@@ -530,6 +536,12 @@ def quantize_model(
             )
             
             subset[name].weight.data = quantized_weight.to(subset[name].weight.dtype)
+            subset[name].register_buffer("quantization_scaling_factor", quantizer.scaling_factor)
+            if not weight_tiled_quantization:
+                subset[name].scaling_factor = quantizer.scaling_factor
+            else:
+                subset[name].scaling_factor = None
+        layer = layer.cpu()
 
 
 def joint_pq(
@@ -700,6 +712,7 @@ def joint_pq(
                             )
 
                 if quantizer is not None:
+                    subset[name].register_buffer("quantization_scaling_factor", quantizer.scaling_factor)
                     subset[name].scaling_factor = None
 
                 if separate_lora:
@@ -739,6 +752,8 @@ def joint_pq(
                 progress_bar.set_description(f"Layer {i} - Quantizing {name}")
                 quantized_weight = quantizer.quantize_weight(subset[name].weight.data, important_weights)
                 subset[name].weight.data = quantizer.dequantize_absmax(quantized_weight).to(torch.bfloat16)
+                subset[name].register_buffer("quantization_scaling_factor", quantizer.scaling_factor)
+                subset[name].scaling_factor = None
 
         inps, outs = outs, inps
         layers[i] = layer.cpu()

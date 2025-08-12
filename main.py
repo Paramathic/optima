@@ -12,6 +12,7 @@ from slim.lora import quantize_lora
 from slim.quantization.quantization import attach_input_quantization_hooks
 from utils.model import get_llm, distribute_model
 from slim.fine_tune import fine_tune
+from slim.save_model import save_model
 import lm_eval
 
 
@@ -114,6 +115,8 @@ def main():
                         help="W&B project name")
     parser.add_argument("--wandb_run_name", type=str, default=None,
                         help="W&B run name (optional)")
+    parser.add_argument("--save_checkpoint_path", type=str, default=None,
+                        help="Directory to save the model checkpoint")
 
 
     args = parser.parse_args()
@@ -124,8 +127,8 @@ def main():
         run_name = args.wandb_run_name
         if run_name is None:
             model_name = args.model.split("/")[-1]
-            run_name = f"{model_name}-{args.prune_method}-{args.sparsity_ratio}"
-        
+            run_name = f"{model_name}_{args.prune_method}_{args.sparsity_ratio}_lora{args.lora_rank}_slimlora{args.slim_lora}_quantlora{args.quantize_lora}_quantweight{args.quantize_weight}_slimquant{args.slim_quant}_finetune{args.fine_tune}"
+
         wandb.init(
             project=args.wandb_project,
             name=run_name,
@@ -261,6 +264,9 @@ def main():
 
     if args.output_csv_path:
         add_result_to_csv(args, ppl_test, lmharness_results)
+
+    if args.save_checkpoint_path is not None:
+        save_model(model, args.save_checkpoint_path)
 
 
 if __name__ == '__main__':

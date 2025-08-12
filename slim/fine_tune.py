@@ -14,13 +14,6 @@ from transformers.testing_utils import CaptureLogger
 from transformers.utils.versions import require_version
 
 
-def dense_linear_forward(module, input):
-    output = torch.matmul(input.half(), module.weight.t())
-    if not module.bias is None:
-        output += module.bias
-    return output.float()
-
-
 def disable_linear_layer_grads(model):
     known_modules = {"Linear", "Conv1d"}
     for name, module in model.named_modules():
