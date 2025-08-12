@@ -1,9 +1,10 @@
 import torch
 import transformers
 from slim.quantization.quantization import Quantizer as AutoQuantizer
+import json
 
 
-def save_model(model, checkpoint_dir):
+def save_model(model, checkpoint_dir, args):
     """
     Save the model to the specified directory.
     
@@ -23,3 +24,7 @@ def save_model(model, checkpoint_dir):
             module.register_buffer("lora_right_quantization_scaling_factor", module.lora_quantizer.scaling_factor)
     
     model.save_pretrained(checkpoint_dir)
+    
+    # Dump the args used to generate this save
+    with open(f"{checkpoint_dir}/args.json", "w") as f:
+        json.dump(vars(args), f)

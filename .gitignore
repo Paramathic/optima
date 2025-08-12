@@ -20,5 +20,8 @@ offload/
 mohammad/
 .idea/
 assets/*
+
+__pycache__
 wandb/*
 checkpoints/
+**/model_out/**

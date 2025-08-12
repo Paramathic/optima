@@ -788,9 +788,11 @@ def prune_and_quantize(
         pad_lora=False,
         scale_important_weights=False,
         mask_checkpoint=None,
+        quant_type=None,
 ):
     """
     Prune and quantize a model and add low-rank adapter to it.
+    Quantize using quant type
 
     Args:
         model: torch.nn.Module - The model to prune and quantize

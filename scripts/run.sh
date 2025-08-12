@@ -1,12 +1,17 @@
 export HF_DATASETS_TRUST_REMOTE_CODE="1"
-export HF_HOME="data"
+# export HF_HOME="data"
+
 export HF_DATASETS_OFFLINE="1"
 export HF_HUB_OFFLINE="1"
 
-HF_TOKEN="--hf_token HF_TOKEN"
+export CUDA_VISIBLE_DEVICES="0"
+
+# HF_TOKEN="--hf_token HUGGINGFACE_ACCESS_TOKEN"
+# HF_TOKEN=""
+
 export WANDB_MODE="offline"
 
-for MODEL_NAME in opt
+for MODEL_NAME in llama3.1 # llama3.2 #opt #llama2 #llama3.1
 do
     if [ $MODEL_NAME == 'llama2' ]
     then
@@ -35,7 +40,6 @@ do
         MODEL_POSTFIX=""
     fi
 
-
     for MODEL_SIZE in $MODEL_SIZE_LIST
     do
         for STRUCTURE in 2:4 #unstructured
@@ -57,6 +61,7 @@ do
                                     SHIFT_ZERO_METRICS='--shift_zero_metrics'
                                     EVAL_DATASET='wikitext2'
                                     BITWIDTH=4
+                                    QUANT_TYPE="--quant_type symmetric"
                                     INPUT_GROUP_SIZE=128
                                     # SLIM_QUANT='--slim_quant'
                                     EVAL_BATCH_SIZE=1
@@ -80,7 +85,7 @@ do
                                     # WANDB="--use_wandb"
                                     SAVE_CHECKPOINT_PATH="--save_checkpoint_path checkpoints/${MODEL_NAME}_${MODEL_SIZE}_${METHOD}_${STRUCTURE}_lr${LORA_RANK}_sparsity${SPARSITY_RATIO}"
 
-                                    CUDA_VISIBLE_DEVICES=0 python main.py \
+                                    python main.py \
                                         --model ${MODEL_PREFIX}${MODEL_SIZE}${MODEL_POSTFIX} \
                                         --prune_method $METHOD \
                                         --sparsity_ratio $SPARSITY_RATIO \
@@ -91,6 +96,7 @@ do
                                         $SHIFT_ZERO_METRICS \
                                         $QUANTIZE_WEIGHT \
                                         --bitwidth $BITWIDTH \
+                                        $QUANT_TYPE
                                         $SLIM_QUANT \
                                         --eval_batch_size $EVAL_BATCH_SIZE \
                                         $SEPARATE_LORA \

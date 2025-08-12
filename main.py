@@ -105,6 +105,7 @@ def main():
     parser.add_argument("--optimizer", type=str, default="adamw_torch",
                         help="Optimizer for fien-tuning models")
     parser.add_argument("--hf_token", type=str, default="")
+
     parser.add_argument("--joint_pq_mixing_factor", type=float, default=2.1)
     parser.add_argument("--scale_important_weights", action="store_true",)
     parser.add_argument("--maskllm_checkpoint", type=str, default=None,
@@ -118,6 +119,7 @@ def main():
     parser.add_argument("--save_checkpoint_path", type=str, default=None,
                         help="Directory to save the model checkpoint")
 
+    parser.add_argument("--quant_type", type=str, default="symmetric", help="Quantization type")
 
     args = parser.parse_args()
 
@@ -183,6 +185,7 @@ def main():
         pad_lora=args.pad_lora,
         scale_important_weights=args.scale_important_weights,
         mask_checkpoint=args.maskllm_checkpoint,
+        quant_type=None,
     )
     report_gpu_memory("After pruning")
 
@@ -211,6 +214,18 @@ def main():
                                         args.input_group_size,
                                         )
     ################################################################
+    
+    if args.save_model_dir:
+        print("Saving model checkpoint...")
+        os.makedirs(args.save_model_dir, exist_ok=True)
+        ckpt_path = os.path.join(args.save_model_dir, "checkpoint.pth")
+        torch.save(model.state_dict(), ckpt_path)
+        
+        # Also save the config from arguments
+        config_path = os.path.join(args.save_model_dir, "config.json")
+        with open(config_path, "w") as f:
+            json.dump(vars(args), f)
+
     ppl_test = 0.
     if args.evaluate_perplexity:
         ppl_test = eval_ppl(
@@ -266,7 +281,7 @@ def main():
         add_result_to_csv(args, ppl_test, lmharness_results)
 
     if args.save_checkpoint_path is not None:
-        save_model(model, args.save_checkpoint_path)
+        save_model(model, args.save_checkpoint_path, args)
 
 
 if __name__ == '__main__':
