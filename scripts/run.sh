@@ -96,7 +96,7 @@ do
                                         $SHIFT_ZERO_METRICS \
                                         $QUANTIZE_WEIGHT \
                                         --bitwidth $BITWIDTH \
-                                        $QUANT_TYPE
+                                        $QUANT_TYPE \
                                         $SLIM_QUANT \
                                         --eval_batch_size $EVAL_BATCH_SIZE \
                                         $SEPARATE_LORA \
