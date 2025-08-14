@@ -167,7 +167,7 @@ of sparse and quantized models on a range of zero-shot tasks using different pru
 table below. The weights (and possibly the adapter) are quantize to 4 bits using symmetric quantization, and the inputs 
 are quantized using 8-bit group quantization. All the group quantization results use a group size of 128.
 
-
+For additional per-task results, please refer to our [Weights & Biases report](https://wandb.ai/mohammad-mozaffari-university-of-toronto/SLiM/reports/SLiM-One-shot-Quantization-and-Sparsity-with-Low-rank-Approximation-for-LLM-Weight-Compression--VmlldzoxMzk2OTY4Ng?accessToken=52z9njwmbnzn2eidqla2ic0p36lyeeyu0zirbwj7nwoljpd9km55ytl95a6b5p3p).
 
 **Notes:**
 - *Best Method* refers to the best quantization method among Group AbsMax, AWQ, OmniQuant, and AffineQuant.
@@ -182,21 +182,21 @@ are quantized using 8-bit group quantization. All the group quantization results
 | **2:4 Sparsity**       |                          |          |          |           |           |           |            |              |               |
 | Magnitude              | Group AbsMax             | 32.19    | 31.94    | 33.82     | 33.43     | 34.81     | 34.68      | 44.64        | 44.18         |
 | SparseGPT              | Group OPTQ               | 33.70    | 33.38    | 38.75     | 40.15     | 44.32     | 45.64      | 45.49        | 51.05         |
-| Wanda                  | Best Method$^*$          | 33.39    | 32.79    | 38.43     | 40.00     | 43.41     | 44.07      | 44.86        | 48.94         |
+| Wanda                  | Best Method<sup>*</sup>  | 33.39    | 32.79    | 38.43     | 40.00     | 43.41     | 44.07      | 44.86        | 48.94         |
 | JSQ                    | JSQ                      | 32.30    | 31.84    | 35.23     | 32.89     | 38.06     | 37.24      | 44.80        | 50.20         |
-| L$^2$QER               | Group AbsMax             | 33.34    | 31.68    | 36.68     | 38.11     | 41.37     | OOM        | 43.77        | OOM           |
-| Naive-LoRA             | Quantization$^W$         | 34.28    | 33.38    | 38.36     | 41.21     | 44.91     | 45.25      | 48.45        | 51.94         |
-| **SLiM-LoRA**          | Quantization$^W$         | **34.62**| **34.36**| **40.61** | **42.73** | 45.99     | 46.09      | **51.15**    | **54.94**     |
-| SLiM-LoRA$^Q$          | Quantization$^W$         | 34.43    | 34.30    | 40.11     | 42.37     | **46.33** | **46.24**  | 51.02        | 53.55         |
+| L<sup>2</sup>QER               | Group AbsMax             | 33.34    | 31.68    | 36.68     | 38.11     | 41.37     | OOM        | 43.77        | OOM           |
+| Naive-LoRA             | Quantization<sup>W</sup>         | 34.28    | 33.38    | 38.36     | 41.21     | 44.91     | 45.25      | 48.45        | 51.94         |
+| **SLiM-LoRA**          | Quantization<sup>W</sup>         | **34.62**| **34.36**| **40.61** | **42.73** | 45.99     | 46.09      | **51.15**    | **54.94**     |
+| SLiM-LoRA<sup>Q</sup>          | Quantization<sup>W</sup>         | 34.43    | 34.30    | 40.11     | 42.37     | **46.33** | **46.24**  | 51.02        | 53.55         |
 | **50% Unstructured**   |                          |          |          |           |           |           |            |              |               |
 | Magnitude              | Group AbsMax             | 33.34    | 33.51    | 32.12     | 39.90     | 36.44     | 32.33      | 47.03        | 51.04         |
 | SparseGPT              | OPTQ                     | 35.10    | 35.13    | 38.72     | 43.43     | 46.97     | 47.38      | 51.09        | 55.94         |
 | Wanda                  | Best Method$^*$          | 35.11    | 33.89    | 41.02     | 42.89     | 46.52     | 46.84      | 53.62        | 56.76         |
 | JSQ                    | JSQ                      | 32.14    | 30.34    | 38.86     | 35.48     | 42.75     | 30.73      | 52.25        | 57.00         |
-| L$^2$QER               | Group AbsMax             | 34.45    | 34.45    | 38.38     | 41.28     | 45.08     | OOM        | 50.60        | OOM           |
-| Naive-LoRA             | Quantization$^W$         | 34.77    | 34.23    | 40.40     | 43.37     | 46.64     | 47.30      | 51.52        | 55.33         |
-| **SLiM-LoRA**          | Quantization$^W$         | 35.20    | **35.32**| **41.85** | 43.48     | 47.08     | **47.96**  | **54.26**    | **57.85**     |
-| SLiM-LoRA$^Q$          | Quantization$^W$         | **35.35**| 35.13    | 41.74     | **43.63** | **47.16** | 47.86      | 54.18        | 57.33         |
+| L<sup>2</sup>QER               | Group AbsMax             | 34.45    | 34.45    | 38.38     | 41.28     | 45.08     | OOM        | 50.60        | OOM           |
+| Naive-LoRA             | Quantization<sup>W</sup>         | 34.77    | 34.23    | 40.40     | 43.37     | 46.64     | 47.30      | 51.52        | 55.33         |
+| **SLiM-LoRA**          | Quantization<sup>W</sup>         | 35.20    | **35.32**| **41.85** | 43.48     | 47.08     | **47.96**  | **54.26**    | **57.85**     |
+| SLiM-LoRA<sup>Q</sup>          | Quantization<sup>W</sup>         | **35.35**| 35.13    | 41.74     | **43.63** | **47.16** | 47.86      | 54.18        | 57.33         |
 
 ## Function Documentation
 Here we provide a brief description of a few of the main functions in our code base. For details about the other 
@@ -259,9 +259,9 @@ integrated in [vLLM](https://github.com/vllm-project/vllm) in our code. The foll
 figures show the SLiM's speedup with FP16 and INT4 low-rank adapters on NVIDIA RTX-3060 and
 A100 GPUs. The bright part shows the contribution of the quantization to the total speedup.
 
-<img src="./assets/rtx3060_speedup.png" alt="RTX-3060 Speedup" width="600">
+<img src="./assets/rtx3060_speedup.svg" alt="RTX-3060 Speedup" width="600">
 
-<img src="./assets/a100_speedup.png" alt="A100 Speedup" width="600">
+<img src="./assets/a100_speedup.svg" alt="A100 Speedup" width="600">
 
 ### End-to-End Model Speedup
 
