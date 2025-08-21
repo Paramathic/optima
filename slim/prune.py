@@ -12,6 +12,11 @@ from .jsq_utils import clip_matrix, generate_ss
 from .smooth import smooth_layer
 from huggingface_hub import hf_hub_download
 import numpy as np
+import gc
+import jax
+import jax.numpy as jnp
+from mpax import create_qp, raPDHG
+import numpy as np
 
 
 def prepare_calibration_input(
@@ -47,6 +52,8 @@ def prepare_calibration_input(
         def __init__(self, module):
             super().__init__()
             self.module = module
+            if hasattr(module, "attention_type"):
+                self.attention_type = module.attention_type
 
         def forward(self, inp, **kwargs):
             inps[cache['i']] = inp.to(input_device)
@@ -161,6 +168,9 @@ def prune_wanda(
         pad_lora=False,
         quantize_first=True,
         scale_important_weights=False,
+        update_weights=True,
+        use_qp_solver=True,
+        double_precision=False,
 ):
     """
     Prune a model using WANDA and quantize weights using SLiM-Quant or AbsMax and add low-rank adapter using SLiM or SVD.
@@ -186,6 +196,12 @@ def prune_wanda(
         nsamples: int - The number of samples to use for calibration
         seed: int - The seed to use for calibration
         calibration_dataset: str - The dataset to use for calibration
+        pad_lora: bool - Whether to pad the LoRA weights
+        quantize_first: bool - Whether to quantize the weights before or after pruning
+        scale_important_weights: bool - Whether to scale the important weights
+        update_weights: bool - Whether to update weights during pruning
+        use_qp_solver: bool - Whether to use quadratic programming solver
+        double_precision: bool - Whether to use double precision for calculations
 
     Returns:
         None
@@ -226,10 +242,17 @@ def prune_wanda(
         wrapped_layers = {}
         for name in subset:
             wrapped_layers[name] = WrappedGPT(subset[name])
+            if update_weights:
+                wrapped_layers[name].inputs = []
+                wrapped_layers[name].outputs = []
+                wrapped_layers[name].original_weight = subset[name].weight.data.clone().detach()
 
         def add_batch(name):
             def tmp(_, inp, out):
                 wrapped_layers[name].add_batch(inp[0].data, out.data)
+                if update_weights:
+                    wrapped_layers[name].inputs.append(inp[0].clone().detach().cpu())
+                    wrapped_layers[name].outputs.append(out.clone().detach().cpu())
 
             return tmp
 
@@ -350,7 +373,159 @@ def prune_wanda(
                                 subset[name].scaling_factor = quantizer.scaling_factor
                             else:
                                 subset[name].scaling_factor = None
+            if update_weights:
+                if use_qp_solver:
+                    with torch.no_grad():
+                        device = "cuda"
 
+                        def compute_error(weight):
+                            with torch.no_grad():
+                                errors = []
+                                for (x, y) in zip(wrapped_layers[name].inputs, wrapped_layers[name].outputs):
+                                    y_hat = torch.matmul(x.cuda(), weight.t())
+                                    errors.append(torch.nn.functional.mse_loss(y_hat, y.cuda()).item())
+                            return np.mean(errors)
+                        
+                        init_loss = compute_error(subset[name].weight.cuda())
+
+                        input_cov = torch.zeros((wrapped_layers[name].inputs[0].shape[-1], wrapped_layers[name].inputs[0].shape[-1]), device=device)
+                        for x in wrapped_layers[name].inputs:
+                            x = x.view(-1, x.shape[-1]).cuda()
+                            input_cov += torch.matmul(x.t(), x) / len(wrapped_layers[name].inputs) / x.shape[0]
+                        def single_optimize(c_vector, G_matrix, h_vector, l_vector, u_vector, Q_matrix, A_matrix, b_vector):
+                            """Optimize a single QP problem."""
+                            # print("Q:", Q_matrix)
+                            # print("c:", c_vector)
+                            # print("A:", A_matrix)
+                            # print("b:", b_vector)
+                            # print("G:", G_matrix)
+                            # print("h:", h_vector)
+                            # print("l:", l_vector)
+                            # print("u:", u_vector)
+                            # exit()
+                            qp = create_qp(Q_matrix, c_vector, A_matrix, b_vector, G_matrix, h_vector, l_vector, u_vector, use_sparse_matrix=False)
+                            solver = raPDHG(eps_abs=1e-4, eps_rel=1e-4, verbose=False)  # Set verbose=False for batch processing
+                            result = solver.optimize(qp)
+
+                            # Calculate objective value: 1/2 x' Q x + c' x
+                            obj = 0.5 * jnp.dot(result.primal_solution, jnp.dot(Q_matrix, result.primal_solution)) + jnp.dot(c_vector, result.primal_solution)
+                            return result.primal_solution, obj
+                        dtype = torch.float64 if double_precision else torch.float32
+                        jax.config.update("jax_enable_x64", double_precision)
+                        weight = wrapped_layers[name].original_weight.clone().to(dtype).cuda()
+                        # For each row of weight (w), minimize
+                        # w @ input_cov @ w + 0
+                        # s.t. w[w_mask] = 0
+                        Q_torch = input_cov.to(dtype)
+                        Q = jnp.asarray(Q_torch)  # Shared Q matrix
+
+                        n_params = Q.shape[0]
+                        
+                        c_torch = torch.zeros(n_params, device=device, dtype=dtype)
+                        c = jnp.asarray(c_torch)
+
+                        A_torch = torch.zeros(1, n_params, device=device, dtype=dtype)
+                        b_torch = torch.zeros(1, device=device, dtype=dtype)
+                        A = jnp.asarray(A_torch)  # Zero A matrix
+                        b = jnp.asarray(b_torch)  # Zero b vector
+
+                        batch_optimize = jax.vmap(single_optimize, in_axes=(None, 0, 0, 0, 0, None, None, None))
+
+                        # Process in mini-batches
+                        all_solutions = []
+                        all_objectives = []
+
+                        batch_size = weight.shape[0]
+                        mini_batch_size = max(1, 128 * 1024 * 1024 // (weight.shape[1] ** 2))
+                        tuning_progress_bar = tqdm.tqdm(range(0, batch_size, mini_batch_size), desc="Tuning Progress")
+
+                        for start_idx in tuning_progress_bar:
+                            end_idx = min(start_idx + mini_batch_size, batch_size)
+                            current_mini_batch_size = end_idx - start_idx
+                                                
+                            
+                            l_torch_mini = torch.full((current_mini_batch_size, n_params), -float('inf'), device=device, dtype=dtype)
+                            u_torch_mini = torch.full((current_mini_batch_size, n_params), float('inf'), device=device, dtype=dtype)
+                            
+                            G_torch_mini = torch.ones((current_mini_batch_size, 1, n_params), device=device, dtype=dtype)
+                            h_torch_mini = -torch.ones((current_mini_batch_size, 1), device=device, dtype=dtype) * 1e5
+                            # For each sample in mini-batch, randomly select variables to have equality constraints
+                            for row in range(current_mini_batch_size):
+                                eq_indices = W_mask[start_idx + row, :]
+                                l_torch_mini[row, eq_indices] = -weight[start_idx+row, :][eq_indices].clone()
+                                u_torch_mini[row, eq_indices] = -weight[start_idx+row, :][eq_indices].clone() + 1e-5
+
+                            # Convert mini-batch tensors to JAX arrays
+                            G_mini = jnp.asarray(G_torch_mini)
+                            h_mini = jnp.asarray(h_torch_mini)
+                            l_mini = jnp.asarray(l_torch_mini)
+                            u_mini = jnp.asarray(u_torch_mini)
+
+                            torch.cuda.empty_cache()  # Clear GPU memory if using CUDA
+
+                            # Solve mini-batch of QP problems
+                            tuning_progress_bar.set_description(f"Solving mini-batch {start_idx // mini_batch_size + 1}/{(batch_size + mini_batch_size - 1) // mini_batch_size}")
+                            solutions_mini, objectives_mini = batch_optimize(c, G_mini, h_mini, l_mini, u_mini, Q, A, b)
+                            solutions_mini = np.asarray(solutions_mini)
+                            solutions_mini = torch.from_numpy(solutions_mini).to(dtype=torch.bfloat16).to(device)
+                            # print("R", solutions_mini)
+                            # print("W", weight[start_idx, :])
+                            # print("W + R", weight[start_idx, :] + solutions_mini)
+                            all_solutions.append(solutions_mini)
+                            all_objectives.append(objectives_mini)
+
+                        all_solutions = torch.cat(all_solutions, dim=0)
+                        best_weight = weight.to(torch.bfloat16) + all_solutions
+                        best_weight[W_mask] = 0  ## set weights to zero
+
+                        final_loss = compute_error(best_weight)
+
+                        #Delete all the variables
+                        del G_torch_mini, h_torch_mini, l_torch_mini, u_torch_mini
+                        del G_mini, h_mini, l_mini, u_mini
+                        del c_torch, c, A_torch, b_torch, A, b
+                        del Q_torch, Q
+                        del weight, solutions_mini, all_solutions, all_objectives
+                        torch.cuda.empty_cache()
+                        gc.collect()
+
+                        print(f"Init Loss: {init_loss}, Final Loss: {final_loss}")
+
+                else:
+                    num_steps = 20
+                    best_loss = torch.inf
+                    best_weight = None
+                    for lr in [1e-2, 1e-3, 1e-4, 1e-5]:
+                        weight = torch.nn.Parameter(subset[name].weight.data.clone().cuda())
+                        optimizer = torch.optim.Adam([weight], lr=lr)
+                        scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1.0, end_factor=0.0, total_iters=num_steps)
+                        tuning_progress_bar = tqdm.tqdm(range(num_steps), desc="Tuning Progress")
+                        init_loss = None
+                        for step in tuning_progress_bar:
+                            avg_loss = 0
+                            for (x, y) in zip(wrapped_layers[name].inputs, wrapped_layers[name].outputs):
+                                output = x.cuda() @ weight.t()
+                                loss = torch.nn.functional.mse_loss(output, y.cuda())
+                                loss.backward()
+                                avg_loss += loss.item()
+                            avg_loss /= len(wrapped_layers[name].inputs)
+                            optimizer.step()
+                            scheduler.step()
+                            optimizer.zero_grad()
+                            weight.data[W_mask] = 0  ## set weights to zero
+                            if init_loss is None:
+                                init_loss = avg_loss
+                            tuning_progress_bar.set_postfix({"init_loss": init_loss, "loss": avg_loss, "lr": lr})
+                        if avg_loss < best_loss:
+                            best_loss = avg_loss
+                            best_weight = weight.data.clone().detach()
+
+                subset[name].weight.data = best_weight.to(subset[name].weight.dtype)
+
+                wrapped_layers[name].inputs = []
+                wrapped_layers[name].outputs = []
+                del wrapped_layers[name].original_weight
+                gc.collect()
 
         progress_bar.set_description(f"Layer {i} - Evaluating Output")
 
@@ -789,6 +964,9 @@ def prune_and_quantize(
         scale_important_weights=False,
         mask_checkpoint=None,
         quant_type=None,
+        update_weights=True,
+        use_qp_solver=True,
+        double_precision=False,
 ):
     """
     Prune and quantize a model and add low-rank adapter to it.
@@ -819,6 +997,10 @@ def prune_and_quantize(
         pad_lora: bool - Whether to pad the low-rank adapter to the quantization tile size (whithout quantizing)
         scale_important_weights: bool - Whether to scale the important weights before quantization,
         mask_checkpoint: str - The checkpoint to use for MaskLLM pruning
+        quant_type: str - The quantization type to use
+        update_weights: bool - Whether to update weights during pruning
+        use_qp_solver: bool - Whether to use quadratic programming solver
+        double_precision: bool - Whether to use double precision for calculations
 
     Returns:
         None
@@ -908,6 +1090,9 @@ def prune_and_quantize(
                 calibration_dataset,
                 pad_lora,
                 scale_important_weights=scale_important_weights,
+                update_weights=update_weights,
+                use_qp_solver=use_qp_solver,
+                double_precision=double_precision,
             )
         elif prune_method == "magnitude":
             if scale_important_weights and quantize_weight:

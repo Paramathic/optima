@@ -19,7 +19,8 @@ import lm_eval
 CSV_COLUMNS = ["model", "prune_method", "sparsity_ratio", "sparsity_type", "lora_rank",
                "slim_lora", "shift_zero_metrics", "prune_lora", "quantize_lora", "lora_tile_size", "eval_dataset",
                "quantize_weight", "bitwidth", "tiled_weight_quantization", "weight_tile_size", "quantize_input",
-               "input_bitwidth", "input_group_size", "fine_tune", "optimizer", "slim_quant", "perplexity",
+               "input_bitwidth", "input_group_size", "fine_tune", "optimizer", "slim_quant", "update_weights",
+               "use_qp_solver", "double_precision", "perplexity",
                "mmlu", "piqa", "arc_easy", "arc_challenge", "winogrande", "openbookqa", "average"]
 
 
@@ -108,6 +109,12 @@ def main():
 
     parser.add_argument("--joint_pq_mixing_factor", type=float, default=2.1)
     parser.add_argument("--scale_important_weights", action="store_true",)
+    parser.add_argument("--update_weights", action="store_true", default=True,
+                        help="Whether to update weights during pruning")
+    parser.add_argument("--use_qp_solver", action="store_true", default=True,
+                        help="Whether to use quadratic programming solver")
+    parser.add_argument("--double_precision", action="store_true", default=False,
+                        help="Whether to use double precision for calculations")
     parser.add_argument("--maskllm_checkpoint", type=str, default=None,
                         help="Checkpoint for MaskLLM mask")
     parser.add_argument("--use_wandb", action="store_true",
@@ -186,6 +193,9 @@ def main():
         scale_important_weights=args.scale_important_weights,
         mask_checkpoint=args.maskllm_checkpoint,
         quant_type=None,
+        update_weights=args.update_weights,
+        use_qp_solver=args.use_qp_solver,
+        double_precision=args.double_precision,
     )
     report_gpu_memory("After pruning")
 
