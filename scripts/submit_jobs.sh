@@ -2,22 +2,22 @@
 
 # --- Configuration ---
 # Define the ranges for your hyperparameters
-MODEL_NAMES=("llama2" "opt")
+MODEL_NAMES=("llama3.2" "gemma2" "gemma3")
 STRUCTURE=("2:4" "unstructured")
 SPARSITY_RATIO=(0.5)
 METHOD=(wanda)
-LORA_RANK=(0.1)
+LORA_RANK=(0.0)
 SLIM_LORA=(true)
 SEPARATE_LORA=true
-QUANTIZE_LORA=(true false)
+QUANTIZE_LORA=(false)
 LORA_TILE_SIZE=128
 PAD_LORA=true
 CALIBRATION_DATASET="c4"
 NUM_CALIBRATION_SAMPLES=128
-QUANTIZE_WEIGHT=(true false)
+QUANTIZE_WEIGHT=(false)
 BITWIDTH=4
 WEIGHT_TILE_SIZE=128
-SLIM_QUANT=(true false)
+SLIM_QUANT=(false)
 LOCAL_FILES_ONLY=true
 EVAL_DATASET="wikitext2"
 EVALUATE_PERPLEXITY=true
@@ -32,14 +32,18 @@ INPUT_GROUP_SIZE=-1
 JOINT_PQ_MIXING_FACTOR=2.1
 WANDB=true
 HF_TOKEN="HF_TOKEN_PLACEHOLDER"
-OUTPUT_CSV_FILE="results/results.csv"
+OUTPUT_CSV_FILE="results/qp.csv"
+USE_QP_SOLVER=true
+UPDATE_WEIGHTS=true
+DOUBLE_PRECISION=false
+CLUSTER="trillium"
 
 
 NGPUS_PER_NODE=1
 NTASKS_PER_NODE=$((12 * NGPUS_PER_NODE))
 MEM=$((64 * NGPUS_PER_NODE))
 GPU_TYPE=""
-TIME="4:00:00"
+# TIME="6:00:00"
 
 
 for MODEL_NAME in "${MODEL_NAMES[@]}"
@@ -59,6 +63,7 @@ do
         MODEL_PREFIX=meta-llama/Llama-3.2-
         MODEL_SIZE_LIST='1B 3B'
         MODEL_POSTFIX=''
+        TIME="6:30:00"
     elif [ $MODEL_NAME == 'llama3.1' ]
     then
         MODEL_PREFIX=meta-llama/Llama-3.1-
@@ -69,11 +74,13 @@ do
         MODEL_PREFIX=google/gemma-2-
         MODEL_SIZE_LIST='2b'
         MODEL_POSTFIX=''
+        TIME="10:00:00"
     elif [ $MODEL_NAME == 'gemma3' ]
     then
         MODEL_PREFIX=google/gemma-3-
-        MODEL_SIZE_LIST='1b 4b'
+        MODEL_SIZE_LIST='1b'
         MODEL_POSTFIX='-pt'
+        TIME="6:00:00"
     fi
 
     # --- Loop through hyperparameter combinations ---
@@ -105,11 +112,10 @@ do
                                         # Construct the arguments for the script
                                         
 
-                                        sbatch --account=def-mmehride \
+                                        sbatch --account=rrg-mmehride \
                                             --job-name="${GPU_TYPE}${JOB_NAME}" \
                                             --gpus-per-node=${NGPUS_PER_NODE} \
                                             --ntasks-per-node=${NTASKS_PER_NODE} \
-                                            --mem=${MEM}G \
                                             --time=${TIME} \
                                             scripts/job_template.sh \
                                             "${MODEL_PREFIX}${MODEL_SIZE}${MODEL_POSTFIX}" \
@@ -144,7 +150,11 @@ do
                                             "${WANDB}" \
                                             "${HF_TOKEN}" \
                                             "${SAVE_CHECKPOINT_PATH}" \
-                                            "${OUTPUT_CSV_FILE}"
+                                            "${OUTPUT_CSV_FILE}" \
+                                            "${USE_QP_SOLVER}" \
+                                            "${UPDATE_WEIGHTS}" \
+                                            "${DOUBLE_PRECISION}" \
+                                            "${CLUSTER}"
 
                                     done
                                 done

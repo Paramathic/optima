@@ -109,9 +109,9 @@ def main():
 
     parser.add_argument("--joint_pq_mixing_factor", type=float, default=2.1)
     parser.add_argument("--scale_important_weights", action="store_true",)
-    parser.add_argument("--update_weights", action="store_true", default=True,
+    parser.add_argument("--update_weights", action="store_true", default=False,
                         help="Whether to update weights during pruning")
-    parser.add_argument("--use_qp_solver", action="store_true", default=True,
+    parser.add_argument("--use_qp_solver", action="store_true", default=False,
                         help="Whether to use quadratic programming solver")
     parser.add_argument("--double_precision", action="store_true", default=False,
                         help="Whether to use double precision for calculations")

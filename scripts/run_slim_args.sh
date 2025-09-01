@@ -41,6 +41,9 @@ WANDB="${30:-'true'}"
 HF_TOKEN="${31:-""}"
 SAVE_CHECKPOINT_PATH="${32:-""}"
 OUTPUT_CSV_FILE="${33:-'results/results.csv'}"
+USE_QP_SOLVER="${34:-'false'}"
+UPDATE_WEIGHTS="${35:-'false'}"
+DOUBLE_PRECISION="${36:-'false'}"
 
 
 if [ "$SLIM_LORA" = "true" ]; then
@@ -144,6 +147,23 @@ else
     MASKLLM_CHECKPOINT=""
 fi
 
+if [ "$USE_QP_SOLVER" = "true" ]; then
+    USE_QP_SOLVER='--use_qp_solver'
+else
+    USE_QP_SOLVER=""
+fi
+
+if [ "$UPDATE_WEIGHTS" = "true" ]; then
+    UPDATE_WEIGHTS='--update_weights'
+else
+    UPDATE_WEIGHTS=""
+fi
+
+if [ "$DOUBLE_PRECISION" = "true" ]; then
+    DOUBLE_PRECISION='--double_precision'
+else
+    DOUBLE_PRECISION=""
+fi
 
 SHIFT_ZERO_METRICS='--shift_zero_metrics'
 EVAL_BATCH_SIZE=1

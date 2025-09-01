@@ -38,6 +38,10 @@ ARG_WANDB="${30:-'true'}"
 ARG_HF_TOKEN="${31:-""}"
 ARG_SAVE_CHECKPOINT_PATH="${32:-'checkpoints/${ARG_MODEL_NAME}_${ARG_METHOD}_${ARG_STRUCTURE}_lr${ARG_LORA_RANK}_sparsity${ARG_SPARSITY_RATIO}'}"
 ARG_OUTPUT_CSV_FILE="${33:-'results/results.csv'}"
+ARG_USE_QP_SOLVER="${34:-'false'}"
+ARG_UPDATE_WEIGHTS="${35:-'false'}"
+ARG_DOUBLE_PRECISION="${36:-'false'}"
+ARG_CLUSTER="${37:-'trillium'}"
 
 
 SCRIPT_TO_RUN=scripts/run_slim_args.sh
@@ -53,41 +57,51 @@ mkdir -p "$HF_HOME"
 USERNAME=$(whoami)
 
 
-# --- Data and Container Preparation ---
-if [ "$ARG_COPY_DATA" = true ]; then
-    echo "Copying data to SLURM_TMPDIR..."
-    DATA_DIR_SRC="/home/${USERNAME}/projects/def-mmehride/${USERNAME}/data"
-    DATA_DIR_TMP="$SLURM_TMPDIR/data"
-    cp -r "$DATA_DIR_SRC" "$SLURM_TMPDIR/"
-    echo "Data copied to $DATA_DIR_TMP"
+if [ "$ARG_CLUSTER" = "trillium" ]; then
+    echo "Running on Trillium cluster"
+    CONTAINER_NAME=torch-jax
+    DATA_DIR_SRC="${SCRATCH}/data"
+    # Additional setup for Trillium can go here
+    SINGULARITY_CMD="singularity exec \
+        --fakeroot \
+        --bind $DATA_DIR_SRC:$PWD/data \
+        --nv ${SCRATCH}/$CONTAINER_NAME.sif "
+elif [ "$ARG_CLUSTER" = "narval" ]; then
+    echo "Running on Narval cluster"
+    # --- Data and Container Preparation ---
+    if [ "$ARG_COPY_DATA" = true ]; then
+        echo "Copying data to SLURM_TMPDIR..."
+        DATA_DIR_SRC="/home/${USERNAME}/projects/def-mmehride/${USERNAME}/data"
+        DATA_DIR_TMP="$SLURM_TMPDIR/data"
+        cp -r "$DATA_DIR_SRC" "$SLURM_TMPDIR/"
+        echo "Data copied to $DATA_DIR_TMP"
+        CONTAINER_NAME=torch-one-shot
+
+        SINGULARITY_CMD="singularity exec \
+            --bind $PWD:/home/${USERNAME} \
+            --bind $SLURM_TMPDIR:/tmp \
+            --bind $DATA_DIR_TMP:/home/${USERNAME}/data \
+            --nv ${SLURM_TMPDIR}/$CONTAINER_NAME.sif "
+    else
+        echo "Skipping data copy as per user request."
+        DATA_DIR_TMP="/home/${USERNAME}/projects/def-mmehride/${USERNAME}/data" # Use the original data directory
+    fi
+
+    echo "Preparing container..."
+    rm -rf $SLURM_TMPDIR/torch-one-shot.sif;
+    mkdir ${SLURM_TMPDIR}/torch-one-shot.sif;
+    tar -xf /home/${USERNAME}/projects/def-mmehride/${USERNAME}/torch-one-shot.tar -C $SLURM_TMPDIR;
+    mkdir ${SLURM_TMPDIR}/torch-one-shot.sif/etc/pki;
+    mkdir ${SLURM_TMPDIR}/torch-one-shot.sif/etc/pki/tls;
+    mkdir ${SLURM_TMPDIR}/torch-one-shot.sif/etc/pki/tls/certs;
+    cp /etc/ssl/certs/ca-bundle.crt ${SLURM_TMPDIR}/torch-one-shot.sif/etc/pki/tls/certs/ca-bundle.crt;
 else
-    echo "Skipping data copy as per user request."
-    DATA_DIR_TMP="/home/${USERNAME}/projects/def-mmehride/${USERNAME}/data" # Use the original data directory
+    echo "Unknown cluster specified: $ARG_CLUSTER. Exiting."
+    exit 1
 fi
-
-echo "Preparing container..."
-rm -rf $SLURM_TMPDIR/torch-one-shot.sif;
-mkdir ${SLURM_TMPDIR}/torch-one-shot.sif;
-tar -xf /home/${USERNAME}/projects/def-mmehride/${USERNAME}/torch-one-shot.tar -C $SLURM_TMPDIR;
-mkdir ${SLURM_TMPDIR}/torch-one-shot.sif/etc/pki;
-mkdir ${SLURM_TMPDIR}/torch-one-shot.sif/etc/pki/tls;
-mkdir ${SLURM_TMPDIR}/torch-one-shot.sif/etc/pki/tls/certs;
-cp /etc/ssl/certs/ca-bundle.crt ${SLURM_TMPDIR}/torch-one-shot.sif/etc/pki/tls/certs/ca-bundle.crt;
-
-# --- Execute inside Singularity ---
-echo "Executing run_experiment.sh inside Singularity..."
-singularity exec \
-    --bind $PWD:/home/${USERNAME} \
-    --bind $SLURM_TMPDIR:/tmp \
-    --nv \
-    ${SLURM_TMPDIR}/torch-one-shot.sif \
-    mkdir -p /home/${USERNAME}/data
     
-singularity exec \
-    --bind $PWD:/home/${USERNAME} \
-    --bind $SLURM_TMPDIR:/tmp \
-    --bind $DATA_DIR_TMP:/home/${USERNAME}/data \
-    --nv ${SLURM_TMPDIR}/torch-one-shot.sif \
+    
+bash ${SINGULARITY_CMD} \
     bash "${SCRIPT_TO_RUN}" \
     "${ARG_MODEL_NAME}" \
     "${ARG_STRUCTURE}" \
@@ -121,7 +135,10 @@ singularity exec \
     "${ARG_WANDB}" \
     "${ARG_HF_TOKEN}" \
     "${ARG_SAVE_CHECKPOINT_PATH}" \
-    "${ARG_OUTPUT_CSV_FILE}"
+    "${ARG_OUTPUT_CSV_FILE}" \
+    "${ARG_USE_QP_SOLVER}" \
+    "${ARG_UPDATE_WEIGHTS}" \
+    "${ARG_DOUBLE_PRECISION}"
 
 echo $ARG_WANDB
 
