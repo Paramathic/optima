@@ -56,6 +56,8 @@ def get_layers_list(model):
                 raise NotImplementedError
     elif hasattr(model, "transformer"):
         layers = model.transformer.h
+    elif hasattr(model, "layers"):
+            layers = model.layers
     else:
         raise NotImplementedError
     return layers

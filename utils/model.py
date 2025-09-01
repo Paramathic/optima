@@ -30,7 +30,10 @@ def get_llm(model_name,
         },
     )
     # We load the model back to CPU for pruning and other manipulations
-    model = lm_eval_model._model
+    if hasattr(lm_eval_model.model, "language_model"):
+        model = lm_eval_model.model.language_model
+    else:
+        model = lm_eval_model.model
     model.device_map = deepcopy(model.hf_device_map)
     model = dispatch_model(model, device_map={"": "cpu"})
     remove_hook_from_submodules(model)
