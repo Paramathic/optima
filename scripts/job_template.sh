@@ -42,6 +42,7 @@ ARG_USE_QP_SOLVER="${34:-'false'}"
 ARG_UPDATE_WEIGHTS="${35:-'false'}"
 ARG_DOUBLE_PRECISION="${36:-'false'}"
 ARG_CLUSTER="${37:-'trillium'}"
+ARG_SKIP_ATTENTION="${38:-'false'}"
 
 
 SCRIPT_TO_RUN=scripts/run_slim_args.sh
@@ -138,7 +139,8 @@ bash ${SINGULARITY_CMD} \
     "${ARG_OUTPUT_CSV_FILE}" \
     "${ARG_USE_QP_SOLVER}" \
     "${ARG_UPDATE_WEIGHTS}" \
-    "${ARG_DOUBLE_PRECISION}"
+    "${ARG_DOUBLE_PRECISION}" \
+    "${ARG_SKIP_ATTENTION}"
 
 echo $ARG_WANDB
 

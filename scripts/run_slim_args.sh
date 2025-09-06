@@ -44,6 +44,7 @@ OUTPUT_CSV_FILE="${33:-'results/results.csv'}"
 USE_QP_SOLVER="${34:-'false'}"
 UPDATE_WEIGHTS="${35:-'false'}"
 DOUBLE_PRECISION="${36:-'false'}"
+SKIP_ATTENTION="${37:-'false'}"
 
 
 if [ "$SLIM_LORA" = "true" ]; then
@@ -165,6 +166,12 @@ else
     DOUBLE_PRECISION=""
 fi
 
+if [ "$SKIP_ATTENTION" = "true" ]; then
+    SKIP_ATTENTION='--skip_attention'
+else
+    SKIP_ATTENTION=""
+fi
+
 SHIFT_ZERO_METRICS='--shift_zero_metrics'
 EVAL_BATCH_SIZE=1
 
@@ -204,4 +211,8 @@ python main.py \
     $SCALE_IMPORTANT_WEIGHTS \
     $MASKLLM_CHECKPOINT \
     $WANDB \
-    $SAVE_CHECKPOINT_PATH 
+    $SAVE_CHECKPOINT_PATH \
+    $USE_QP_SOLVER\
+    $UPDATE_WEIGHTS \
+    $DOUBLE_PRECISION \
+    $SKIP_ATTENTION

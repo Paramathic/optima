@@ -2,10 +2,10 @@
 
 # --- Configuration ---
 # Define the ranges for your hyperparameters
-MODEL_NAMES=("llama3.2" "gemma2" "gemma3")
-STRUCTURE=("2:4" "unstructured")
+MODEL_NAMES=("gemma3")
+STRUCTURE=("2:4")
 SPARSITY_RATIO=(0.5)
-METHOD=(wanda)
+METHOD=(maskllm)
 LORA_RANK=(0.0)
 SLIM_LORA=(true)
 SEPARATE_LORA=true
@@ -25,18 +25,19 @@ TEST_LMHARNESS=true
 FINE_TUNE=(false)
 OPTIMIZER="adafactor"
 SCALE_IMPORTANT_WEIGHTS=false
-MASKLLM_CHECKPOINT="MASKLLM_CHECKPOINT_PLACEHOLDER"
+MASKLLM_CHECKPOINT="tiled_models/gemma_3_1b_maskllm.pt"
 QUANTIZE_INPUT=false
 INPUT_BITWIDTH=8
 INPUT_GROUP_SIZE=-1
 JOINT_PQ_MIXING_FACTOR=2.1
 WANDB=true
 HF_TOKEN="HF_TOKEN_PLACEHOLDER"
-OUTPUT_CSV_FILE="results/qp.csv"
+OUTPUT_CSV_FILE="results/maskllm_qp.csv"
 USE_QP_SOLVER=true
 UPDATE_WEIGHTS=true
 DOUBLE_PRECISION=false
 CLUSTER="trillium"
+SKIP_ATTENTION=false
 
 
 NGPUS_PER_NODE=1
@@ -61,9 +62,9 @@ do
     elif [ $MODEL_NAME == 'llama3.2' ]
     then
         MODEL_PREFIX=meta-llama/Llama-3.2-
-        MODEL_SIZE_LIST='1B 3B'
+        MODEL_SIZE_LIST='1B'
         MODEL_POSTFIX=''
-        TIME="6:30:00"
+        TIME="16:00:00"
     elif [ $MODEL_NAME == 'llama3.1' ]
     then
         MODEL_PREFIX=meta-llama/Llama-3.1-
@@ -74,13 +75,13 @@ do
         MODEL_PREFIX=google/gemma-2-
         MODEL_SIZE_LIST='2b'
         MODEL_POSTFIX=''
-        TIME="10:00:00"
+        TIME="24:00:00"
     elif [ $MODEL_NAME == 'gemma3' ]
     then
         MODEL_PREFIX=google/gemma-3-
         MODEL_SIZE_LIST='1b'
         MODEL_POSTFIX='-pt'
-        TIME="6:00:00"
+        TIME="16:00:00"
     fi
 
     # --- Loop through hyperparameter combinations ---
@@ -110,7 +111,6 @@ do
                                         JOB_NAME=${MODEL_NAME}_${MODEL_SIZE}_${METHOD}_${STRUCTURE}_lr${LORA_RANK}_sparsity${SPARSITY_RATIO}_slimlora${SLIM_LORA}_quantlora${QUANTIZE_LORA}_quantweight${QUANTIZE_WEIGHT}_slimquant${SLIM_QUANT}_finetune${FINE_TUNE}
                                         SAVE_CHECKPOINT_PATH="checkpoints/${MODEL_NAME}_${MODEL_SIZE}_${METHOD}_${STRUCTURE}_lr${LORA_RANK}_sparsity${SPARSITY_RATIO}_slimlora${SLIM_LORA}_quantlora${QUANTIZE_LORA}_quantweight${QUANTIZE_WEIGHT}_slimquant${SLIM_QUANT}_finetune${FINE_TUNE}"
                                         # Construct the arguments for the script
-                                        
 
                                         sbatch --account=rrg-mmehride \
                                             --job-name="${GPU_TYPE}${JOB_NAME}" \
@@ -154,7 +154,8 @@ do
                                             "${USE_QP_SOLVER}" \
                                             "${UPDATE_WEIGHTS}" \
                                             "${DOUBLE_PRECISION}" \
-                                            "${CLUSTER}"
+                                            "${CLUSTER}" \
+                                            "${SKIP_ATTENTION}"
 
                                     done
                                 done

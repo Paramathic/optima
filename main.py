@@ -69,6 +69,7 @@ def main():
     parser.add_argument("--sparsity_type", type=str)
     parser.add_argument("--prune_method", type=str, choices=["magnitude", "wanda", "sparsegpt",
                                                              "ablate_wanda_seq",  "joint_pq", "maskllm"])
+    parser.add_argument("--skip_attention", action="store_true", help="Whether to skip attention layers for compression")
     parser.add_argument("--cache_dir", default="llm_weights", type=str)
 
     parser.add_argument("--slim_lora", action="store_true")
@@ -196,6 +197,7 @@ def main():
         update_weights=args.update_weights,
         use_qp_solver=args.use_qp_solver,
         double_precision=args.double_precision,
+        skip_attention=args.skip_attention,
     )
     report_gpu_memory("After pruning")
 

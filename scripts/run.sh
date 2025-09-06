@@ -13,7 +13,7 @@ export TRITON_CACHE_DIR="/tmp"
 
 export WANDB_MODE="offline"
 
-for MODEL_NAME in gemma2 # llama3.2 #opt #llama2 #llama3.1
+for MODEL_NAME in llama3.2 #gemma2 gemma3 #opt #llama2 #llama3.1
 do
     if [ $MODEL_NAME == 'llama2' ]
     then
@@ -56,7 +56,7 @@ do
     do
         for STRUCTURE in 2:4 #unstructured
         do
-            for METHOD in wanda #maskllm sparsegpt joint_pq
+            for METHOD in sparsegpt #sparsegpt #maskllm sparsegpt joint_pq
             do
                 for LORA_RANK in 0 #0.1
                 do
@@ -78,7 +78,7 @@ do
                                     # SLIM_QUANT='--slim_quant'
                                     EVAL_BATCH_SIZE=1
                                     SEPARATE_LORA='--separate_lora'
-                                    # TEST_LMHARNESS='--test_lmharness'
+                                    TEST_LMHARNESS='--test_lmharness'
                                     # FINE_TUNE='--fine_tune'
                                     EVALUATE_PERPLEXITY='--evaluate_perplexity'
                                     OPTIMIZER="adafactor"
@@ -93,13 +93,14 @@ do
                                     INPUT_GROUP_SIZE=-1
                                     PAD_LORA='--pad_lora'
 #                                    SCALE_IMPORTANT_WEIGHTS='--scale_important_weights'
-                                    MASKLLM_CHECKPOINT="--maskllm_checkpoint Vinnnf/LLaMA-3-8B-MaskLLM-C4"
+                                    MASKLLM_CHECKPOINT="--maskllm_checkpoint tiled_models/llama_3.2_3b_maskllm.pt"
                                     # WANDB="--use_wandb"
                                     WANDB_PROJECT="weight_update"
                                     SAVE_CHECKPOINT_PATH="--save_checkpoint_path checkpoints/${MODEL_NAME}_${MODEL_SIZE}_${METHOD}_${STRUCTURE}_lr${LORA_RANK}_sparsity${SPARSITY_RATIO}"
                                     QP_SOLVER="--use_qp_solver"
-                                    UPDATE_WEIGHTS="--update_weights"
+                                    # UPDATE_WEIGHTS="--update_weights"
                                     # DOUBLE_PRECISION="--double_precision"
+                                    # SKIP_ATTENTION="--skip_attention"
 
                                     python main.py \
                                         --model ${MODEL_PREFIX}${MODEL_SIZE}${MODEL_POSTFIX} \
@@ -117,7 +118,7 @@ do
                                         --eval_batch_size $EVAL_BATCH_SIZE \
                                         $SEPARATE_LORA \
                                         $TEST_LMHARNESS \
-                                        --output_csv_path results/qp.csv \
+                                        --output_csv_path results/tmp.csv \
                                         $FINE_TUNE \
                                         $EVALUATE_PERPLEXITY \
                                         $LOCAL_FILES_ONLY \
@@ -143,7 +144,8 @@ do
                                         --wandb_project $WANDB_PROJECT \
                                         $UPDATE_WEIGHTS \
                                         $QP_SOLVER \
-                                        $DOUBLE_PRECISION
+                                        $DOUBLE_PRECISION \
+                                        $SKIP_ATTENTION
                                 done
                             done
                         done
