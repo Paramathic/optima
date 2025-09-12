@@ -68,7 +68,7 @@ def main():
     parser.add_argument('--sparsity_ratio', type=float, default=0, help='Sparsity level')
     parser.add_argument("--sparsity_type", type=str)
     parser.add_argument("--prune_method", type=str, choices=["magnitude", "wanda", "sparsegpt",
-                                                             "ablate_wanda_seq",  "joint_pq", "maskllm"])
+                                                             "ablate_wanda_seq",  "joint_pq", "maskllm", "thanos"],)
     parser.add_argument("--skip_attention", action="store_true", help="Whether to skip attention layers for compression")
     parser.add_argument("--cache_dir", default="llm_weights", type=str)
 
