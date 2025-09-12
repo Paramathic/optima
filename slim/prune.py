@@ -14,6 +14,7 @@ from huggingface_hub import hf_hub_download
 import gc
 import numpy as np
 from .weight_update import optimize_weights
+from .thanos import Thanos
 
 
 def prepare_calibration_input(
@@ -814,6 +815,139 @@ def joint_pq(
     torch.cuda.empty_cache()
 
 
+@torch.no_grad()
+def prune_thanos(
+    model, 
+    tokenizer, 
+    prune_n=0, 
+    prune_m=0, 
+    blocksize=256, 
+    v_blocksize=256, 
+    structured=False, 
+    perc_outliers=0.1, 
+    calibration_dataset="c4", 
+    sparsity_ratio=0.5, 
+    nsamples=128, 
+    seed=0, 
+    weight_tile_size=256, 
+    update_weights=False, 
+    use_qp_solver=False, 
+    double_precision=False, 
+    skip_attention=False):
+    """
+    Prune a model using Thanos.
+    
+    Args:
+        model: torch.nn.Module - The model to prune
+        tokenizer: transformers.Tokenizer - The tokenizer for the model
+        prune_n: int - The number N in N:M pruning
+        prune_m: int - The number M in N:M pruning
+        blocksize: int - The block size for Thanos
+        v_blocksize: int - The block size for the V matrix in Thanos
+        structured: bool - Whether to use structured pruning
+        perc_outliers: float - The percentage of outliers to use in Thanos
+        calibration_dataset: str - The dataset to use for calibration
+        sparsity_ratio: float - The ratio of weights to prune
+        nsamples: int - The number of samples to use for calibration
+        seed: int - The seed to use for calibration
+        weight_tile_size: int - The size of the blocks for block quantization
+        update_weights: bool - Whether to update weights during pruning
+        use_qp_solver: bool - Whether to use quadratic programming solver
+        double_precision: bool - Whether to use double precision for calculations
+        skip_attention: bool - Whether to skip attention layers for compression
+
+    Returns:
+        None
+    """
+    use_cache = getattr(model.config, "use_cache", False)
+    model.config.use_cache = False
+
+    dataloader, _ = get_loaders(
+        calibration_dataset,
+        nsamples=nsamples,
+        seed=seed,
+        seqlen=model.config.max_position_embeddings,
+        tokenizer=tokenizer
+    )
+
+    with torch.no_grad():
+        inps, outs, kwargs = prepare_calibration_input(model, dataloader, nsamples)
+
+    layers = get_layers_list(model)
+
+    progress_bar = tqdm.tqdm(range(len(layers)))
+
+    for i in progress_bar:
+        progress_bar.set_description(f"Layer {i} - Gathering data")
+        layer = layers[i].cuda()
+
+        subset = find_layers(layer)
+        subset = skip_layers(subset, skip_attention=skip_attention)
+
+        gpts = {}
+        for name in subset:
+            gpts[name] = Thanos(subset[name], store_inputs=False)
+            if update_weights:
+                gpts[name].inputs = []
+                gpts[name].outputs = []
+                gpts[name].original_weight = subset[name].weight.data.clone().detach().cpu()
+            
+
+        def add_batch(name):
+            def tmp(_, inp, out):
+                gpts[name].add_batch(inp[0].data, out.data)
+                if update_weights:
+                    gpts[name].inputs.append(inp[0].clone().detach().cpu())
+                    gpts[name].outputs.append(out.clone().detach().cpu())
+
+            return tmp
+
+        handles = []
+        for name in gpts:
+            handles.append(subset[name].register_forward_hook(add_batch(name)))
+
+        for j in range(nsamples):
+            for key in kwargs:
+                if isinstance(kwargs[key], torch.Tensor):
+                    kwargs[key] = kwargs[key].cuda()
+                if isinstance(kwargs[key], tuple):
+                    kwargs[key] = tuple([k.cuda() for k in kwargs[key]])
+
+            outs[j] = layer(inps[j].unsqueeze(0).cuda(), **kwargs)[0].to(outs.device)
+
+        for h in handles:
+            h.remove()
+
+        for name in gpts:
+            progress_bar.set_description(f"Layer {i} - Pruning and Quantizing {name}")
+            gpts[name].snap(sparsity_ratio, prune_n=prune_n, prune_m=prune_m, percdamp=0.01, blocksize=weight_tile_size,
+                          v_blocksize=v_blocksize, structured=structured, perc_outliers=perc_outliers)
+            if gpts[name].l2_loss is not None:
+                average_l2_loss += gpts[name].l2_loss / len(gpts)
+            gpts[name].free()
+
+            if update_weights:
+                W_mask = (subset[name].weight.data == 0).clone().detach()
+                optimize_weights(gpts[name], subset[name], use_qp_solver, double_precision, False, W_mask)
+
+        progress_bar.set_description(f"Layer {i} - Evaluating Output")
+        for j in range(nsamples):
+            with torch.no_grad():
+                outs[j] = layer(inps[j].unsqueeze(0).cuda(), **kwargs)[0].to(outs[j].device)
+
+        layers[i] = layer
+        torch.cuda.empty_cache()
+
+        inps, outs = outs, inps
+
+        layers[i] = layer.cpu()
+        del layer
+        torch.cuda.empty_cache()
+
+    model.config.use_cache = use_cache
+    torch.cuda.empty_cache()
+
+
 def prune_and_quantize(
         model,
         tokenizer,
@@ -1077,6 +1211,34 @@ def prune_and_quantize(
                 separate_lora,
                 pad_lora,
                 scale_important_weights,
+                skip_attention=skip_attention,
+            )
+        elif prune_method == "thanos":
+            if scale_important_weights and quantize_weight:
+                raise NotImplementedError("Scaling important weights not implemented for Thanos pruning and "
+                                          "quantization")
+            if lora_rank > 0:
+                raise NotImplementedError("LoRA approximation not implemented for Thanos")
+            if quantize_weight:
+                raise NotImplementedError("Thanos does not support weight quantization")
+            print("Pruning the model with Thanos.")
+            prune_thanos(
+                model,
+                tokenizer,
+                prune_n,
+                prune_m,
+                blocksize=weight_tile_size,
+                v_blocksize=128,
+                structured=False,
+                perc_outliers=0,
+                calibration_dataset=calibration_dataset,
+                sparsity_ratio=sparsity_ratio,
+                nsamples=nsamples,
+                seed=seed,
+                weight_tile_size=weight_tile_size,
+                update_weights=update_weights,
+                use_qp_solver=use_qp_solver,
+                double_precision=double_precision,
                 skip_attention=skip_attention,
             )
         else:
