@@ -10,6 +10,7 @@ import torch
 from .mask_optim import block_wise_optimize_mask
 import tqdm
 from jax.dlpack import from_dlpack, to_dlpack
+import wandb
 
 
 def torch_to_jax(tensor: torch.Tensor) -> jnp.ndarray:
@@ -198,7 +199,7 @@ def update_weights_learnable(layer, trainable_weight, W_mask, num_steps=20):
     return best_weight
 
 
-def optimize_weights(layer, compressed_layer, use_qp_solver, double_precision, update_mask, W_mask):
+def optimize_weights(layer, compressed_layer, use_qp_solver, double_precision, update_mask, W_mask, name=""):
     def compute_error(weight):
         with torch.no_grad():
             errors = []
@@ -242,6 +243,13 @@ def optimize_weights(layer, compressed_layer, use_qp_solver, double_precision, u
 
     final_loss = compute_error(best_weight)
     norm = compute_error(torch.zeros_like(best_weight))
+    if wandb.run is not None:
+        wandb.log({
+            "Layer Name": name,
+            "Init Loss": init_loss / norm,
+            "Final Loss": final_loss / norm,
+            "Layer": layer.layer_id
+        })
     print(f"Init Loss: {init_loss / norm}, Final Loss: {final_loss / norm}")
     if final_loss < init_loss:
         compressed_layer.weight.data = best_weight.to(compressed_layer.weight.dtype)
