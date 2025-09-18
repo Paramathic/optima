@@ -199,7 +199,7 @@ def update_weights_learnable(layer, trainable_weight, W_mask, num_steps=20):
     return best_weight
 
 
-def optimize_weights(layer, compressed_layer, use_qp_solver, double_precision, update_mask, W_mask, name=""):
+def optimize_weights(layer, compressed_layer, use_qp_solver, double_precision, update_mask, W_mask, name="", layer_num=0):
     def compute_error(weight):
         with torch.no_grad():
             errors = []
@@ -248,7 +248,7 @@ def optimize_weights(layer, compressed_layer, use_qp_solver, double_precision, u
             "Layer Name": name,
             "Init Loss": init_loss / norm,
             "Final Loss": final_loss / norm,
-            "Layer": layer.layer_id
+            "Layer": layer_num,
         })
     print(f"Init Loss: {init_loss / norm}, Final Loss: {final_loss / norm}")
     if final_loss < init_loss:

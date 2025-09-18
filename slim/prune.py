@@ -379,7 +379,7 @@ def prune_wanda(
                             else:
                                 subset[name].scaling_factor = None
             if update_weights:
-                optimize_weights(wrapped_layers[name], subset[name], use_qp_solver, double_precision, update_mask, W_mask, name)
+                optimize_weights(wrapped_layers[name], subset[name], use_qp_solver, double_precision, update_mask, W_mask, name, i)
                 
         progress_bar.set_description(f"Layer {i} - Evaluating Output")
 
@@ -517,7 +517,7 @@ def prune_sparsegpt(
 
             if update_weights:
                 W_mask = (subset[name].weight.data == 0).clone().detach()
-                optimize_weights(gpts[name], subset[name], use_qp_solver, double_precision, False, W_mask, name)
+                optimize_weights(gpts[name], subset[name], use_qp_solver, double_precision, False, W_mask, name, i)
 
         progress_bar.set_description(f"Layer {i} - Evaluating Output")
         for j in range(nsamples):
@@ -928,7 +928,7 @@ def prune_thanos(
 
             if update_weights:
                 W_mask = (subset[name].weight.data == 0).clone().detach()
-                optimize_weights(gpts[name], subset[name], use_qp_solver, double_precision, False, W_mask, name)
+                optimize_weights(gpts[name], subset[name], use_qp_solver, double_precision, False, W_mask, name, i)
 
         progress_bar.set_description(f"Layer {i} - Evaluating Output")
         for j in range(nsamples):
