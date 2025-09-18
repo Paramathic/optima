@@ -26,3 +26,4 @@ wandb/*
 checkpoints/
 **/model_out/**
 tiled_models/
+prox_sparse_ckpt/
