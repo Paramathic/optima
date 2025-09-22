@@ -4,7 +4,7 @@ This repository contains the implementation of OPTIMA, a practical one-shot post
 
 **OPTIMA: Optimal One-Shot Pruning for LLMs via Quadratic Programming Reconstruction**
 
-<img src="./assets/OPTIMA-Logo.png" alt="OPTIMA" width="800">  
+<img src="./assets/OPTIMA-Logo.png" alt="OPTIMA" width="400">  
 
 ## Setup
 
