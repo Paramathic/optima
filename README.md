@@ -4,10 +4,6 @@ This repository contains the implementation of OPTIMA, a practical one-shot post
 
 **OPTIMA: Optimal One-Shot Pruning for LLMs via Quadratic Programming Reconstruction**
 
-*Mohammad Mozaffari, Samuel Kushnir, Maryam Mehri Dehnavi, Amir Yazdanbakhsh*
-
-Paper: [https://arxiv.org/abs/XXXX.XXXXX](https://arxiv.org/abs/XXXX.XXXXX)
-
 <img src="./assets/OPTIMA-Logo.png" alt="OPTIMA" width="800">  
 
 ## Setup
@@ -189,16 +185,3 @@ functions, please refer to their dockstrings.
 - `use_qp_solver`: Whether to use the QP solver for weight updates. If set to `False`, the ADAM optimizer will be used for weight updates.
 - `double_precision`: Whether to use double precision for weight updates. If set to `False`, single precision will be used.
 - `skip_attention`: Whether to skip pruning and quantization of attention layers.
-
-## Acknowledgements
-This repository is built upon the [SLiM](https://github.com/Paramathic/slim) repository, with modifications for OPTIMA's QP-based weight updates.
-
-## Citation
-If you use OPTIMA in your research, please cite our paper:
-```angular2html
-@article{optima2026,
-    title        = {{OPTIMA: Optimal One-Shot Pruning for LLMs via Quadratic Programming Reconstruction}},
-    author       = {Mozaffari, Mohammad and Kushnir, Samuel and Mehri Dehnavi, Maryam and Yazdanbakhsh, Amir},
-    year         = 2025,
-}
-```
