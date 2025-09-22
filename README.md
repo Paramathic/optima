@@ -1,19 +1,14 @@
-# SLiM: One-shot Quantized Sparse Plus Low-rank Approximation of LLMs
+# OPTIMA: Optimal One-Shot Pruning for LLMs via Quadratic Programming Reconstruction
 
-This repository contains the implementation of SLiM (Sparse Low-rank Approximation with Quantization), a novel 
-compression technique for large language models (LLMs). SLiM combines a one-shot quantization and sparse low-rank 
-approximation to reduce memory usage and improve inference speed without requiring retraining. The approach features 
-SLIM-Quant, a symmetric quantization method, and a saliency-based low-rank approximation that leverages sparsity 
-patterns like 2:4 for optimized performance on accelerated hardware. With this, SLiM offers state-of-the-art accuracy 
-while maintaining efficiency in memory-constrained environments.
+This repository contains the implementation of OPTIMA, a practical one-shot post-training pruning method for large language models (LLMs). OPTIMA reformulates layer-wise weight reconstruction as independent, row-wise Quadratic Programs (QPs) that share a common layer Hessian, enabling globally optimal updates with respect to the reconstruction objective. It integrates with existing mask selectors (e.g., Wanda, SparseGPT, Thanos) and is designed for accelerator-friendly execution, balancing accuracy and scalability without fine-tuning.
 
-**SLiM: One-shot Quantized Sparse Plus Low-rank Approximation of LLMs**
+**OPTIMA: Optimal One-Shot Pruning for LLMs via Quadratic Programming Reconstruction**
 
-*Mohammad Mozaffari, Amir Yazdanbakhsh, and Maryam Mehri Dehnavi*
+*Mohammad Mozaffari, Samuel Kushnir, Maryam Mehri Dehnavi, Amir Yazdanbakhsh*
 
-Paper: [https://arxiv.org/abs/2410.09615](https://arxiv.org/abs/2410.09615)
+Paper: [https://arxiv.org/abs/XXXX.XXXXX](https://arxiv.org/abs/XXXX.XXXXX)
 
-<img src="./assets/SLiM-Pipeline.png" alt="SLiM Pipeline" width="800">
+<img src="./assets/OPTIMA-Logo.png" alt="OPTIMA" width="800">  
 
 ## Setup
 
@@ -24,7 +19,7 @@ pip install -r requirements.txt
 ```
 
 ## Quick Start
-Our code base supports multiple pruning, quantization, and low-rank approximation techniques. Below, we provide an 
+Our code base supports multiple pruning methods with OPTIMA's optimal weight updates via Quadratic Programming. Below, we provide an 
 example and a brief description of how to use our code base. For a more automated and detailed example, please refer to
 [srcipts/run.sh](scripts/run.sh).
 
@@ -60,77 +55,26 @@ use it for SLiM Low-rank approximation and SLiM-Quant quantization method. More 
 function are provided in the **Function Documentation** section.
 
 ```python
-from slim.prune import prune_and_quantize
-
-quantize_lora_flag = True
-lora_tile_size = 256
-quantization_bitwidth = 4
+from optima.prune import prune_and_quantize
 
 prune_and_quantize(
     model=model,
     tokenizer=tokenizer,
     prune_method="wanda",
     sparsity_ratio=0.5,
-    quantize_weight=False,
-    bitwidth=quantization_bitwidth,
-    slim_quant=True,
-    lora_rank=0.1,
     sparsity_type="2:4",
-    weight_tiled_quantization=quantize_lora_flag,
-    quantize_lora=lora_tile_size,
+    update_weights=True,
+    use_qp_solver=True,
+    double_precision=False,
+    skip_attention=True,
 )
 ```
 
-**Optional Fine-tuning:** After compression, the model can be fine-tuned to compensate for the accuracy loss using the
-`fine_tune` function provided in our code base. When using low-rank adapters, the `fine_tune` function will 
-automatically freeze the original weights and biases and only fine-tunes the low-rank adapters. Otherwise, the original
-weights and biases will be fine-tuned and requantized in the end if needed. Below, we provide an example of how to use
-the `fine_tune` function. More details about the `fine_tune` function are provided in the **Function Documentation** section.
-
-```python
-from slim.fine_tune import fine_tune
-
-fine_tune(
-    model,
-    tokenizer,
-    max_train_samples=30000,
-    optimizer="adafactor",
-    global_batch_size=64,
-    local_batch_size=8,
-)
-```
-
-**Adapter Quantization:** In case the `quantize_lora` is set to `True` in the `prune_and_quantize` function, the low-rank
-will be prepared for quantization. To finalize the adapter quantization, you can use the `quantize_lora` function.
-
-```python
-from slim.lora import quantize_lora
-
-if quantize_lora_flag:
-    quantize_lora(
-        model,
-        bitwidth=quantization_bitwidth,
-        lora_tile_size=lora_tile_size,
-    )
-```
-
-**Input Quantization:** You can emulate input group quantization using the `attach_input_quantization_hooks` function. 
-This function attaches hooks to the linear layers of the model to quantize the input activations. We use FP8 quantization with a single parameter when `bitwidth=8` and integer group quantization for other values of `bitwidth`. `input_goup_size=-1` uses per-token quantizatoin.
-
-```python
-from slim.quantization.quantization import attach_input_quantization_hooks
-
-attach_input_quantization_hooks(
-    model,
-    bitwidth=8,
-    input_group_size=128, #Only when bitwidth!=8
-)
-```
 
 **Check Sparsity Ratio:** You can check the sparsity ratio of the model using the `check_sparsity` function.
 
 ```python
-from slim.utils import check_sparsity
+from slim_local.slim.utils import check_sparsity
 
 check_sparsity(model)
 ```
@@ -138,7 +82,7 @@ check_sparsity(model)
 **Evaluate Perplexity:** You can evaluate the perplexity of the model using the `eval_ppl` function.
 
 ```python
-from slim.eval import eval_ppl
+from slim_local.slim.eval import eval_ppl
 
 ppl_test = eval_ppl(
     model,
@@ -162,46 +106,59 @@ bash scripts/run.sh
 
 ## Experimental Results
 
-We provide extensive experimental results in the paper. For completeness, we have provided the average accuracy results 
-of sparse and quantized models on a range of zero-shot tasks using different pruning and quantization methods in the 
-table below. The weights (and possibly the adapter) are quantize to 4 bits using symmetric quantization, and the inputs 
-are quantized using 8-bit group quantization. All the group quantization results use a group size of 128.
+We provide extensive experimental results in the paper. For completeness, we have included results from Table 1 of the paper, showing model perplexity on WikiText2 and average accuracy on zero-shot downstream tasks (MMLU, PIQA, Arc-E, Arc-C, Wino, OpenQA) for 50% unstructured sparsity. OPTIMA is applied as a weight update mechanism on top of mask selectors like Wanda, SparseGPT, and Thanos.
 
-For additional per-task results, please refer to our [Weights & Biases report](https://wandb.ai/mohammad-mozaffari-university-of-toronto/SLiM/reports/SLiM-One-shot-Quantization-and-Sparsity-with-Low-rank-Approximation-for-LLM-Weight-Compression--VmlldzoxMzk2OTY4Ng?accessToken=52z9njwmbnzn2eidqla2ic0p36lyeeyu0zirbwj7nwoljpd9km55ytl95a6b5p3p).
+Notes:
+- Dense refers to the unpruned baseline.
+- OPTIMA consistently improves accuracy across models and tasks.
+- **Bold values** indicate the best performance per model (excluding dense).
 
-**Notes:**
-- *Best Method* refers to the best quantization method among Group AbsMax, AWQ, OmniQuant, and AffineQuant.
-- "OOM" indicates an out-of-memory error.
-- **Bold values** indicate the best performance in each section.
+## Model Perplexity and Average Accuracy on Zero-shot Tasks for 50% Unstructured Sparsity
 
-### Accuracy of Pruned and Quantized OPT/LLaMA Models over 6 Zero-shot Tasks
 
-| **Pruning/LoRA Method** | **Weight Quantization** | OPT 125M | OPT 350M | OPT 1.3B | OPT 2.7B | OPT 6.7B | OPT 13B | LLaMA-2 7B | LLaMA-2 13B |
-|-------------------------|--------------------------|----------|----------|-----------|-----------|-----------|------------|--------------|---------------|
-| **Dense**              | -                        | 35.9     | 37.1     | 43.4      | 45.5      | 48.3      | 48.7       | 56.6         | 60.8          |
-| **2:4 Sparsity**       |                          |          |          |           |           |           |            |              |               |
-| Magnitude              | Group AbsMax             | 32.19    | 31.94    | 33.82     | 33.43     | 34.81     | 34.68      | 44.64        | 44.18         |
-| SparseGPT              | Group OPTQ               | 33.70    | 33.38    | 38.75     | 40.15     | 44.32     | 45.64      | 45.49        | 51.05         |
-| Wanda                  | Best Method<sup>*</sup>  | 33.39    | 32.79    | 38.43     | 40.00     | 43.41     | 44.07      | 44.86        | 48.94         |
-| JSQ                    | JSQ                      | 32.30    | 31.84    | 35.23     | 32.89     | 38.06     | 37.24      | 44.80        | 50.20         |
-| L<sup>2</sup>QER               | Group AbsMax             | 33.34    | 31.68    | 36.68     | 38.11     | 41.37     | OOM        | 43.77        | OOM           |
-| Naive-LoRA             | Quantization<sup>W</sup>         | 34.28    | 33.38    | 38.36     | 41.21     | 44.91     | 45.25      | 48.45        | 51.94         |
-| **SLiM-LoRA**          | Quantization<sup>W</sup>         | **34.62**| **34.36**| **40.61** | **42.73** | 45.99     | 46.09      | **51.15**    | **54.94**     |
-| SLiM-LoRA<sup>Q</sup>          | Quantization<sup>W</sup>         | 34.43    | 34.30    | 40.11     | 42.37     | **46.33** | **46.24**  | 51.02        | 53.55         |
-| **50% Unstructured**   |                          |          |          |           |           |           |            |              |               |
-| Magnitude              | Group AbsMax             | 33.34    | 33.51    | 32.12     | 39.90     | 36.44     | 32.33      | 47.03        | 51.04         |
-| SparseGPT              | OPTQ                     | 35.10    | 35.13    | 38.72     | 43.43     | 46.97     | 47.38      | 51.09        | 55.94         |
-| Wanda                  | Best Method$^*$          | 35.11    | 33.89    | 41.02     | 42.89     | 46.52     | 46.84      | 53.62        | 56.76         |
-| JSQ                    | JSQ                      | 32.14    | 30.34    | 38.86     | 35.48     | 42.75     | 30.73      | 52.25        | 57.00         |
-| L<sup>2</sup>QER               | Group AbsMax             | 34.45    | 34.45    | 38.38     | 41.28     | 45.08     | OOM        | 50.60        | OOM           |
-| Naive-LoRA             | Quantization<sup>W</sup>         | 34.77    | 34.23    | 40.40     | 43.37     | 46.64     | 47.30      | 51.52        | 55.33         |
-| **SLiM-LoRA**          | Quantization<sup>W</sup>         | 35.20    | **35.32**| **41.85** | 43.48     | 47.08     | **47.96**  | **54.26**    | **57.85**     |
-| SLiM-LoRA<sup>Q</sup>          | Quantization<sup>W</sup>         | **35.35**| 35.13    | 41.74     | **43.63** | **47.16** | 47.86      | 54.18        | 57.33         |
+| Model         | Mask Selection | Weight Update | Perplexity | Avg. Accuracy (%) |
+|---------------|----------------|---------------|------------|-------------------|
+| **LLaMA 3.2 1B** | Dense      | -             | 9.75       | 49.09             |
+|               | Wanda      | -             | 23.51      | 40.01             |
+|               | Wanda      | OPTIMA        | 18.84      | **41.33**             |
+|               | SparseGPT  | SparseGPT     | 18.84      | 42.35             |
+|               | SparseGPT  | OPTIMA        | 18.09      | **42.72**             |
+|               | Thanos     | Thanos        | 19.70      | 41.62             |
+|               | Thanos     | OPTIMA        | 18.77      | **41.94**             |
+| **LLaMA 3.2 3B** | Dense      | -             | 7.81       | 57.95             |
+|               | Wanda      | -             | 12.92      | 49.95             |
+|               | Wanda      | OPTIMA        | 12.24      | **51.37**             |
+|               | SparseGPT  | SparseGPT     | 12.32      | 50.20             |
+|               | SparseGPT  | OPTIMA        | 12.43      | **51.39**             |
+|               | Thanos     | Thanos        | 12.26      | 50.81             |
+|               | Thanos     | OPTIMA        | 12.40      | **51.41**             |
+| **Gemma 3 1B**  | Dense      | -             | 14.17      | 49.10             |
+|               | Wanda      | -             | 32.96      | 42.21             |
+|               | Wanda      | OPTIMA        | 28.90      | **44.01**             |
+|               | SparseGPT  | SparseGPT     | 28.34      | 43.03             |
+|               | SparseGPT  | OPTIMA        | 27.35      | **43.76**             |
+|               | Thanos     | Thanos        | 28.65      | 43.88             |
+|               | Thanos     | OPTIMA        | 28.14      | **44.05**             |
+| **Gemma 2 2B**  | Dense      | -             | 68.69      | 59.16             |
+|               | Wanda      | -             | 327.45     | **50.27**             |
+|               | Wanda      | OPTIMA        | 215.63     | 50.10             |
+|               | SparseGPT  | SparseGPT     | 234.68     | 51.24             |
+|               | SparseGPT  | OPTIMA        | 241.09     | **51.60**             |
+|               | Thanos     | Thanos        | 276.97     | 49.19             |
+|               | Thanos     | OPTIMA        | 250.15     | **49.94**             |
+| **LLaMA 3.1 8B** | Dense      | -             | 5.84       | 63.89             |
+|               | Wanda      | -             | 9.64       | 55.70             |
+|               | Wanda      | OPTIMA        | 9.37       | **56.70**             |
+|               | SparseGPT  | SparseGPT     | 9.30       | 57.01             |
+|               | SparseGPT  | OPTIMA        | 9.33       | **57.02**             |
+|               | Thanos     | Thanos        | 9.27       | **57.64**             |
+|               | Thanos     | OPTIMA        | 9.35       | 56.89             |
+
 
 ## Function Documentation
 Here we provide a brief description of a few of the main functions in our code base. For details about the other 
 functions, please refer to their dockstrings.
-### **slim.prune.prune_and_quantize:**
+### **optima.prune.prune_and_quantize:**
 - `model`: The model to be pruned and quantized.
 - `tokenizer`: The tokenizer of the model.
 - `bitwidth`: The bitwidth to be used for quantization.
@@ -226,68 +183,20 @@ functions, please refer to their dockstrings.
 - `pad_lora`: Whether to pad the low-rank adapters to `lora_tile_size` when not using LoRA quantizatoin.
 - `scale_important_weights`: Whether to scale the important weights in quantization (similar to AWQ).
 - `mask_checkpoint`: The checkpoint to use for MaskLLM pruning
+- `update_weights`: Whether to use weight updates for pruning.
+- `use_qp_solver`: Whether to use the QP solver for weight updates. If set to `False`, the ADAM optimizer will be used for weight updates.
+- `double_precision`: Whether to use double precision for weight updates. If set to `False`, single precision will be used.
+- `skip_attention`: Whether to skip pruning and quantization of attention layers.
 
-### **slim.fine_tune.fine_tune:**
-- `model`: The model to be fine-tuned.
-- `tokenizer`: The tokenizer of the model.
-- `dataset_name`: The dataset to be used for fine-tuning.
-- `dataset_config_name`: The configuration of the dataset to be used for fine-tuning.
-- `validation_split_percentage`: The percentage of the dataset to be used for validation.
-- `streaming`: Whether to use streaming for loading the dataset.
-- `preprocessing_num_workers`: The number of workers to be used for preprocessing.
-- `overwrite_cache`: Whether to overwrite the cache.
-- `block_size`: The block size to be used for the dataset.
-- `max_train_samples`: The maximum number of samples to be used for training.
-- `max_eval_samples`: The maximum number of samples to be used for evaluation.
-- `cache_dir`: The directory to be used for caching.
-- `optimizer`: The optimizer to be used for fine-tuning. We suggest using `adamw_torch` for as the optimizer. In case low avaiable memory, `adafactor` can be used.
-- `global_batch_size`: The global batch size to be used for fine-tuning.
-- `local_batch_size`: The local batch size to be used for fine-tuning.
-- `use_wandb`: Whether to use Weights & Biases for logging the fine-tuning metrics.
-
-## Speedup Experiments
-
-We support both layer-wise and end-to-end model speedup evaluation. 
-
-### Layer-wise Speedup
-
-For layer-wise
-speedup experiments, please refer to `speedup/layerwise_speedup.py`. You can set the 
-`quanti_only` flag to `True` to only evaluate the quantization speedup. If set to `False`,
-both sparsity and quantization speedup will be evaluated. We use [Sparse Marlin](https://github.com/IST-DASLab/Sparse-Marlin)
-integrated in [vLLM](https://github.com/vllm-project/vllm) in our code. The following 
-figures show the SLiM's speedup with FP16 and INT4 low-rank adapters on NVIDIA RTX-3060 and
-A100 GPUs. The bright part shows the contribution of the quantization to the total speedup.
-
-<img src="./assets/rtx3060_speedup.svg" alt="RTX-3060 Speedup" width="600">
-
-<img src="./assets/a100_speedup.svg" alt="A100 Speedup" width="600">
-
-### End-to-End Model Speedup
-
-For end-to-end model speedup experiments, you can run `scripts/model_speeup.sh`. This script will 
-run `speedup/model_speedup.py` file, which supports dense, spase-quantized, and SLiM (with both 
-FP16 and INT4 LoRA)
-model evaluations. Currently, the models are pruned using magnitude pruning and quantized
-using AbsMax. Loading the quantized checkpoints should be a straightforward modification
-to the code, and we will support it in the future. We do not report the end-to-end speedup
-here, since most of the time, the dense FP16 models (baseline) do not fit in a single
-GPU with the batch sizes 16 to 64.
-
-## Memory Reduction Experiments
-
-You can evaluate the memory reduction of SLiM using `scripts/model_memory_reduction.sh`. This script will call `speeudp/model_memory_reduction.py`, which loads and evaluates the memory usage of dense and compressed models. SLiM with quantized low-rank adapters achieves 0.23x memory reduction for LLaMA-2-7B and LLaMA-2-13B on NVIDIA A100-40GB GPUs.
-
-## Acknowledgement
-This repository is build upon the [SparseGPT](https://github.com/IST-DASLab/sparsegpt) and the [Wanda](https://github.com/locuslab/wanda) repository.
+## Acknowledgements
+This repository is built upon the [SLiM](https://github.com/Paramathic/slim) repository, with modifications for OPTIMA's QP-based weight updates.
 
 ## Citation
-If you use SLiM in your research, please cite our paper:
+If you use OPTIMA in your research, please cite our paper:
 ```angular2html
-@article{mozaffari2025slim,
-    title        = {{SLiM: One-shot Quantized Sparse Plus Low-rank Approximation of LLMs}},
-    author       = {Mozaffari, Mohammad and Yazdanbakhsh, Amir and Mehri Dehnavi, Maryam},
+@article{optima2026,
+    title        = {{OPTIMA: Optimal One-Shot Pruning for LLMs via Quadratic Programming Reconstruction}},
+    author       = {Mozaffari, Mohammad and Kushnir, Samuel and Mehri Dehnavi, Maryam and Yazdanbakhsh, Amir},
     year         = 2025,
-    url          = {https://openreview.net/forum?id=4UfRP8MopP}
 }
 ```
