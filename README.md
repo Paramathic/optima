@@ -102,7 +102,9 @@ following command.
 bash scripts/run.sh
 ```
 
-**Note:** If your cluster does not have internet access, you can download the models and datasets using the `scripts/download_data.sh` script.
+For scheduling jobs on a cluster, you can use the [scripts/submit_jobs.sh](scripts/submit_jobs.sh) file. Please note that you need to
+
+**Note:** If your cluster does not have internet access, you can download the models and datasets using the `slim_local/scripts/download_data.sh` script.
 
 ## Experimental Results
 
