@@ -19,7 +19,6 @@ tmp/
 offload/
 mohammad/
 .idea/
-assets/*
 
 __pycache__
 wandb/*

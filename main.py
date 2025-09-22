@@ -1,3 +1,16 @@
+import os
+import sys
+
+# Get the absolute path of the current script's directory
+script_dir = os.path.dirname(os.path.abspath(__file__))
+
+# Construct the path to the 'slim' directory
+slim_path = os.path.join(script_dir, "slim_local")
+
+# Add the 'slim' directory to the Python path
+if slim_path not in sys.path:
+    sys.path.insert(0, slim_path)
+
 import argparse
 import os
 import numpy as np
@@ -5,14 +18,14 @@ import pandas as pd
 import torch
 import wandb
 from transformers import AutoTokenizer
-from slim.prune import prune_and_quantize
-from slim.eval import eval_ppl
-from slim.utils import report_gpu_memory, check_sparsity
-from slim.lora import quantize_lora
-from slim.quantization.quantization import attach_input_quantization_hooks
-from utils.model import get_llm, distribute_model
-from slim.fine_tune import fine_tune
-from slim.save_model import save_model
+from optima.prune import prune_and_quantize
+from slim_local.slim.eval import eval_ppl
+from slim_local.slim.utils import report_gpu_memory, check_sparsity
+from slim_local.slim.lora import quantize_lora
+from slim_local.slim.quantization.quantization import attach_input_quantization_hooks
+from slim_local.utils.model import get_llm, distribute_model
+from slim_local.slim.fine_tune import fine_tune
+from slim_local.slim.save_model import save_model
 import lm_eval
 
 
