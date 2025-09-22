@@ -14,7 +14,7 @@ def l2_loss(dW, Xj):
 
     mult = dW @ Xj
 
-    return torch.sum(mult ** 2)
+    return torch.sum(mult**2)
 
 
 def compute_l2_loss(dW, X):
@@ -70,17 +70,18 @@ class Thanos:
         if len(inp.shape) == 2:
             inp = inp.unsqueeze(0)
         tmp = inp.shape[0]
-        if isinstance(self.layer, nn.Linear) or isinstance(self.layer, transformers.Conv1D):
+        if isinstance(self.layer, nn.Linear) or isinstance(
+            self.layer, transformers.Conv1D
+        ):
             if len(inp.shape) == 3:
                 inp = inp.reshape((-1, inp.shape[-1]))
             inp = inp.t()
 
-        if hasattr(self, 'X'):
+        if hasattr(self, "X"):
             self.X.append(inp)
 
-        if not hasattr(self, ''):
+        if not hasattr(self, ""):
             self.X_squared_sum = torch.zeros(inp.shape, device=self.dev)
-
 
         self.H *= self.nsamples / (self.nsamples + tmp)
         self.scaler_row *= self.nsamples / (self.nsamples + tmp)
@@ -89,7 +90,9 @@ class Thanos:
 
         self.nsamples += tmp
 
-        self.scaler_row += torch.norm(inp.type(torch.float32), p=2, dim=1) ** 2 / self.nsamples
+        self.scaler_row += (
+            torch.norm(inp.type(torch.float32), p=2, dim=1) ** 2 / self.nsamples
+        )
 
         self.X_squared_sum += inp**2 / self.nsamples
 
@@ -97,10 +100,10 @@ class Thanos:
         self.H += inp.matmul(inp.t())
 
     # Similar to SparseGPT but with dynamic mask + Wanda metric
-    def snap_bs_one(self, sparsity, prune_n=0, prune_m=0, groupsize=128, percdamp=.01):
+    def snap_bs_one(self, sparsity, prune_n=0, prune_m=0, groupsize=128, percdamp=0.01):
         W = self.layer.weight.data.clone()
 
-        if hasattr(self, 'X'):
+        if hasattr(self, "X"):
             W_old = W.clone()
 
         if isinstance(self.layer, nn.Conv2d):
@@ -134,7 +137,9 @@ class Thanos:
         if use_constant_mask:
             # Global mask on Wanda metric
             glob_tmp = torch.abs(W) * torch.sqrt(self.scaler_row).reshape((1, -1))
-            values, indices = torch.topk(glob_tmp.flatten(), int(W.numel() * sparsity), largest=False)
+            values, indices = torch.topk(
+                glob_tmp.flatten(), int(W.numel() * sparsity), largest=False
+            )
             const_mask = torch.zeros_like(W, dtype=torch.bool, device=self.dev)
             const_mask.view(-1)[indices] = True
 
@@ -149,21 +154,37 @@ class Thanos:
                 local_block_sparsity = False
 
                 if prune_n == 0 and not local_block_sparsity:
-                    glob_tmp = torch.abs(W[:, i1:]) * torch.sqrt(self.scaler_row[i1:]).reshape((1, -1))
+                    glob_tmp = torch.abs(W[:, i1:]) * torch.sqrt(
+                        self.scaler_row[i1:]
+                    ).reshape((1, -1))
                     estimate_zeros = int(sparsity * self.rows * self.columns - zeros)
-                    values, indices = torch.topk(glob_tmp.flatten(), estimate_zeros, largest=False)
-                    glob_mask = torch.zeros_like(W[:, i1:], dtype=torch.bool, device=self.dev)
+                    values, indices = torch.topk(
+                        glob_tmp.flatten(), estimate_zeros, largest=False
+                    )
+                    glob_mask = torch.zeros_like(
+                        W[:, i1:], dtype=torch.bool, device=self.dev
+                    )
                     glob_mask.view(-1)[indices] = True
                     block_mask = glob_mask[:, :groupsize]
                     zeros += torch.sum(block_mask)
                 elif prune_n == 0:
-                    loc_tmp = torch.abs(W[:, i1:i2]) * torch.sqrt(self.scaler_row[i1:i2]).reshape((1, -1))
-                    values, indices = torch.topk(loc_tmp.flatten(), int(loc_tmp.numel()*sparsity), largest=False)
-                    loc_mask = torch.zeros_like(W[:, i1:i2], dtype=torch.bool, device=self.dev)
+                    loc_tmp = torch.abs(W[:, i1:i2]) * torch.sqrt(
+                        self.scaler_row[i1:i2]
+                    ).reshape((1, -1))
+                    values, indices = torch.topk(
+                        loc_tmp.flatten(),
+                        int(loc_tmp.numel() * sparsity),
+                        largest=False,
+                    )
+                    loc_mask = torch.zeros_like(
+                        W[:, i1:i2], dtype=torch.bool, device=self.dev
+                    )
                     loc_mask.view(-1)[indices] = True
                     block_mask = loc_mask
                 else:
-                    loc_tmp = torch.abs(W[:, i1:i2]) * torch.sqrt(self.scaler_row[i1:i2]).reshape((1, -1))
+                    loc_tmp = torch.abs(W[:, i1:i2]) * torch.sqrt(
+                        self.scaler_row[i1:i2]
+                    ).reshape((1, -1))
                     block_mask = structured_n_m_sparsity_mask(loc_tmp, prune_n, prune_m)
 
             # Fast version:
@@ -172,7 +193,7 @@ class Thanos:
             W[:, i1:i2][block_mask] = 0
             W[:, i2:] -= Err.matmul(Hinv[i1:i2, i2:])
 
-            '''
+            """
             W1 = W[:, i1:i2].clone()
             Q1 = torch.zeros_like(W1)
             Err1 = torch.zeros_like(W1)
@@ -193,18 +214,22 @@ class Thanos:
 
             W[:, i1:i2] = Q1
             W[:, i2:] -= Err1.matmul(Hinv[i1:i2, i2:])
-            '''
+            """
 
         torch.cuda.synchronize()
         if isinstance(self.layer, transformers.Conv1D):
             W = W.t()
-        self.layer.weight.data = W.reshape(self.layer.weight.shape).to(self.layer.weight.data.dtype)
+        self.layer.weight.data = W.reshape(self.layer.weight.shape).to(
+            self.layer.weight.data.dtype
+        )
 
-        if hasattr(self, 'X'):
+        if hasattr(self, "X"):
             self.l2_loss = compute_l2_loss(W - W_old, self.X)
-            #print("Summ(|dW X_j|^2_1,2) =", self.l2_loss)
+            # print("Summ(|dW X_j|^2_1,2) =", self.l2_loss)
 
-    def __unstructured(self, W, Hinv, i1, i2, zeros, sparsity, v_blocksize, const_mask=None):
+    def __unstructured(
+        self, W, Hinv, i1, i2, zeros, sparsity, v_blocksize, const_mask=None
+    ):
         W1 = W[:, i1:i2]
         blocksize = i2 - i1
 
@@ -216,13 +241,17 @@ class Thanos:
             mask = const_mask[:, i1:i2]
         elif use_global_mask:  # Dynamic mask + Wanda metric
             local_W = W[:, i1:]
-            glob_tmp = torch.abs(local_W) * torch.sqrt(self.scaler_row[i1:]).reshape((1, -1))
+            glob_tmp = torch.abs(local_W) * torch.sqrt(self.scaler_row[i1:]).reshape(
+                (1, -1)
+            )
 
-            estimate_zeros = int(sparsity*self.rows*self.columns - zeros)
+            estimate_zeros = int(sparsity * self.rows * self.columns - zeros)
 
             # This method of mask construction is more robust (comparison to sparseGPT and Wanda)
             # because it will produce the same number of non-zero elements
-            values, indices = torch.topk(glob_tmp.flatten(), estimate_zeros, largest=False)
+            values, indices = torch.topk(
+                glob_tmp.flatten(), estimate_zeros, largest=False
+            )
 
             glob_mask = torch.zeros_like(local_W, dtype=torch.bool, device=self.dev)
             glob_mask.view(-1)[indices] = True
@@ -233,7 +262,9 @@ class Thanos:
         else:  # SparseGPT mask on Wanda metric
             tmp = torch.abs(W1) * torch.sqrt(self.scaler_row[i1:i2].reshape((1, -1)))
 
-            values, indices = torch.topk(tmp.flatten(), int(tmp.numel() * sparsity), largest=False)
+            values, indices = torch.topk(
+                tmp.flatten(), int(tmp.numel() * sparsity), largest=False
+            )
             mask = torch.zeros_like(tmp, dtype=torch.bool, device=self.dev)
             mask.view(-1)[indices] = True
 
@@ -246,8 +277,12 @@ class Thanos:
 
         # Here we generate the tensor of indices for removal for each row.
         # The main problem is that there might be different values for each row, so we pad remaining indices with -1
-        padded_indices_to_remove = torch.full((self.rows, max_non_zeros), -1, dtype=torch.int64, device=self.dev)
-        range_tensor = torch.arange(max_non_zeros, device=self.dev).expand(self.rows, max_non_zeros)
+        padded_indices_to_remove = torch.full(
+            (self.rows, max_non_zeros), -1, dtype=torch.int64, device=self.dev
+        )
+        range_tensor = torch.arange(max_non_zeros, device=self.dev).expand(
+            self.rows, max_non_zeros
+        )
         valid_entries_mask = range_tensor < num_lambdas_for_each_row.unsqueeze(1)
         padded_indices_to_remove.masked_scatter_(valid_entries_mask, cols_indices)
 
@@ -255,7 +290,10 @@ class Thanos:
         # b is not quite big, so we can easily store it in full size for all rows
         valid_indices_mask = padded_indices_to_remove >= 0
         b = torch.zeros((self.rows, max_non_zeros), dtype=W1.dtype, device=self.dev)
-        b[valid_indices_mask] = W1[torch.arange(self.rows, device=self.dev).unsqueeze(1), padded_indices_to_remove][valid_indices_mask]
+        b[valid_indices_mask] = W1[
+            torch.arange(self.rows, device=self.dev).unsqueeze(1),
+            padded_indices_to_remove,
+        ][valid_indices_mask]
 
         v_blocksize = min(self.rows, v_blocksize)
 
@@ -277,19 +315,33 @@ class Thanos:
 
             R = Hinv[padded_indices_to_remove[r1:r2]].transpose(1, 2)
 
-            batch_indices = torch.arange(v_current_block, device=self.dev).view(-1, 1).expand(-1, max_non_zeros)
+            batch_indices = (
+                torch.arange(v_current_block, device=self.dev)
+                .view(-1, 1)
+                .expand(-1, max_non_zeros)
+            )
             R_hat = R[batch_indices, padded_indices_to_remove[r1:r2]]
 
             # Make R_hat block-diagonal in the bottom-right
-            row_indices = torch.arange(max_non_zeros, device=self.dev).unsqueeze(1).unsqueeze(0).expand(v_current_block,
-                                                                                                        max_non_zeros,
-                                                                                                        max_non_zeros)
-            col_indices = torch.arange(max_non_zeros, device=self.dev).unsqueeze(0).unsqueeze(1).expand(v_current_block,
-                                                                                                        max_non_zeros,
-                                                                                                        max_non_zeros)
+            row_indices = (
+                torch.arange(max_non_zeros, device=self.dev)
+                .unsqueeze(1)
+                .unsqueeze(0)
+                .expand(v_current_block, max_non_zeros, max_non_zeros)
+            )
+            col_indices = (
+                torch.arange(max_non_zeros, device=self.dev)
+                .unsqueeze(0)
+                .unsqueeze(1)
+                .expand(v_current_block, max_non_zeros, max_non_zeros)
+            )
 
-            identity_mask = (row_indices >= num_lambdas_for_current_block.unsqueeze(1).unsqueeze(2)) & (row_indices == col_indices)
-            zero_mask = (row_indices >= num_lambdas_for_current_block.unsqueeze(1).unsqueeze(2)) | (col_indices >= num_lambdas_for_current_block.unsqueeze(1).unsqueeze(2))
+            identity_mask = (
+                row_indices >= num_lambdas_for_current_block.unsqueeze(1).unsqueeze(2)
+            ) & (row_indices == col_indices)
+            zero_mask = (
+                row_indices >= num_lambdas_for_current_block.unsqueeze(1).unsqueeze(2)
+            ) | (col_indices >= num_lambdas_for_current_block.unsqueeze(1).unsqueeze(2))
 
             R_hat[zero_mask] = 0
             R_hat[identity_mask] = 1
@@ -314,7 +366,9 @@ class Thanos:
 
         mask = structured_n_m_sparsity_mask(tmp, prune_n, prune_m)
 
-        indices = torch.arange(0, blocksize, device=self.dev).unsqueeze(0).repeat(rows, 1)
+        indices = (
+            torch.arange(0, blocksize, device=self.dev).unsqueeze(0).repeat(rows, 1)
+        )
         indices_to_remove = indices[mask].reshape(rows, -1)
 
         b = W1[mask].reshape(rows, -1)
@@ -329,7 +383,9 @@ class Thanos:
             v_current_block = min(rows - r1, v_blocksize)
 
             R = Hinv[indices_to_remove[r1:r2]].transpose(1, 2)
-            batch_indices = torch.arange(v_current_block).view(-1, 1).expand(-1, blocksize // 2)
+            batch_indices = (
+                torch.arange(v_current_block).view(-1, 1).expand(-1, blocksize // 2)
+            )
             R_hat = R[batch_indices, indices_to_remove[r1:r2]]
 
             lambdas = torch.linalg.solve(R_hat, b[r1:r2]).unsqueeze(2)
@@ -338,7 +394,7 @@ class Thanos:
 
         W1[mask] = 0
 
-    def __structured(self, W, sparsity, percdamp=.01, perc_outliers=0.1):
+    def __structured(self, W, sparsity, percdamp=0.01, perc_outliers=0.1):
         if isinstance(self.layer, nn.Conv2d):
             W = W.flatten(1)
         if isinstance(self.layer, transformers.Conv1D):
@@ -359,11 +415,11 @@ class Thanos:
 
         num_outliers = int(perc_outliers * self.rows)
         # Permutation based on the mean value of the Wanda metric (we place parameters for removal to be the first)
-        #glob_metric = torch.abs(W) * torch.sqrt(self.scaler_row).reshape((1, -1))
+        # glob_metric = torch.abs(W) * torch.sqrt(self.scaler_row).reshape((1, -1))
 
-        glob_metric_rows_mean = torch.sum(W**2@self.X_squared_sum, dim=-1)
+        glob_metric_rows_mean = torch.sum(W**2 @ self.X_squared_sum, dim=-1)
 
-        #glob_metric_rows_mean = torch.mean(glob_metric, dim=1)
+        # glob_metric_rows_mean = torch.mean(glob_metric, dim=1)
         row_perm = torch.sort(glob_metric_rows_mean).indices
         inv_row_perm = torch.sort(row_perm).indices
 
@@ -379,14 +435,16 @@ class Thanos:
         sums = torch.empty(self.columns)  # Resulting tensor of size (b,)
         for i in range(self.columns):
             # Compute the outer product for column `i` and sum all elements
-            outer_product = torch.outer(W[:-(num_outliers+1), i] ** 2, self.X_squared_sum[i, :])
+            outer_product = torch.outer(
+                W[: -(num_outliers + 1), i] ** 2, self.X_squared_sum[i, :]
+            )
             sums[i] = outer_product.sum()
 
         # plot_heatmap(glob_metric, "heat_map_initial.pdf")
 
-        #glob_metric = torch.abs(W[:-(num_outliers+1)]) * torch.sqrt(self.scaler_row).reshape((1, -1))
+        # glob_metric = torch.abs(W[:-(num_outliers+1)]) * torch.sqrt(self.scaler_row).reshape((1, -1))
 
-        #glob_metric_cols_mean = torch.mean(glob_metric, dim=0)
+        # glob_metric_cols_mean = torch.mean(glob_metric, dim=0)
         col_perm = torch.sort(sums).indices
         inv_col_perm = torch.sort(col_perm).indices
 
@@ -396,13 +454,17 @@ class Thanos:
 
         Hinv = torch.linalg.inv(H)
 
-        blocksize = math.ceil(sparsity * self.columns/(1.0-perc_outliers))
+        blocksize = math.ceil(sparsity * self.columns / (1.0 - perc_outliers))
 
-        #plot_heatmap(glob_metric[:, col_perm], "heat_map_col_perm.pdf")
-        #plot_heatmap((glob_metric[:, col_perm])[row_perm, :], "heat_map_col_row_perm.pdf")
+        # plot_heatmap(glob_metric[:, col_perm], "heat_map_col_perm.pdf")
+        # plot_heatmap((glob_metric[:, col_perm])[row_perm, :], "heat_map_col_row_perm.pdf")
 
-        non_outlier_W = W[:-(num_outliers+1)]
-        dW = -non_outlier_W[:, :blocksize] @ torch.linalg.inv(Hinv[:blocksize, :blocksize]) @ Hinv[:blocksize]
+        non_outlier_W = W[: -(num_outliers + 1)]
+        dW = (
+            -non_outlier_W[:, :blocksize]
+            @ torch.linalg.inv(Hinv[:blocksize, :blocksize])
+            @ Hinv[:blocksize]
+        )
 
         non_outlier_W += dW
         non_outlier_W[:, :blocksize] = 0.0
@@ -415,17 +477,30 @@ class Thanos:
         torch.cuda.synchronize()
         if isinstance(self.layer, transformers.Conv1D):
             W = W.t()
-        self.layer.weight.data = W.reshape(self.layer.weight.shape).to(self.layer.weight.data.dtype)
+        self.layer.weight.data = W.reshape(self.layer.weight.shape).to(
+            self.layer.weight.data.dtype
+        )
 
-
-    def snap(self, sparsity, prune_n=0, prune_m=0, blocksize=128, percdamp=.01, v_blocksize=64,
-             adaptive_blocksize=False, structured=False, perc_outliers=0.1):
+    def snap(
+        self,
+        sparsity,
+        prune_n=0,
+        prune_m=0,
+        blocksize=128,
+        percdamp=0.01,
+        v_blocksize=64,
+        adaptive_blocksize=False,
+        structured=False,
+        perc_outliers=0.1,
+    ):
         if blocksize == 1:
-           return self.snap_bs_one(sparsity=sparsity,
-                                   prune_n=prune_n,
-                                   prune_m=prune_m,
-                                   groupsize=128,
-                                   percdamp=percdamp)
+            return self.snap_bs_one(
+                sparsity=sparsity,
+                prune_n=prune_n,
+                prune_m=prune_m,
+                groupsize=128,
+                percdamp=percdamp,
+            )
 
         W = self.layer.weight.data.clone()
 
@@ -433,7 +508,7 @@ class Thanos:
             self.__structured(W, sparsity, percdamp, perc_outliers)
             return
 
-        if hasattr(self, 'X'):
+        if hasattr(self, "X"):
             W_old = W.clone()
 
         if isinstance(self.layer, nn.Conv2d):
@@ -462,7 +537,7 @@ class Thanos:
         if prune_n != 0:
             num_outliers = int(perc_outliers * self.rows)
 
-            glob_metric_rows_mean = torch.sum(W ** 2 @ self.X_squared_sum, dim=-1)
+            glob_metric_rows_mean = torch.sum(W**2 @ self.X_squared_sum, dim=-1)
 
             # glob_metric_rows_mean = torch.mean(glob_metric, dim=1)
             row_perm = torch.sort(glob_metric_rows_mean).indices
@@ -470,7 +545,7 @@ class Thanos:
 
             W = W[row_perm, :]
 
-            non_outlier_W = W[:-(num_outliers + 1)]
+            non_outlier_W = W[: -(num_outliers + 1)]
 
         zeros = 0
 
@@ -482,7 +557,7 @@ class Thanos:
             # Global Wanda mask
             glob_tmp = torch.abs(W) * torch.sqrt(self.scaler_row).reshape((1, -1))
             sort_res = torch.sort(glob_tmp, dim=-1, stable=True)
-            indices = sort_res[1][:, :int(glob_tmp.shape[1] * sparsity)]
+            indices = sort_res[1][:, : int(glob_tmp.shape[1] * sparsity)]
             const_mask = torch.zeros_like(W, dtype=torch.bool, device=self.dev)
             const_mask.scatter_(1, indices, True)
 
@@ -491,25 +566,31 @@ class Thanos:
             i2 = min(i1 + blocksize, self.columns)
 
             if prune_n == 0 and not structured:  # unstructured
-                zeros += self.__unstructured(W, Hinv, i1, i2, zeros, sparsity, v_blocksize, const_mask)
+                zeros += self.__unstructured(
+                    W, Hinv, i1, i2, zeros, sparsity, v_blocksize, const_mask
+                )
             elif prune_n != 0:  # structured n:m sparsity
-                self.__structured_n_m(non_outlier_W, Hinv, i1, i2, prune_n, prune_m, v_blocksize)
+                self.__structured_n_m(
+                    non_outlier_W, Hinv, i1, i2, prune_n, prune_m, v_blocksize
+                )
             Hinv = torch.linalg.inv(H[i2:, i2:])
 
         # print('Layer pruning time %.2f' % (time.time() - tick))
-        #print('Sparsity: ', torch.sum(W == 0.0).item() / (self.rows * self.columns))
+        # print('Sparsity: ', torch.sum(W == 0.0).item() / (self.rows * self.columns))
 
         if prune_n != 0:
-            W = (W[inv_row_perm, :])
+            W = W[inv_row_perm, :]
 
         torch.cuda.synchronize()
         if isinstance(self.layer, transformers.Conv1D):
             W = W.t()
-        self.layer.weight.data = W.reshape(self.layer.weight.shape).to(self.layer.weight.data.dtype)
+        self.layer.weight.data = W.reshape(self.layer.weight.shape).to(
+            self.layer.weight.data.dtype
+        )
 
-        if hasattr(self, 'X'):
+        if hasattr(self, "X"):
             self.l2_loss = compute_l2_loss(W - W_old, self.X)
-            #print("Summ(|dW X_j|^2_1,2) =", self.l2_loss)
+            # print("Summ(|dW X_j|^2_1,2) =", self.l2_loss)
 
     def free(self):
         self.H = None

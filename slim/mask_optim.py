@@ -11,9 +11,12 @@ def compute_error(model, inps, outs, model_kwargs):
     with torch.no_grad():
         for inp, out in zip(inps, outs):
             model_out = model(inp.unsqueeze(0).cuda(), **model_kwargs)[0].squeeze(0)
-            errors.append((torch.norm(out.cuda() - model_out) / torch.norm(out.cuda())).item())
+            errors.append(
+                (torch.norm(out.cuda() - model_out) / torch.norm(out.cuda())).item()
+            )
 
     return np.mean(errors)
+
 
 structured_masks = torch.tensor(
     [
@@ -22,25 +25,30 @@ structured_masks = torch.tensor(
         [1, 0, 0, 1],
         [0, 1, 1, 0],
         [1, 0, 1, 0],
-        [1, 1, 0, 0]
-    ], 
+        [1, 1, 0, 0],
+    ],
     dtype=torch.bfloat16,
-    device='cuda',
-    )
+    device="cuda",
+)
 
 
 def generate_unstructured_mask(mask_params, hard=False, temperature=1.0):
     """
     This function is used to generate an unstructured mask from the mask parameters.
     """
-    mask = torch.nn.functional.gumbel_softmax(mask_params, dim=1, hard=hard, tau=temperature)
+    mask = torch.nn.functional.gumbel_softmax(
+        mask_params, dim=1, hard=hard, tau=temperature
+    )
     return mask
+
 
 def generate_2_4_mask(mask_params, hard=False, temperature=1.0):
     """
     This function is used to generate a 2:4 mask from the mask parameters.
     """
-    mask = torch.nn.functional.gumbel_softmax(mask_params, dim=1, hard=hard, tau=temperature)
+    mask = torch.nn.functional.gumbel_softmax(
+        mask_params, dim=1, hard=hard, tau=temperature
+    )
     return mask
 
 
@@ -61,7 +69,7 @@ def masked_linear(module, input):
     module.masked_weight = masked_weight
     output = torch.matmul(input, masked_weight.t())
     if module.bias is not None:
-        output += module.bias   
+        output += module.bias
     return output
 
 
@@ -96,18 +104,18 @@ def is_2_4_mask(mask):
 
 
 def block_wise_optimize_mask(
-        block,
-        model_kwargs,
-        input_list,
-        output_list,
-        num_epochs=3,
-        compute_dtype=torch.bfloat16,
-        optimizer="adam",
-        verbose=True,
-        val_set_size=128,
-        checkpoint_name="/tmp/checkpoint.pt",
-        mask_strength=4.0,
-        reg_factor=False,
+    block,
+    model_kwargs,
+    input_list,
+    output_list,
+    num_epochs=3,
+    compute_dtype=torch.bfloat16,
+    optimizer="adam",
+    verbose=True,
+    val_set_size=128,
+    checkpoint_name="/tmp/checkpoint.pt",
+    mask_strength=4.0,
+    reg_factor=False,
 ):
     """
     This function is used to optimize the parameters of a block of the model.
@@ -128,27 +136,28 @@ def block_wise_optimize_mask(
         val_set_size = int(len(input_list) * val_set_size)
 
     for param in block.parameters():
-            param.requires_grad = False
+        param.requires_grad = False
     dtype = param.dtype
     device = param.device
     block = block.to(compute_dtype)
-    
+
     for name, module in block.named_modules():
         if isinstance(module, torch.nn.Linear):
             module.forward = MethodType(masked_linear, module)
             module.weight.requires_grad = False
             if module.bias is not None:
                 module.bias.requires_grad = False
-            
 
             if is_2_4_mask(module.init_mask):
                 mask = module.init_mask.reshape(-1, 4)
                 mask = mask @ structured_masks.t() * mask_strength
             else:
                 mask = (2 * mask_strength * module.init_mask) - mask_strength
-                
-            module.mask_params = torch.nn.Parameter(mask.to(device).to(compute_dtype).clone().detach()).cuda()
-            # module.mask_params.requires_grad = True    
+
+            module.mask_params = torch.nn.Parameter(
+                mask.to(device).to(compute_dtype).clone().detach()
+            ).cuda()
+            # module.mask_params.requires_grad = True
 
     metric = torch.nn.MSELoss()
 
@@ -163,7 +172,7 @@ def block_wise_optimize_mask(
                 sum_weights += module.masked_weight.abs().sum()
         reg_factor = init_loss_exact / sum_weights.item()
     else:
-        reg_factor = 0.
+        reg_factor = 0.0
 
     with torch.set_grad_enabled(True):
         print("Searching for the best learning rate.")
@@ -172,19 +181,25 @@ def block_wise_optimize_mask(
         for lr in lr_list:
             block_copy = block
             block_copy.load_state_dict(torch.load(checkpoint_name))
-            mask_search_optimizer = get_optimizer(optimizer, block_copy.parameters(), lr)
-            mask_search_scheduler = torch.optim.lr_scheduler.LinearLR(mask_search_optimizer,
-                                                     start_factor=1.0,
-                                                     end_factor=1e-2,
-                                                     total_iters=num_epochs * len(input_list)) # We use the exact same scheduler as in the actual training
+            mask_search_optimizer = get_optimizer(
+                optimizer, block_copy.parameters(), lr
+            )
+            mask_search_scheduler = torch.optim.lr_scheduler.LinearLR(
+                mask_search_optimizer,
+                start_factor=1.0,
+                end_factor=1e-2,
+                total_iters=num_epochs * len(input_list),
+            )  # We use the exact same scheduler as in the actual training
             losses = []
-            for input, output in zip(input_list[:val_set_size], output_list[:val_set_size]):
+            for input, output in zip(
+                input_list[:val_set_size], output_list[:val_set_size]
+            ):
                 input = input.to(device).to(compute_dtype)
                 output = output.to(device).to(compute_dtype)
                 y = block_copy(input.unsqueeze(0), **model_kwargs)[0].squeeze(0)
                 loss = metric(y, output)
-                reg_val = torch.tensor(0., device=device, dtype=compute_dtype)
-                if reg_factor != 0.:
+                reg_val = torch.tensor(0.0, device=device, dtype=compute_dtype)
+                if reg_factor != 0.0:
                     for name, module in block.named_modules():
                         if isinstance(module, torch.nn.Linear):
                             reg_val -= module.masked_weight.abs().sum() * reg_factor
@@ -194,19 +209,20 @@ def block_wise_optimize_mask(
                 mask_search_scheduler.step()
                 mask_search_optimizer.zero_grad()
                 losses.append(loss.item())
-            average_loss = np.mean(losses[-val_set_size//2:])
+            average_loss = np.mean(losses[-val_set_size // 2 :])
             average_losses.append(average_loss)
         lr = lr_list[np.argmin(average_losses)]
         del block_copy, losses, average_losses, mask_search_optimizer
 
-
     params = block.parameters()
     optimizer = get_optimizer(optimizer, params, lr)
 
-    lr_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer,
-                                                     start_factor=1.0,
-                                                     end_factor=1e-2,
-                                                     total_iters=num_epochs * len(input_list))  
+    lr_scheduler = torch.optim.lr_scheduler.LinearLR(
+        optimizer,
+        start_factor=1.0,
+        end_factor=1e-2,
+        total_iters=num_epochs * len(input_list),
+    )
 
     progress_bar = tqdm(range(num_epochs * len(input_list)), disable=not verbose)
     losses = []
@@ -222,20 +238,22 @@ def block_wise_optimize_mask(
                 if init:
                     init_loss = loss.item() / norm.item()
                     init = False
-                reg_val = torch.tensor(0., device=device, dtype=compute_dtype)
-                if reg_factor != 0.:
+                reg_val = torch.tensor(0.0, device=device, dtype=compute_dtype)
+                if reg_factor != 0.0:
                     for name, module in block.named_modules():
                         if isinstance(module, torch.nn.Linear):
                             reg_val -= module.masked_weight.abs().sum() * reg_factor
                 total_loss = loss + reg_val
                 total_loss.backward()
-                losses.append(loss.item()  / norm.item())
+                losses.append(loss.item() / norm.item())
                 average_loss = np.mean(losses[-100:])
                 optimizer.step()
                 lr_scheduler.step()
                 optimizer.zero_grad()
                 progress_bar.update(1)
-                progress_bar.set_postfix({'loss': average_loss, "lr": lr, "reg": reg_val.item()})
+                progress_bar.set_postfix(
+                    {"loss": average_loss, "lr": lr, "reg": reg_val.item()}
+                )
     if verbose:
         print(f"Initial Loss: {init_loss:.2e} - Final Loss: {average_loss:.2e}")
 
@@ -254,24 +272,32 @@ def block_wise_optimize_mask(
                 if is_2_4_mask(module.init_mask):
                     # Set the maximum elemnt of mask params to 1 and the rest to 0
                     mask = torch.zeros_like(module.mask_params)
-                    max_vals = torch.max(module.mask_params, dim=1)[0].repeat_interleave(6).reshape(-1, 6)
+                    max_vals = (
+                        torch.max(module.mask_params, dim=1)[0]
+                        .repeat_interleave(6)
+                        .reshape(-1, 6)
+                    )
                     max_indices = module.mask_params == max_vals
-                    mask[max_indices] = 1.
+                    mask[max_indices] = 1.0
                     # for i in range(mask.shape[0]):
                     #     mask[i, torch.argmax(module.mask_params[i, :])] = 1
                     module.mask = mask @ structured_masks
                     module.mask = module.mask.reshape(module.weight.shape)
                 else:
                     nnz = module.init_mask.sum()
-                    top_weights, top_indices = torch.topk(module.mask_params.abs(), k=int(nnz))
+                    top_weights, top_indices = torch.topk(
+                        module.mask_params.abs(), k=int(nnz)
+                    )
                     module.mask = torch.zeros_like(module.weight)
                     module.mask[top_indices] = 1
-                mask_similarity.append(torch.mean((module.init_mask == module.mask).float()).item())
+                mask_similarity.append(
+                    torch.mean((module.init_mask == module.mask).float()).item()
+                )
                 module.mask = module.mask.to(dtype).cpu()
                 module.mask.requires_grad = False
                 module.init_mask = module.init_mask.cpu()
                 module.mask_params.data = module.mask_params.cpu()
-                module.weight.data[torch.logical_not(module.mask.bool())] = 0.
+                module.weight.data[torch.logical_not(module.mask.bool())] = 0.0
                 del module.mask_params
                 del module.init_mask
                 gc.collect()

@@ -5,7 +5,7 @@ import pandas as pd
 import torch
 import wandb
 from transformers import AutoTokenizer
-from slim.prune import  prune_and_quantize
+from slim.prune import prune_and_quantize
 from slim.eval import eval_ppl
 from slim.utils import report_gpu_memory, check_sparsity
 from slim.lora import quantize_lora
@@ -16,12 +16,40 @@ from slim.save_model import save_model
 import lm_eval
 
 
-CSV_COLUMNS = ["model", "prune_method", "sparsity_ratio", "sparsity_type", "lora_rank",
-               "slim_lora", "shift_zero_metrics", "prune_lora", "quantize_lora", "lora_tile_size", "eval_dataset",
-               "quantize_weight", "bitwidth", "tiled_weight_quantization", "weight_tile_size", "quantize_input",
-               "input_bitwidth", "input_group_size", "fine_tune", "optimizer", "slim_quant", "update_weights",
-               "use_qp_solver", "double_precision", "perplexity",
-               "mmlu", "piqa", "arc_easy", "arc_challenge", "winogrande", "openbookqa", "average"]
+CSV_COLUMNS = [
+    "model",
+    "prune_method",
+    "sparsity_ratio",
+    "sparsity_type",
+    "lora_rank",
+    "slim_lora",
+    "shift_zero_metrics",
+    "prune_lora",
+    "quantize_lora",
+    "lora_tile_size",
+    "eval_dataset",
+    "quantize_weight",
+    "bitwidth",
+    "tiled_weight_quantization",
+    "weight_tile_size",
+    "quantize_input",
+    "input_bitwidth",
+    "input_group_size",
+    "fine_tune",
+    "optimizer",
+    "slim_quant",
+    "update_weights",
+    "use_qp_solver",
+    "double_precision",
+    "perplexity",
+    "mmlu",
+    "piqa",
+    "arc_easy",
+    "arc_challenge",
+    "winogrande",
+    "openbookqa",
+    "average",
+]
 
 
 def add_result_to_csv(args, ppl, lmharness_results):
@@ -37,11 +65,15 @@ def add_result_to_csv(args, ppl, lmharness_results):
     num_tasks = 8
 
     # Check if the row combination exists and update perplexity
-    new_row_data = {column: getattr(args, column) for column in CSV_COLUMNS[:-num_tasks]}
-    row_exists = df.index[(df[CSV_COLUMNS[:-num_tasks]] == pd.Series(new_row_data)).all(axis=1)]
+    new_row_data = {
+        column: getattr(args, column) for column in CSV_COLUMNS[:-num_tasks]
+    }
+    row_exists = df.index[
+        (df[CSV_COLUMNS[:-num_tasks]] == pd.Series(new_row_data)).all(axis=1)
+    ]
 
     # Now we don't mind adding perplexity
-    new_row_data['perplexity'] = ppl
+    new_row_data["perplexity"] = ppl
     for task in lmharness_results:
         new_row_data[task] = lmharness_results[task]
 
@@ -52,7 +84,7 @@ def add_result_to_csv(args, ppl, lmharness_results):
     else:
         # Row combination exists, modify perplexity
         index_to_update = row_exists.values[0]
-        df.at[index_to_update, 'perplexity'] = new_row_data['perplexity']
+        df.at[index_to_update, "perplexity"] = new_row_data["perplexity"]
         for task in lmharness_results:
             df.at[index_to_update, task] = lmharness_results[task]
 
@@ -62,14 +94,35 @@ def add_result_to_csv(args, ppl, lmharness_results):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', type=str, help='LLaMA model')
-    parser.add_argument('--seed', type=int, default=0, help='Seed for sampling the calibration data.')
-    parser.add_argument('--nsamples', type=int, default=128, help='Number of calibration samples.')
-    parser.add_argument('--sparsity_ratio', type=float, default=0, help='Sparsity level')
+    parser.add_argument("--model", type=str, help="LLaMA model")
+    parser.add_argument(
+        "--seed", type=int, default=0, help="Seed for sampling the calibration data."
+    )
+    parser.add_argument(
+        "--nsamples", type=int, default=128, help="Number of calibration samples."
+    )
+    parser.add_argument(
+        "--sparsity_ratio", type=float, default=0, help="Sparsity level"
+    )
     parser.add_argument("--sparsity_type", type=str)
-    parser.add_argument("--prune_method", type=str, choices=["magnitude", "wanda", "sparsegpt",
-                                                             "ablate_wanda_seq",  "joint_pq", "maskllm", "thanos"],)
-    parser.add_argument("--skip_attention", action="store_true", help="Whether to skip attention layers for compression")
+    parser.add_argument(
+        "--prune_method",
+        type=str,
+        choices=[
+            "magnitude",
+            "wanda",
+            "sparsegpt",
+            "ablate_wanda_seq",
+            "joint_pq",
+            "maskllm",
+            "thanos",
+        ],
+    )
+    parser.add_argument(
+        "--skip_attention",
+        action="store_true",
+        help="Whether to skip attention layers for compression",
+    )
     parser.add_argument("--cache_dir", default="llm_weights", type=str)
 
     parser.add_argument("--slim_lora", action="store_true")
@@ -78,56 +131,117 @@ def main():
     parser.add_argument("--prune_lora", action="store_true")
     parser.add_argument("--quantize_lora", action="store_true")
     parser.add_argument("--lora_tile_size", type=int, default=256)
-    parser.add_argument("--pad_lora", action="store_true", help="Whether to pad LoRA to "
-                        "lora_tile_size (without quantization)")
+    parser.add_argument(
+        "--pad_lora",
+        action="store_true",
+        help="Whether to pad LoRA to " "lora_tile_size (without quantization)",
+    )
 
     parser.add_argument("--bitwidth", type=int, default=8)
     parser.add_argument("--quantize_weight", action="store_true")
     parser.add_argument("--tiled_weight_quantization", action="store_true")
     parser.add_argument("--weight_tile_size", type=int, default=256)
-    parser.add_argument("--calibration_dataset", type=str, default="c4",
-                        choices=["c4", "slimpajama"])
-    parser.add_argument("--eval_dataset", type=str, default="wikitext2",
-                        choices=["wikitext2", "c4", "openwebtext", "slimpajama"])
+    parser.add_argument(
+        "--calibration_dataset", type=str, default="c4", choices=["c4", "slimpajama"]
+    )
+    parser.add_argument(
+        "--eval_dataset",
+        type=str,
+        default="wikitext2",
+        choices=["wikitext2", "c4", "openwebtext", "slimpajama"],
+    )
     parser.add_argument("--shift_zero_metrics", action="store_true")
     parser.add_argument("--slim_quant", action="store_true")
     parser.add_argument("--eval_batch_size", type=int, default=1)
-    parser.add_argument("--output_csv_path", type=str, default=None,
-                        help='Output CSV to accumulate experiment result')
-    parser.add_argument('--test_lmharness', action="store_true", help="Whether to test LMEHarness tasks")
-    parser.add_argument('--fine_tune', action="store_true",
-                        help="Whether to fine-tune the model after pruning")
-    parser.add_argument('--evaluate_perplexity', action="store_true",
-                        help="Whether to evaluate the model perplexity")
-    parser.add_argument('--local_files_only', action="store_true",
-                        help="Whether to use local files only")
-    parser.add_argument('--quantize_input', action="store_true", help="Whether to quantize input")
-    parser.add_argument("--input_bitwidth", type=int, default=8, help="Input quantization bitwidth")
-    parser.add_argument("--input_group_size", type=int, default=-1, help="Input quantization group size")
-    parser.add_argument("--optimizer", type=str, default="adamw_torch",
-                        help="Optimizer for fien-tuning models")
+    parser.add_argument(
+        "--output_csv_path",
+        type=str,
+        default=None,
+        help="Output CSV to accumulate experiment result",
+    )
+    parser.add_argument(
+        "--test_lmharness", action="store_true", help="Whether to test LMEHarness tasks"
+    )
+    parser.add_argument(
+        "--fine_tune",
+        action="store_true",
+        help="Whether to fine-tune the model after pruning",
+    )
+    parser.add_argument(
+        "--evaluate_perplexity",
+        action="store_true",
+        help="Whether to evaluate the model perplexity",
+    )
+    parser.add_argument(
+        "--local_files_only",
+        action="store_true",
+        help="Whether to use local files only",
+    )
+    parser.add_argument(
+        "--quantize_input", action="store_true", help="Whether to quantize input"
+    )
+    parser.add_argument(
+        "--input_bitwidth", type=int, default=8, help="Input quantization bitwidth"
+    )
+    parser.add_argument(
+        "--input_group_size", type=int, default=-1, help="Input quantization group size"
+    )
+    parser.add_argument(
+        "--optimizer",
+        type=str,
+        default="adamw_torch",
+        help="Optimizer for fien-tuning models",
+    )
     parser.add_argument("--hf_token", type=str, default="")
 
     parser.add_argument("--joint_pq_mixing_factor", type=float, default=2.1)
-    parser.add_argument("--scale_important_weights", action="store_true",)
-    parser.add_argument("--update_weights", action="store_true", default=False,
-                        help="Whether to update weights during pruning")
-    parser.add_argument("--use_qp_solver", action="store_true", default=False,
-                        help="Whether to use quadratic programming solver")
-    parser.add_argument("--double_precision", action="store_true", default=False,
-                        help="Whether to use double precision for calculations")
-    parser.add_argument("--maskllm_checkpoint", type=str, default=None,
-                        help="Checkpoint for MaskLLM mask")
-    parser.add_argument("--use_wandb", action="store_true",
-                        help="Enable Weights & Biases logging")
-    parser.add_argument("--wandb_project", type=str, default="SLiM",
-                        help="W&B project name")
-    parser.add_argument("--wandb_run_name", type=str, default=None,
-                        help="W&B run name (optional)")
-    parser.add_argument("--save_checkpoint_path", type=str, default=None,
-                        help="Directory to save the model checkpoint")
+    parser.add_argument(
+        "--scale_important_weights",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--update_weights",
+        action="store_true",
+        default=False,
+        help="Whether to update weights during pruning",
+    )
+    parser.add_argument(
+        "--use_qp_solver",
+        action="store_true",
+        default=False,
+        help="Whether to use quadratic programming solver",
+    )
+    parser.add_argument(
+        "--double_precision",
+        action="store_true",
+        default=False,
+        help="Whether to use double precision for calculations",
+    )
+    parser.add_argument(
+        "--maskllm_checkpoint",
+        type=str,
+        default=None,
+        help="Checkpoint for MaskLLM mask",
+    )
+    parser.add_argument(
+        "--use_wandb", action="store_true", help="Enable Weights & Biases logging"
+    )
+    parser.add_argument(
+        "--wandb_project", type=str, default="SLiM", help="W&B project name"
+    )
+    parser.add_argument(
+        "--wandb_run_name", type=str, default=None, help="W&B run name (optional)"
+    )
+    parser.add_argument(
+        "--save_checkpoint_path",
+        type=str,
+        default=None,
+        help="Directory to save the model checkpoint",
+    )
 
-    parser.add_argument("--quant_type", type=str, default="symmetric", help="Quantization type")
+    parser.add_argument(
+        "--quant_type", type=str, default="symmetric", help="Quantization type"
+    )
 
     args = parser.parse_args()
 
@@ -139,11 +253,7 @@ def main():
             model_name = args.model.split("/")[-1]
             run_name = f"{model_name}_{args.prune_method}_{args.sparsity_ratio}_lora{args.lora_rank}_slimlora{args.slim_lora}_quantlora{args.quantize_lora}_quantweight{args.quantize_weight}_slimquant{args.slim_quant}_finetune{args.fine_tune}"
 
-        wandb.init(
-            project=args.wandb_project,
-            name=run_name,
-            config=vars(args)
-        )
+        wandb.init(project=args.wandb_project, name=run_name, config=vars(args))
 
     # Setting seeds for reproducibility
     np.random.seed(args.seed)
@@ -203,10 +313,9 @@ def main():
 
     model = distribute_model(model)
 
-    
     print("*" * 30)
     ################################################################
-    if args.quantize_weight and args.quantize_lora and args.lora_rank > 0.:
+    if args.quantize_weight and args.quantize_lora and args.lora_rank > 0.0:
         quantize_lora(
             model,
             args.bitwidth,
@@ -221,13 +330,14 @@ def main():
     ################################################################
     if args.quantize_input:
         print("Enabling input quantization:")
-        attach_input_quantization_hooks(model,
-                                        args.input_bitwidth,
-                                        args.input_group_size,
-                                        )
+        attach_input_quantization_hooks(
+            model,
+            args.input_bitwidth,
+            args.input_group_size,
+        )
     ################################################################
 
-    ppl_test = 0.
+    ppl_test = 0.0
     if args.evaluate_perplexity:
         ppl_test = eval_ppl(
             model,
@@ -236,47 +346,55 @@ def main():
             args.eval_batch_size,
         )
         print(f"Perplexity: {ppl_test:.2f}")
-        
+
         # Log perplexity to wandb
         if args.use_wandb:
             wandb.log({"perplexity": ppl_test})
-        
+
         print("*" * 30)
     ################################################################
     sparsity_ratio = check_sparsity(model)
     print(f"Model Sparsity Ratio: {sparsity_ratio:.2f}")
-    
+
     # Log sparsity ratio to wandb
     if args.use_wandb:
         wandb.log({"sparsity_ratio": sparsity_ratio})
-    
+
     print("*" * 30)
     ################################################################
-    
+
     lmharness_results = {}
     if args.test_lmharness:
         results = lm_eval.simple_evaluate(
             model=lm_eval_model,
-            tasks=["mmlu", "piqa", "arc_easy", "arc_challenge", "winogrande", "openbookqa"],
-            verbosity="ERROR"
+            tasks=[
+                "mmlu",
+                "piqa",
+                "arc_easy",
+                "arc_challenge",
+                "winogrande",
+                "openbookqa",
+            ],
+            verbosity="ERROR",
         )
-        lmharness_results["mmlu"] = results['results']["mmlu"]["acc,none"]
-        lmharness_results["piqa"] = results['results']["piqa"]["acc,none"]
-        lmharness_results["arc_easy"] = results['results']["arc_easy"]["acc,none"]
-        lmharness_results["arc_challenge"] = results['results']["arc_challenge"]["acc,none"]
-        lmharness_results["winogrande"] = results['results']["winogrande"]["acc,none"]
-        lmharness_results["openbookqa"] = results['results']["openbookqa"]["acc,none"]
+        lmharness_results["mmlu"] = results["results"]["mmlu"]["acc,none"]
+        lmharness_results["piqa"] = results["results"]["piqa"]["acc,none"]
+        lmharness_results["arc_easy"] = results["results"]["arc_easy"]["acc,none"]
+        lmharness_results["arc_challenge"] = results["results"]["arc_challenge"][
+            "acc,none"
+        ]
+        lmharness_results["winogrande"] = results["results"]["winogrande"]["acc,none"]
+        lmharness_results["openbookqa"] = results["results"]["openbookqa"]["acc,none"]
         average = []
         for task in lmharness_results:
             average.append(lmharness_results[task])
         average = np.mean(average)
         lmharness_results["average"] = average
         print("LM Harness Results: ", lmharness_results)
-        
+
         # Log LM Harness results to wandb
         if args.use_wandb:
             wandb.log(lmharness_results)
-
 
     if args.output_csv_path:
         add_result_to_csv(args, ppl_test, lmharness_results)
@@ -285,5 +403,5 @@ def main():
         save_model(model, args.save_checkpoint_path, args)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 
+
 def check_sparsity(model):
     """
     Check the end-to-end sparsity ratio of a model.
@@ -38,7 +39,10 @@ def report_gpu_memory(message=""):
     message: str, a message to print before the memory report
     """
     torch.cuda.empty_cache()
-    print(message, f" - Allocated Memory: {(torch.cuda.memory_allocated() / 1024 / 1024 / 1024):.2f}GB")
+    print(
+        message,
+        f" - Allocated Memory: {(torch.cuda.memory_allocated() / 1024 / 1024 / 1024):.2f}GB",
+    )
 
 
 def get_layers_list(model):
@@ -57,7 +61,7 @@ def get_layers_list(model):
     elif hasattr(model, "transformer"):
         layers = model.transformer.h
     elif hasattr(model, "layers"):
-            layers = model.layers
+        layers = model.layers
     else:
         raise NotImplementedError
     return layers
@@ -82,10 +86,10 @@ def prune_nm(mat, n, m):
     m: int, M in N:M sparsity
 
     """
-    mask = (torch.zeros_like(mat) == 1)
+    mask = torch.zeros_like(mat) == 1
     for ii in range(mat.shape[1]):
         if ii % m == 0:
-            tmp = mat[:, ii:(ii + m)].float()
+            tmp = mat[:, ii : (ii + m)].float()
             mask.scatter_(1, ii + torch.topk(tmp, n, dim=1, largest=False)[1], True)
     return mask
 
@@ -101,7 +105,7 @@ def remove_outlier(x, std_factor=2):
     return [e for e in x if (mean - std_factor * std < e < mean + std_factor * std)]
 
 
-def find_layers(module, layers=[torch.nn.Linear], name=''):
+def find_layers(module, layers=[torch.nn.Linear], name=""):
     """
     Recursively find the layers of a certain type in a module.
 
@@ -117,9 +121,11 @@ def find_layers(module, layers=[torch.nn.Linear], name=''):
         return {name: module}
     res = {}
     for name1, child in module.named_children():
-        res.update(find_layers(
-            child, layers=layers, name=name + '.' + name1 if name != '' else name1
-        ))
+        res.update(
+            find_layers(
+                child, layers=layers, name=name + "." + name1 if name != "" else name1
+            )
+        )
     return res
 
 
@@ -133,11 +139,11 @@ def skip_layers(layers, skip_attention=True, skip_mlp=False):
     if skip_attention:
         keys = list(layers.keys())
         for key in keys:
-            if 'attn' in key:
+            if "attn" in key:
                 del layers[key]
     if skip_mlp:
         keys = list(layers.keys())
         for key in keys:
-            if 'mlp' in key:
+            if "mlp" in key:
                 del layers[key]
     return layers
