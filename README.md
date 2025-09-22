@@ -8,7 +8,9 @@ This repository contains the implementation of OPTIMA, a practical one-shot post
 
 Paper: [https://arxiv.org/abs/XXXX.XXXXX](https://arxiv.org/abs/XXXX.XXXXX)
 
-<img src="./assets/OPTIMA-Logo.png" alt="OPTIMA" width="800">  
+<div style="text-align: center;">
+<img src="./assets/OPTIMA-Logo.png" alt="OPTIMA" width="400">  
+</div>
 
 ## Setup
 
