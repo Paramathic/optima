@@ -19,5 +19,6 @@ CONTAINER_NAME="torch-jax"
 
 singularity shell \
     --fakeroot \
-    --bind $DATA_DIR:/home/mozaffar/data \
+    --bind $DATA_DIR:$PWD/data \
+    --bind $SCRATCH/tiled_models:$PWD/tiled_models \
     --nv ${SCRATCH}/$CONTAINER_NAME.sif 

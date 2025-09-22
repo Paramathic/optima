@@ -4,16 +4,16 @@ export HF_HOME="data"
 export HF_DATASETS_OFFLINE="1"
 export HF_HUB_OFFLINE="1"
 
-export CUDA_VISIBLE_DEVICES="0"
+HF_TOKEN_ARG="--hf_token TOKEN"
+export HF_TOKEN="TOKEN"
 
-HF_TOKEN_ARG="--hf_token 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"
-export HF_TOKEN="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"
+export XLA_PYTHON_CLIENT_PREALLOCATE=false
 
 export TRITON_CACHE_DIR="/tmp"
 
 export WANDB_MODE="offline"
 
-for MODEL_NAME in llama3.2 #gemma2 gemma3 #opt #llama2 #llama3.1
+for MODEL_NAME in llama3.1 #opt #llama2 #llama3.1
 do
     if [ $MODEL_NAME == 'llama2' ]
     then
@@ -28,7 +28,7 @@ do
     elif [ $MODEL_NAME == 'llama3.2' ]
     then
         MODEL_PREFIX=meta-llama/Llama-3.2-
-        MODEL_SIZE_LIST="3B"
+        MODEL_SIZE_LIST="1B" # 3B"
         MODEL_POSTFIX=""
     elif [ $MODEL_NAME == 'llama3.1' ]
     then
@@ -54,9 +54,9 @@ do
 
     for MODEL_SIZE in $MODEL_SIZE_LIST
     do
-        for STRUCTURE in 2:4 #unstructured
+        for STRUCTURE in unstructured #2:4 4:8 8:16
         do
-            for METHOD in sparsegpt #sparsegpt #maskllm sparsegpt joint_pq
+            for METHOD in wanda sparsegpt thanos #maskllm #wanda sparsegpt thanos #maskllm sparsegpt joint_pq
             do
                 for LORA_RANK in 0 #0.1
                 do
@@ -69,7 +69,7 @@ do
                                 for TILED_WEIGHT_QUANTIZATION in '--tiled_weight_quantization'
                                 do
                                     LOCAL_FILES_ONLY='--local_files_only'
-                                    SPARSITY_RATIO=0.5
+                                    SPARSITY_RATIO=0.6
                                     SHIFT_ZERO_METRICS='--shift_zero_metrics'
                                     EVAL_DATASET='wikitext2'
                                     BITWIDTH=4
@@ -93,16 +93,16 @@ do
                                     INPUT_GROUP_SIZE=-1
                                     PAD_LORA='--pad_lora'
 #                                    SCALE_IMPORTANT_WEIGHTS='--scale_important_weights'
-                                    MASKLLM_CHECKPOINT="--maskllm_checkpoint tiled_models/llama_3.2_3b_maskllm.pt"
+                                    MASKLLM_CHECKPOINT="--maskllm_checkpoint prox_sparse_ckpt/up_down_gate_proximal_merged_Llama-3.2-3B-en_sft_final_400_lr5e-05_len4096_batch1_lambda0.85.pt"
                                     # WANDB="--use_wandb"
-                                    WANDB_PROJECT="weight_update"
+                                    WANDB_PROJECT="OPTIMA"
                                     SAVE_CHECKPOINT_PATH="--save_checkpoint_path checkpoints/${MODEL_NAME}_${MODEL_SIZE}_${METHOD}_${STRUCTURE}_lr${LORA_RANK}_sparsity${SPARSITY_RATIO}"
                                     QP_SOLVER="--use_qp_solver"
                                     # UPDATE_WEIGHTS="--update_weights"
                                     # DOUBLE_PRECISION="--double_precision"
                                     # SKIP_ATTENTION="--skip_attention"
 
-                                    python main.py \
+                                    CUDA_VISIBLE_DEVICES=0 python main.py \
                                         --model ${MODEL_PREFIX}${MODEL_SIZE}${MODEL_POSTFIX} \
                                         --prune_method $METHOD \
                                         --sparsity_ratio $SPARSITY_RATIO \
@@ -118,7 +118,7 @@ do
                                         --eval_batch_size $EVAL_BATCH_SIZE \
                                         $SEPARATE_LORA \
                                         $TEST_LMHARNESS \
-                                        --output_csv_path results/tmp.csv \
+                                        --output_csv_path results/llama3.1-0.6.csv \
                                         $FINE_TUNE \
                                         $EVALUATE_PERPLEXITY \
                                         $LOCAL_FILES_ONLY \

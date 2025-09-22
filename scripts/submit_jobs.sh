@@ -2,10 +2,10 @@
 
 # --- Configuration ---
 # Define the ranges for your hyperparameters
-MODEL_NAMES=("gemma3")
-STRUCTURE=("2:4")
-SPARSITY_RATIO=(0.5)
-METHOD=(maskllm)
+MODEL_NAMES=("llama3.1")
+STRUCTURE=("unstructured")
+SPARSITY_RATIO=(0.6)
+METHODS=(wanda sparsegpt thanos)
 LORA_RANK=(0.0)
 SLIM_LORA=(true)
 SEPARATE_LORA=true
@@ -25,14 +25,14 @@ TEST_LMHARNESS=true
 FINE_TUNE=(false)
 OPTIMIZER="adafactor"
 SCALE_IMPORTANT_WEIGHTS=false
-MASKLLM_CHECKPOINT="tiled_models/gemma_3_1b_maskllm.pt"
+MASKLLM_CHECKPOINT="prox_sparse_ckpt/up_down_gate_proximal_merged_Llama-3.2-3B-en_sft_final_400_lr5e-05_len4096_batch1_lambda0.85.pt"
 QUANTIZE_INPUT=false
 INPUT_BITWIDTH=8
 INPUT_GROUP_SIZE=-1
 JOINT_PQ_MIXING_FACTOR=2.1
 WANDB=true
 HF_TOKEN="HF_TOKEN_PLACEHOLDER"
-OUTPUT_CSV_FILE="results/maskllm_qp.csv"
+OUTPUT_CSV_FILE="results/llama3.1-0.6-optima.csv"
 USE_QP_SOLVER=true
 UPDATE_WEIGHTS=true
 DOUBLE_PRECISION=false
@@ -62,7 +62,7 @@ do
     elif [ $MODEL_NAME == 'llama3.2' ]
     then
         MODEL_PREFIX=meta-llama/Llama-3.2-
-        MODEL_SIZE_LIST='1B'
+        MODEL_SIZE_LIST='3B'
         MODEL_POSTFIX=''
         TIME="16:00:00"
     elif [ $MODEL_NAME == 'llama3.1' ]
@@ -70,6 +70,7 @@ do
         MODEL_PREFIX=meta-llama/Llama-3.1-
         MODEL_SIZE_LIST='8B'
         MODEL_POSTFIX=''
+        TIME="24:00:00"
     elif [ $MODEL_NAME == 'gemma2' ]
     then
         MODEL_PREFIX=google/gemma-2-
@@ -89,7 +90,7 @@ do
     do
         for STRUCTURE in "${STRUCTURE[@]}"
         do
-            for METHOD in "${METHOD[@]}"
+            for METHOD in "${METHODS[@]}"
             do
                 for LORA_RANK in "${LORA_RANK[@]}"
                 do

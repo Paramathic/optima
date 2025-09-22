@@ -45,7 +45,7 @@ ARG_CLUSTER="${37:-'trillium'}"
 ARG_SKIP_ATTENTION="${38:-'false'}"
 
 
-SCRIPT_TO_RUN=scripts/run_slim_args.sh
+SCRIPT_TO_RUN=scripts/run_optima_args.sh
 
 module load apptainer 
 export HF_DATASETS_TRUST_REMOTE_CODE="1"
