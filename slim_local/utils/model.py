@@ -156,32 +156,32 @@ def distribute_model(model, activation_buffer_percentage=0.30):
 if __name__ == "__main__":
     from transformers import AutoTokenizer
 
-    token = "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"
+    token = "HF_TOKEN"
 
     def load_model_and_tokenizer(model_name):
         print("Loading model", model_name)
         get_llm(model_name, hf_token=token)
         AutoTokenizer.from_pretrained(model_name, token=token)
 
-    # #Load OPT models
-    # for size in ["13b"]:
-    #     model_name = f"facebook/opt-{size}"
-    #     load_model_and_tokenizer(model_name)
+    # Load OPT models
+    for size in ["13b"]:
+        model_name = f"facebook/opt-{size}"
+        load_model_and_tokenizer(model_name)
 
-    # #Load LLaMA-2 models
-    # for size in ["70b"]:
-    #     model_name = f"meta-llama/Llama-2-{size}-hf"
-    #     load_model_and_tokenizer(model_name)
+    # Load LLaMA-2 models
+    for size in ["70b"]:
+        model_name = f"meta-llama/Llama-2-{size}-hf"
+        load_model_and_tokenizer(model_name)
 
     # Load LLaMA-3.1 models
-    # for size in ["70B"]:
-    #     model_name = f"meta-llama/Llama-3.1-{size}"
-    #     load_model_and_tokenizer(model_name)
+    for size in ["70B"]:
+        model_name = f"meta-llama/Llama-3.1-{size}"
+        load_model_and_tokenizer(model_name)
 
-    # #Load LLaMA-3.2 models
-    # for size in ["1B", "3B"]:
-    #     model_name = f"meta-llama/Llama-3.2-{size}"
-    #     load_model_and_tokenizer(model_name)
+    # Load LLaMA-3.2 models
+    for size in ["1B", "3B"]:
+        model_name = f"meta-llama/Llama-3.2-{size}"
+        load_model_and_tokenizer(model_name)
 
     # Load Gemma-3 models
     for size in ["12b", "27b"]:
