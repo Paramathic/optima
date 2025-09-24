@@ -3,9 +3,9 @@
 # --- Configuration ---
 # Define the ranges for your hyperparameters
 MODEL_NAMES=("llama3.1")
-STRUCTURE=("unstructured")
-SPARSITY_RATIO=(0.6)
-METHODS=(wanda sparsegpt thanos)
+STRUCTURE=("2:4")
+SPARSITY_RATIO=(0.5)
+METHODS=(maskllm)
 LORA_RANK=(0.0)
 SLIM_LORA=(true)
 SEPARATE_LORA=true
@@ -25,19 +25,19 @@ TEST_LMHARNESS=true
 FINE_TUNE=(false)
 OPTIMIZER="adafactor"
 SCALE_IMPORTANT_WEIGHTS=false
-MASKLLM_CHECKPOINT="prox_sparse_ckpt/up_down_gate_proximal_merged_Llama-3.2-3B-en_sft_final_400_lr5e-05_len4096_batch1_lambda0.85.pt"
+MASKLLM_CHECKPOINT="prox_sparse_ckpt/up_down_gate_proximal_merged_Llama-3.1-8B-en_sft_final_400_lr5e-05_len4096_batch1_lambda0.85.pt"
 QUANTIZE_INPUT=false
 INPUT_BITWIDTH=8
 INPUT_GROUP_SIZE=-1
 JOINT_PQ_MIXING_FACTOR=2.1
 WANDB=true
 HF_TOKEN="HF_TOKEN_PLACEHOLDER"
-OUTPUT_CSV_FILE="results/llama3.1-0.6-optima.csv"
+OUTPUT_CSV_FILE="results/llama3.1-proxsparse-skip-attention-optima.csv"
 USE_QP_SOLVER=true
 UPDATE_WEIGHTS=true
 DOUBLE_PRECISION=false
 CLUSTER="trillium"
-SKIP_ATTENTION=false
+SKIP_ATTENTION=true
 
 
 NGPUS_PER_NODE=1
@@ -113,7 +113,7 @@ do
                                         SAVE_CHECKPOINT_PATH="checkpoints/${MODEL_NAME}_${MODEL_SIZE}_${METHOD}_${STRUCTURE}_lr${LORA_RANK}_sparsity${SPARSITY_RATIO}_slimlora${SLIM_LORA}_quantlora${QUANTIZE_LORA}_quantweight${QUANTIZE_WEIGHT}_slimquant${SLIM_QUANT}_finetune${FINE_TUNE}"
                                         # Construct the arguments for the script
 
-                                        sbatch --account=rrg-mmehride \
+                                        sbatch \
                                             --job-name="${GPU_TYPE}${JOB_NAME}" \
                                             --gpus-per-node=${NGPUS_PER_NODE} \
                                             --ntasks-per-node=${NTASKS_PER_NODE} \

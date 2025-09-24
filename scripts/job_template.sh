@@ -1,7 +1,8 @@
 #!/bin/bash
 #SBATCH --nodes=1
-#SBATCH --account=rrg-mmehride
 #SBATCH --job-name=slim # Base name, will be overridden by submit_jobs.sh
+
+ALLOCATION_NAME="PLACEHOLDER"  # Replace with your allocation name
 
 echo "SLURM Job $SLURM_JOB_ID started at $(date)"
 
@@ -72,7 +73,7 @@ elif [ "$ARG_CLUSTER" = "narval" ]; then
     # --- Data and Container Preparation ---
     if [ "$ARG_COPY_DATA" = true ]; then
         echo "Copying data to SLURM_TMPDIR..."
-        DATA_DIR_SRC="/home/${USERNAME}/projects/def-mmehride/${USERNAME}/data"
+        DATA_DIR_SRC="/home/${USERNAME}/projects/${ALLOCATION_NAME}/${USERNAME}/data"
         DATA_DIR_TMP="$SLURM_TMPDIR/data"
         cp -r "$DATA_DIR_SRC" "$SLURM_TMPDIR/"
         echo "Data copied to $DATA_DIR_TMP"
@@ -85,13 +86,13 @@ elif [ "$ARG_CLUSTER" = "narval" ]; then
             --nv ${SLURM_TMPDIR}/$CONTAINER_NAME.sif "
     else
         echo "Skipping data copy as per user request."
-        DATA_DIR_TMP="/home/${USERNAME}/projects/def-mmehride/${USERNAME}/data" # Use the original data directory
+        DATA_DIR_TMP="/home/${USERNAME}/projects/${ALLOCATION_NAME}/${USERNAME}/data" # Use the original data directory
     fi
 
     echo "Preparing container..."
     rm -rf $SLURM_TMPDIR/torch-one-shot.sif;
     mkdir ${SLURM_TMPDIR}/torch-one-shot.sif;
-    tar -xf /home/${USERNAME}/projects/def-mmehride/${USERNAME}/torch-one-shot.tar -C $SLURM_TMPDIR;
+    tar -xf /home/${USERNAME}/projects/${ALLOCATION_NAME}/${USERNAME}/torch-one-shot.tar -C $SLURM_TMPDIR;
     mkdir ${SLURM_TMPDIR}/torch-one-shot.sif/etc/pki;
     mkdir ${SLURM_TMPDIR}/torch-one-shot.sif/etc/pki/tls;
     mkdir ${SLURM_TMPDIR}/torch-one-shot.sif/etc/pki/tls/certs;
