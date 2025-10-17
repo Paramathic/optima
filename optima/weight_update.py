@@ -6,9 +6,7 @@ from mpax import create_qp, raPDHG
 import numpy as np
 from mpax.utils import TerminationStatus
 import torch
-from .mask_optim import block_wise_optimize_mask
 import tqdm
-from jax.dlpack import from_dlpack, to_dlpack
 import wandb
 
 
@@ -265,7 +263,6 @@ def optimize_weights(
     compressed_layer,
     use_qp_solver,
     double_precision,
-    update_mask,
     W_mask,
     name="",
     layer_num=0,
@@ -287,38 +284,7 @@ def optimize_weights(
             double_precision,
         )
     else:
-        if update_mask:
-            tunable_layer = torch.nn.Linear(
-                layer.original_weight.data.shape[1],
-                layer.original_weight.data.shape[0],
-                bias=False,
-            )
-            tunable_layer.weight.data = (
-                layer.original_weight.data.clone().detach().cuda()
-            )
-            tunable_layer.init_mask = (
-                (compressed_layer.weight.data != 0).to(torch.bfloat16).cuda()
-            )
-
-            init_loss_, final_loss_ = block_wise_optimize_mask(
-                tunable_layer,
-                {},
-                layer.inputs,
-                layer.outputs,
-                num_epochs=4,
-                optimizer="adam",
-                verbose=False,
-            )
-
-            best_weight = tunable_layer.weight.data.clone().detach()
-            trainable_weight = best_weight
-
-            print(
-                "Average Mask Similarity: ",
-                ((best_weight == 0) == W_mask).float().mean(),
-            )
-        else:
-            trainable_weight = compressed_layer.weight
+        trainable_weight = compressed_layer.weight
 
         best_weight = update_weights_learnable(layer, trainable_weight, W_mask=W_mask)
 

@@ -22,7 +22,7 @@ from slim_local.slim.smooth import smooth_layer
 from huggingface_hub import hf_hub_download
 import gc
 import numpy as np
-from slim_local.slim.weight_update import optimize_weights
+from optima.weight_update import optimize_weights
 from slim_local.slim.thanos import Thanos
 
 
@@ -187,7 +187,6 @@ def prune_wanda(
     update_weights=False,
     use_qp_solver=False,
     double_precision=False,
-    update_mask=False,
     skip_attention=False,
 ):
     """
@@ -435,7 +434,6 @@ def prune_wanda(
                     subset[name],
                     use_qp_solver,
                     double_precision,
-                    update_mask,
                     W_mask,
                     name,
                     i,
@@ -594,7 +592,6 @@ def prune_sparsegpt(
                     subset[name],
                     use_qp_solver,
                     double_precision,
-                    False,
                     W_mask,
                     name,
                     i,
@@ -1070,7 +1067,6 @@ def prune_thanos(
                     subset[name],
                     use_qp_solver,
                     double_precision,
-                    False,
                     W_mask,
                     name,
                     i,
