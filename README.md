@@ -1,3 +1,7 @@
+<div align="center">
+<img src="./assets/OPTIMA-Logo.png" alt="OPTIMA" width="300">  
+</div>
+
 # OPTIMA: Optimal One-Shot Pruning for LLMs via Quadratic Programming Reconstruction
 
 This repository contains the implementation of OPTIMA, a practical one-shot post-training pruning method for large language models (LLMs). OPTIMA reformulates layer-wise weight reconstruction as independent, row-wise Quadratic Programs (QPs) that share a common layer Hessian, enabling globally optimal updates with respect to the reconstruction objective. It integrates with existing mask selectors (e.g., Wanda, SparseGPT, Thanos) and is designed for accelerator-friendly execution, balancing accuracy and scalability without fine-tuning.
@@ -8,9 +12,7 @@ This repository contains the implementation of OPTIMA, a practical one-shot post
 
 Paper: [https://arxiv.org/abs/XXXX.XXXXX](https://arxiv.org/abs/XXXX.XXXXX)
 
-<div style="text-align: center;">
-<img src="./assets/OPTIMA-Logo.png" alt="OPTIMA" width="400">  
-</div>
+<img src="./assets/OPTIMA-Pipeline.svg" alt="OPTIMA Pipeline" width="800">
 
 ## Setup
 
