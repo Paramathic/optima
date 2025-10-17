@@ -9,7 +9,6 @@ from slim_local.slim.utils import (
     shift_zeros,
     find_layers,
     prune_nm,
-    skip_layers,
 )
 from slim_local.slim.lora import add_lora
 from slim_local.slim.quantization.quantization import (
@@ -23,7 +22,8 @@ from huggingface_hub import hf_hub_download
 import gc
 import numpy as np
 from optima.weight_update import optimize_weights
-from slim_local.slim.thanos import Thanos
+from optima.thanos import Thanos
+from optima.utils import skip_layers
 
 
 def prepare_calibration_input(model, dataloader, nsamples=128):
