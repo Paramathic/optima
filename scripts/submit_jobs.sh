@@ -83,7 +83,7 @@ do
         MODEL_SIZE_LIST='1b'
         MODEL_POSTFIX='-pt'
         TIME="16:00:00"
-        elif [ $MODEL_NAME == 'qwen2.5' ]
+    elif [ $MODEL_NAME == 'qwen2.5' ]
     then
         MODEL_PREFIX="Qwen/Qwen2.5-"
         MODEL_SIZE_LIST="7B 14B"
