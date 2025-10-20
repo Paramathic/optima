@@ -24,6 +24,7 @@ import numpy as np
 from optima.weight_update import optimize_weights
 from optima.thanos import Thanos
 from optima.utils import skip_layers
+import os
 
 
 def prepare_calibration_input(model, dataloader, nsamples=128):
@@ -188,6 +189,7 @@ def prune_wanda(
     use_qp_solver=False,
     double_precision=False,
     skip_attention=False,
+    weight_update_checkpoint_dir=None,
 ):
     """
     Prune a model using WANDA and quantize weights using SLiM-Quant or AbsMax and add low-rank adapter using SLiM or SVD.
@@ -220,6 +222,7 @@ def prune_wanda(
         use_qp_solver: bool - Whether to use quadratic programming solver
         double_precision: bool - Whether to use double precision for calculations
         skip_attention: bool - Whether to skip attention layers for compression
+        weight_update_checkpoint_dir: str - The directory to save weight update checkpoints
 
     Returns:
         None
@@ -429,15 +432,28 @@ def prune_wanda(
                             else:
                                 subset[name].scaling_factor = None
             if update_weights:
-                optimize_weights(
-                    wrapped_layers[name],
-                    subset[name],
-                    use_qp_solver,
-                    double_precision,
-                    W_mask,
-                    name,
-                    i,
-                )
+                if weight_update_checkpoint_dir is not None and os.path.exists(
+                    f"{weight_update_checkpoint_dir}/layer_{i}_{name}.pt"
+                ):
+                    subset[name].load_state_dict(
+                        torch.load(
+                            f"{weight_update_checkpoint_dir}/layer_{i}_{name}.pt"
+                        )
+                    )
+                else:
+                    optimize_weights(
+                        wrapped_layers[name],
+                        subset[name],
+                        use_qp_solver,
+                        double_precision,
+                        W_mask,
+                        name,
+                        i,
+                    )
+                    torch.save(
+                        subset[name].state_dict(),
+                        f"{weight_update_checkpoint_dir}/layer_{i}_{name}.pt",
+                    )
 
         progress_bar.set_description(f"Layer {i} - Evaluating Output")
 
@@ -474,6 +490,7 @@ def prune_sparsegpt(
     use_qp_solver=False,
     double_precision=False,
     skip_attention=False,
+    weight_update_checkpoint_dir=None,
 ):
     """
     Prune a model using SparseGPT and quantize weights using OPTQ (GPTQ).
@@ -494,6 +511,7 @@ def prune_sparsegpt(
         weight_tile_size: int - The size of the blocks for block
         calibration_dataset: str - The dataset to use for calibration
         skip_attention: bool - Whether to skip attention layers for compression
+        weight_update_checkpoint_dir: str - The directory to save weight update checkpoints
 
     Returns:
         None
@@ -586,16 +604,29 @@ def prune_sparsegpt(
             gpts[name].free()
 
             if update_weights:
-                W_mask = (subset[name].weight.data == 0).clone().detach()
-                optimize_weights(
-                    gpts[name],
-                    subset[name],
-                    use_qp_solver,
-                    double_precision,
-                    W_mask,
-                    name,
-                    i,
-                )
+                if weight_update_checkpoint_dir is not None and os.path.exists(
+                    f"{weight_update_checkpoint_dir}/layer_{i}_{name}.pt"
+                ):
+                    subset[name].load_state_dict(
+                        torch.load(
+                            f"{weight_update_checkpoint_dir}/layer_{i}_{name}.pt"
+                        )
+                    )
+                else:
+                    W_mask = (subset[name].weight.data == 0).clone().detach()
+                    optimize_weights(
+                        gpts[name],
+                        subset[name],
+                        use_qp_solver,
+                        double_precision,
+                        W_mask,
+                        name,
+                        i,
+                    )
+                    torch.save(
+                        subset[name].state_dict(),
+                        f"{weight_update_checkpoint_dir}/layer_{i}_{name}.pt",
+                    )
 
         progress_bar.set_description(f"Layer {i} - Evaluating Output")
         for j in range(nsamples):
@@ -958,6 +989,7 @@ def prune_thanos(
     use_qp_solver=False,
     double_precision=False,
     skip_attention=False,
+    weight_update_checkpoint_dir=None,
 ):
     """
     Prune a model using Thanos.
@@ -980,6 +1012,7 @@ def prune_thanos(
         use_qp_solver: bool - Whether to use quadratic programming solver
         double_precision: bool - Whether to use double precision for calculations
         skip_attention: bool - Whether to skip attention layers for compression
+        weight_update_checkpoint_dir: str - The directory to save weight update checkpoints
 
     Returns:
         None
@@ -1061,16 +1094,29 @@ def prune_thanos(
             gpts[name].free()
 
             if update_weights:
-                W_mask = (subset[name].weight.data == 0).clone().detach()
-                optimize_weights(
-                    gpts[name],
-                    subset[name],
-                    use_qp_solver,
-                    double_precision,
-                    W_mask,
-                    name,
-                    i,
-                )
+                if weight_update_checkpoint_dir is not None and os.path.exists(
+                    f"{weight_update_checkpoint_dir}/layer_{i}_{name}.pt"
+                ):
+                    subset[name].load_state_dict(
+                        torch.load(
+                            f"{weight_update_checkpoint_dir}/layer_{i}_{name}.pt"
+                        )
+                    )
+                else:
+                    W_mask = (subset[name].weight.data == 0).clone().detach()
+                    optimize_weights(
+                        gpts[name],
+                        subset[name],
+                        use_qp_solver,
+                        double_precision,
+                        W_mask,
+                        name,
+                        i,
+                    )
+                    torch.save(
+                        subset[name].state_dict(),
+                        f"{weight_update_checkpoint_dir}/layer_{i}_{name}.pt",
+                    )
 
         progress_bar.set_description(f"Layer {i} - Evaluating Output")
         for j in range(nsamples):
@@ -1122,6 +1168,7 @@ def prune_and_quantize(
     use_qp_solver=True,
     double_precision=False,
     skip_attention=False,
+    weight_update_checkpoint_dir=None,
 ):
     """
     Prune and quantize a model and add low-rank adapter to it.
@@ -1157,6 +1204,7 @@ def prune_and_quantize(
         use_qp_solver: bool - Whether to use quadratic programming solver
         double_precision: bool - Whether to use double precision for calculations
         skip_attention: bool - Whether to skip attention layers for compression
+        weight_update_checkpoint_dir: str - The checkpoint directory for weight updates
 
     Returns:
         None
@@ -1283,6 +1331,7 @@ def prune_and_quantize(
                 use_qp_solver=use_qp_solver,
                 double_precision=double_precision,
                 skip_attention=skip_attention,
+                weight_update_checkpoint_dir=weight_update_checkpoint_dir,
             )
         elif prune_method == "magnitude":
             if scale_important_weights and quantize_weight:
@@ -1361,6 +1410,7 @@ def prune_and_quantize(
                 use_qp_solver,
                 double_precision,
                 skip_attention=skip_attention,
+                weight_update_checkpoint_dir=weight_update_checkpoint_dir,
             )
         elif prune_method == "joint_pq":
             if weight_tiled_quantization is False:
@@ -1428,6 +1478,7 @@ def prune_and_quantize(
                 use_qp_solver=use_qp_solver,
                 double_precision=double_precision,
                 skip_attention=skip_attention,
+                weight_update_checkpoint_dir=weight_update_checkpoint_dir,
             )
         else:
             raise NotImplementedError(f"Pruning method {prune_method} not implemented")

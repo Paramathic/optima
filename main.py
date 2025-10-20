@@ -291,6 +291,10 @@ def main():
 
     report_gpu_memory("Before Pruning")
 
+    weight_update_checkpoint_dir = f"tmp/{args.model.split('/')[-1]}/{args.prune_method}_{args.sparsity_type}_{args.sparsity_ratio}_QP{args.use_qp_solver}"
+
+    os.makedirs(weight_update_checkpoint_dir, exist_ok=True)
+
     prune_and_quantize(
         model,
         tokenizer,
@@ -321,6 +325,7 @@ def main():
         use_qp_solver=args.use_qp_solver,
         double_precision=args.double_precision,
         skip_attention=args.skip_attention,
+        weight_update_checkpoint_dir=weight_update_checkpoint_dir,
     )
     report_gpu_memory("After pruning")
 
