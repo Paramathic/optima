@@ -2,7 +2,7 @@
 
 # --- Configuration ---
 # Define the ranges for your hyperparameters
-MODEL_NAMES=("llama3.1")
+MODEL_NAMES=("qwen2.5")
 STRUCTURE=("unstructured")
 SPARSITY_RATIO=(0.6)
 METHODS=(wanda sparsegpt thanos)
@@ -32,7 +32,7 @@ INPUT_GROUP_SIZE=-1
 JOINT_PQ_MIXING_FACTOR=2.1
 WANDB=true
 HF_TOKEN="HF_TOKEN_PLACEHOLDER"
-OUTPUT_CSV_FILE="results/llama3.1-0.6-optima.csv"
+OUTPUT_CSV_FILE="results/qwen-0.6-optima.csv"
 USE_QP_SOLVER=true
 UPDATE_WEIGHTS=true
 DOUBLE_PRECISION=false
@@ -83,6 +83,15 @@ do
         MODEL_SIZE_LIST='1b'
         MODEL_POSTFIX='-pt'
         TIME="16:00:00"
+        elif [ $MODEL_NAME == 'qwen2.5' ]
+    then
+        MODEL_PREFIX="Qwen/Qwen2.5-"
+        MODEL_SIZE_LIST="7B 14B"
+        MODEL_POSTFIX=""
+        TIME="24:00:00"
+    else
+        echo "Unknown model name: $MODEL_NAME"
+        exit 1
     fi
 
     # --- Loop through hyperparameter combinations ---
