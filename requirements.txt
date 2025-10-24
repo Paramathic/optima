@@ -1,13 +1,3 @@
-transformers==4.45.0
-datasets==2.14.6
-sentencepiece
-accelerate==0.34.2
-einops
-tensorboardX
-absl-py
-h5py
-lm_eval==0.4.2
-vllm
-flash-attn
-triton
-wandb
+-r slim_local/requirements.txt
+jax[cuda12] 
+mpax
