@@ -16,6 +16,14 @@ Paper: [https://arxiv.org/abs/XXXX.XXXXX](https://arxiv.org/abs/XXXX.XXXXX)
 
 ## Setup
 
+To clone the repository, run the following command:
+
+```
+git clone --recurse-submodules https://github.com/Paramathic/optima.git
+```
+
+The `--recurse-submodules` flag is used to clone the [SLiM repository](https://github.com/Paramathic/slim/tree/main) as a submodule. The SLiM repository is located in the `slim_local` directory.
+
 The list of requirements can be found in the `requirements.txt` file. To install the requirements, run the following command:
 
 ```bash 
