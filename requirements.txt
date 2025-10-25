@@ -1,3 +1,4 @@
 -r slim_local/requirements.txt
 jax[cuda12] 
 mpax
+scikit-learn
