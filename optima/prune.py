@@ -190,6 +190,8 @@ def prune_wanda(
     double_precision=False,
     skip_attention=False,
     weight_update_checkpoint_dir=None,
+    qp_eps_abs=1e-2,
+    qp_eps_rel=1e-2,
 ):
     """
     Prune a model using WANDA and quantize weights using SLiM-Quant or AbsMax and add low-rank adapter using SLiM or SVD.
@@ -432,6 +434,7 @@ def prune_wanda(
                             else:
                                 subset[name].scaling_factor = None
             if update_weights:
+
                 if weight_update_checkpoint_dir is not None and os.path.exists(
                     f"{weight_update_checkpoint_dir}/layer_{i}_{name}.pt"
                 ):
@@ -447,8 +450,10 @@ def prune_wanda(
                         use_qp_solver,
                         double_precision,
                         W_mask,
-                        name,
-                        i,
+                        name=name,
+                        layer_num=i,
+                        qp_eps_abs=qp_eps_abs,
+                        qp_eps_rel=qp_eps_rel,
                     )
                     torch.save(
                         subset[name].state_dict(),
@@ -491,6 +496,8 @@ def prune_sparsegpt(
     double_precision=False,
     skip_attention=False,
     weight_update_checkpoint_dir=None,
+    qp_eps_abs=1e-2,
+    qp_eps_rel=1e-2,
 ):
     """
     Prune a model using SparseGPT and quantize weights using OPTQ (GPTQ).
@@ -620,8 +627,10 @@ def prune_sparsegpt(
                         use_qp_solver,
                         double_precision,
                         W_mask,
-                        name,
-                        i,
+                        name=name,
+                        layer_num=i,
+                        qp_eps_abs=qp_eps_abs,
+                        qp_eps_rel=qp_eps_rel,
                     )
                     torch.save(
                         subset[name].state_dict(),
@@ -990,6 +999,8 @@ def prune_thanos(
     double_precision=False,
     skip_attention=False,
     weight_update_checkpoint_dir=None,
+    qp_eps_abs=1e-2,
+    qp_eps_rel=1e-2,
 ):
     """
     Prune a model using Thanos.
@@ -1110,8 +1121,10 @@ def prune_thanos(
                         use_qp_solver,
                         double_precision,
                         W_mask,
-                        name,
-                        i,
+                        name=name,
+                        layer_num=i,
+                        qp_eps_abs=qp_eps_abs,
+                        qp_eps_rel=qp_eps_rel,
                     )
                     torch.save(
                         subset[name].state_dict(),
@@ -1169,6 +1182,8 @@ def prune_and_quantize(
     double_precision=False,
     skip_attention=False,
     weight_update_checkpoint_dir=None,
+    qp_eps_abs=1e-2,
+    qp_eps_rel=1e-2,
 ):
     """
     Prune and quantize a model and add low-rank adapter to it.
@@ -1205,6 +1220,8 @@ def prune_and_quantize(
         double_precision: bool - Whether to use double precision for calculations
         skip_attention: bool - Whether to skip attention layers for compression
         weight_update_checkpoint_dir: str - The checkpoint directory for weight updates
+        qp_eps_abs: float - The absolute epsilon for the QP solver
+        qp_eps_rel: float - The relative epsilon for the QP solver
 
     Returns:
         None
@@ -1332,6 +1349,8 @@ def prune_and_quantize(
                 double_precision=double_precision,
                 skip_attention=skip_attention,
                 weight_update_checkpoint_dir=weight_update_checkpoint_dir,
+                qp_eps_abs=qp_eps_abs,
+                qp_eps_rel=qp_eps_rel,
             )
         elif prune_method == "magnitude":
             if scale_important_weights and quantize_weight:
@@ -1411,6 +1430,8 @@ def prune_and_quantize(
                 double_precision,
                 skip_attention=skip_attention,
                 weight_update_checkpoint_dir=weight_update_checkpoint_dir,
+                qp_eps_abs=qp_eps_abs,
+                qp_eps_rel=qp_eps_rel,
             )
         elif prune_method == "joint_pq":
             if weight_tiled_quantization is False:
@@ -1465,20 +1486,18 @@ def prune_and_quantize(
                 tokenizer,
                 prune_n,
                 prune_m,
-                blocksize=weight_tile_size,
-                v_blocksize=128,
-                structured=False,
-                perc_outliers=0,
-                calibration_dataset=calibration_dataset,
+                structured=prune_n > 0,
                 sparsity_ratio=sparsity_ratio,
                 nsamples=nsamples,
                 seed=seed,
-                weight_tile_size=weight_tile_size,
+                calibration_dataset=calibration_dataset,
                 update_weights=update_weights,
                 use_qp_solver=use_qp_solver,
                 double_precision=double_precision,
                 skip_attention=skip_attention,
                 weight_update_checkpoint_dir=weight_update_checkpoint_dir,
+                qp_eps_abs=qp_eps_abs,
+                qp_eps_rel=qp_eps_rel,
             )
         else:
             raise NotImplementedError(f"Pruning method {prune_method} not implemented")

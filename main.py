@@ -255,6 +255,18 @@ def main():
     parser.add_argument(
         "--quant_type", type=str, default="symmetric", help="Quantization type"
     )
+    parser.add_argument(
+        "--qp_eps_abs",
+        type=float,
+        default=1e-2,
+        help="Absolute tolerance for QP solver",
+    )
+    parser.add_argument(
+        "--qp_eps_rel",
+        type=float,
+        default=1e-2,
+        help="Relative tolerance for QP solver",
+    )
 
     args = parser.parse_args()
 
@@ -326,6 +338,8 @@ def main():
         double_precision=args.double_precision,
         skip_attention=args.skip_attention,
         weight_update_checkpoint_dir=weight_update_checkpoint_dir,
+        qp_eps_abs=args.qp_eps_abs,
+        qp_eps_rel=args.qp_eps_rel,
     )
     report_gpu_memory("After pruning")
 

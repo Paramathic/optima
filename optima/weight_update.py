@@ -36,7 +36,14 @@ def torch_to_jax(tensor: torch.Tensor) -> jnp.ndarray:
         return jnp.array(tensor)
 
 
-def update_weights_qp(layer, W_mask, double_precision=False, half_precision=False):
+def update_weights_qp(
+    layer,
+    W_mask,
+    double_precision=False,
+    half_precision=False,
+    qp_eps_abs=1e-2,
+    qp_eps_rel=1e-2,
+):
     assert not (
         half_precision and double_precision
     ), "Cannot use both half and double precision"
@@ -60,6 +67,7 @@ def update_weights_qp(layer, W_mask, double_precision=False, half_precision=Fals
             A_matrix,
             b_vector,
             eps_abs=1e-2,
+            eps_rel=1e-2,
         ):
             """Optimize a single QP problem."""
             # print("Q:", Q_matrix)
@@ -83,7 +91,7 @@ def update_weights_qp(layer, W_mask, double_precision=False, half_precision=Fals
                 use_sparse_matrix=False,
             )
             solver = raPDHG(
-                eps_abs=eps_abs, eps_rel=1e-2, verbose=False, iteration_limit=100_000
+                eps_abs=eps_abs, eps_rel=eps_rel, verbose=False, iteration_limit=100_000
             )  # Set verbose=False for batch processing
             result = solver.optimize(qp)
 
@@ -122,7 +130,8 @@ def update_weights_qp(layer, W_mask, double_precision=False, half_precision=Fals
         h = torch_to_jax(h_torch_mini)
 
         batch_optimize = jax.vmap(
-            single_optimize, in_axes=(None, None, None, 0, 0, None, None, None, None)
+            single_optimize,
+            in_axes=(None, None, None, 0, 0, None, None, None, None, None),
         )
 
         # Process in mini-batches
@@ -178,7 +187,7 @@ def update_weights_qp(layer, W_mask, double_precision=False, half_precision=Fals
             )
             tuning_progress_bar.set_postfix({"eps_abs": eps_abs})
             solutions_mini, objectives_mini, termination_status_mini = batch_optimize(
-                c, G, h, l_mini, u_mini, Q, A, b, eps_abs
+                c, G, h, l_mini, u_mini, Q, A, b, qp_eps_abs, qp_eps_rel
             )
             converged_vals = [
                 status == TerminationStatus.OPTIMAL
@@ -266,6 +275,8 @@ def optimize_weights(
     W_mask,
     name="",
     layer_num=0,
+    qp_eps_abs=1e-2,
+    qp_eps_rel=1e-2,
 ):
     def compute_error(weight):
         with torch.no_grad():
@@ -282,6 +293,8 @@ def optimize_weights(
             layer,
             W_mask,
             double_precision,
+            qp_eps_abs=qp_eps_abs,
+            qp_eps_rel=qp_eps_rel,
         )
     else:
         trainable_weight = compressed_layer.weight

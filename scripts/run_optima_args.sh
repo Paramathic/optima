@@ -45,6 +45,8 @@ USE_QP_SOLVER="${34:-'false'}"
 UPDATE_WEIGHTS="${35:-'false'}"
 DOUBLE_PRECISION="${36:-'false'}"
 SKIP_ATTENTION="${37:-'false'}"
+QP_EPS_ABS="${38:-'1e-2'}"
+QP_EPS_REL="${39:-'1e-2'}"
 
 
 if [ "$SLIM_LORA" = "true" ]; then
@@ -215,4 +217,6 @@ python main.py \
     $USE_QP_SOLVER\
     $UPDATE_WEIGHTS \
     $DOUBLE_PRECISION \
-    $SKIP_ATTENTION
+    $SKIP_ATTENTION \
+    --qp_eps_abs $QP_EPS_ABS \
+    --qp_eps_rel $QP_EPS_REL

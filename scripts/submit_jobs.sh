@@ -2,9 +2,9 @@
 
 # --- Configuration ---
 # Define the ranges for your hyperparameters
-MODEL_NAMES=("qwen2.5")
+MODEL_NAMES=("llama3.2" "gemma3")
 STRUCTURE=("unstructured")
-SPARSITY_RATIO=(0.6)
+SPARSITY_RATIO=(0.5)
 METHODS=(wanda sparsegpt thanos)
 LORA_RANK=(0.0)
 SLIM_LORA=(true)
@@ -32,19 +32,21 @@ INPUT_GROUP_SIZE=-1
 JOINT_PQ_MIXING_FACTOR=2.1
 WANDB=true
 HF_TOKEN="HF_TOKEN_PLACEHOLDER"
-OUTPUT_CSV_FILE="results/qwen-0.6-optima.csv"
+OUTPUT_CSV_FILE="results/1e-3.csv"
 USE_QP_SOLVER=true
 UPDATE_WEIGHTS=true
 DOUBLE_PRECISION=false
 CLUSTER="trillium"
 SKIP_ATTENTION=false
+QP_EPS_ABS="1e-3"
+QP_EPS_REL="1e-3"
 
 
 NGPUS_PER_NODE=1
 NTASKS_PER_NODE=$((12 * NGPUS_PER_NODE))
 MEM=$((64 * NGPUS_PER_NODE))
 GPU_TYPE=""
-# TIME="6:00:00"
+TIME="6:00:00"
 
 
 for MODEL_NAME in "${MODEL_NAMES[@]}"
@@ -62,7 +64,7 @@ do
     elif [ $MODEL_NAME == 'llama3.2' ]
     then
         MODEL_PREFIX=meta-llama/Llama-3.2-
-        MODEL_SIZE_LIST='3B'
+        MODEL_SIZE_LIST='1B'
         MODEL_POSTFIX=''
         TIME="16:00:00"
     elif [ $MODEL_NAME == 'llama3.1' ]
@@ -165,7 +167,9 @@ do
                                             "${UPDATE_WEIGHTS}" \
                                             "${DOUBLE_PRECISION}" \
                                             "${CLUSTER}" \
-                                            "${SKIP_ATTENTION}"
+                                            "${SKIP_ATTENTION}" \
+                                            "${QP_EPS_ABS}" \
+                                            "${QP_EPS_REL}"
 
                                     done
                                 done

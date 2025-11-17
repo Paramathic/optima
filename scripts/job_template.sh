@@ -43,6 +43,8 @@ ARG_UPDATE_WEIGHTS="${35:-'false'}"
 ARG_DOUBLE_PRECISION="${36:-'false'}"
 ARG_CLUSTER="${37:-'trillium'}"
 ARG_SKIP_ATTENTION="${38:-'false'}"
+ARG_QP_EPS_ABS="${39:-'1e-2'}"
+ARG_QP_EPS_REL="${40:-'1e-2'}"
 
 
 SCRIPT_TO_RUN=scripts/run_optima_args.sh
@@ -140,7 +142,9 @@ bash ${SINGULARITY_CMD} \
     "${ARG_USE_QP_SOLVER}" \
     "${ARG_UPDATE_WEIGHTS}" \
     "${ARG_DOUBLE_PRECISION}" \
-    "${ARG_SKIP_ATTENTION}"
+    "${ARG_SKIP_ATTENTION}" \
+    "${ARG_QP_EPS_ABS}" \
+    "${ARG_QP_EPS_REL}"
 
 echo $ARG_WANDB
 

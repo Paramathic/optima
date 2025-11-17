@@ -4,8 +4,8 @@ export HF_HOME="data"
 export HF_DATASETS_OFFLINE="1"
 export HF_HUB_OFFLINE="1"
 
-HF_TOKEN_ARG="--hf_token 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"
-export HF_TOKEN="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"
+HF_TOKEN_ARG="--hf_token YOUR_HF_TOKEN"
+export HF_TOKEN="YOUR_HF_TOKEN"
 
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
 
@@ -13,7 +13,7 @@ export TRITON_CACHE_DIR="/tmp"
 
 export WANDB_MODE="offline"
 
-for MODEL_NAME in qwen2.5 #llama3.2 gemma3 gemma2 #opt #llama2 #llama3.1
+for MODEL_NAME in llama3.2 #llama3.1 #qwen2.5 #llama3.2 gemma3 gemma2 #opt #llama2 #llama3.1
 do
     if [ $MODEL_NAME == 'llama2' ]
     then
@@ -28,12 +28,12 @@ do
     elif [ $MODEL_NAME == 'llama3.2' ]
     then
         MODEL_PREFIX=meta-llama/Llama-3.2-
-        MODEL_SIZE_LIST="1B 3B"
+        MODEL_SIZE_LIST="1B"
         MODEL_POSTFIX=""
     elif [ $MODEL_NAME == 'llama3.1' ]
     then
         MODEL_PREFIX=meta-llama/Llama-3.1-
-        MODEL_SIZE_LIST="8B"
+        MODEL_SIZE_LIST="70B"
         MODEL_POSTFIX=""
     elif [ $MODEL_NAME == 'llama3' ]
     then
@@ -53,7 +53,7 @@ do
     elif [ $MODEL_NAME == 'qwen2.5' ]
     then
         MODEL_PREFIX="Qwen/Qwen2.5-"
-        MODEL_SIZE_LIST="0.5B" # 1.5B 3B 7B 14B"
+        MODEL_SIZE_LIST="0.5B"
         MODEL_POSTFIX=""
     else
         echo "Unknown model name: $MODEL_NAME"
@@ -64,7 +64,7 @@ do
     do
         for STRUCTURE in unstructured #4:8 8:16
         do
-            for METHOD in thanos #wanda sparsegpt thanos #maskllm sparsegpt joint_pq
+            for METHOD in wanda #thanos #maskllm sparsegpt joint_pq
             do
                 for LORA_RANK in 0 #0.1
                 do
@@ -76,7 +76,7 @@ do
                             do
                                 for TILED_WEIGHT_QUANTIZATION in '--tiled_weight_quantization'
                                 do
-                                    for SPARSITY_RATIO in 0.5 #0.6 #0.3 0.4
+                                    for SPARSITY_RATIO in 0.5 #0.6 #0.6 #0.3 0.4
                                     do
                                         LOCAL_FILES_ONLY='--local_files_only'
                                         SHIFT_ZERO_METRICS='--shift_zero_metrics'
@@ -108,6 +108,8 @@ do
                                         SAVE_CHECKPOINT_PATH="--save_checkpoint_path checkpoints/${MODEL_NAME}_${MODEL_SIZE}_${METHOD}_${STRUCTURE}_lr${LORA_RANK}_sparsity${SPARSITY_RATIO}"
                                         QP_SOLVER="--use_qp_solver"
                                         UPDATE_WEIGHTS="--update_weights"
+                                        QP_EPS_ABS="--qp_eps_abs 1e-2"
+                                        QP_EPS_REL="--qp_eps_rel 1e-2"
                                         # DOUBLE_PRECISION="--double_precision"
                                         # SKIP_ATTENTION="--skip_attention"
 
@@ -127,7 +129,7 @@ do
                                             --eval_batch_size $EVAL_BATCH_SIZE \
                                             $SEPARATE_LORA \
                                             $TEST_LMHARNESS \
-                                            --output_csv_path results/qwen-dense.csv \
+                                            --output_csv_path results/1e-3-ablation.csv \
                                             $FINE_TUNE \
                                             $EVALUATE_PERPLEXITY \
                                             $LOCAL_FILES_ONLY \
@@ -154,7 +156,9 @@ do
                                             $UPDATE_WEIGHTS \
                                             $QP_SOLVER \
                                             $DOUBLE_PRECISION \
-                                            $SKIP_ATTENTION
+                                            $SKIP_ATTENTION \
+                                            $QP_EPS_ABS \
+                                            $QP_EPS_REL
                                     done
                                 done
                             done
