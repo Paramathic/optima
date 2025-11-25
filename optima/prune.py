@@ -23,6 +23,7 @@ import gc
 import numpy as np
 from optima.weight_update import optimize_weights
 from optima.thanos import Thanos
+from optima.admm import ADMMPruner
 from optima.utils import skip_layers
 import os
 
@@ -1151,6 +1152,167 @@ def prune_thanos(
     torch.cuda.empty_cache()
 
 
+@torch.no_grad()
+def prune_admm(
+    model,
+    tokenizer,
+    sparsity_ratio=0.5,
+    prune_n=0,
+    prune_m=0,
+    nsamples=128,
+    seed=0,
+    calibration_dataset="c4",
+    update_weights=False,
+    use_qp_solver=False,
+    double_precision=False,
+    skip_attention=False,
+    weight_update_checkpoint_dir=None,
+    qp_eps_abs=1e-2,
+    qp_eps_rel=1e-2,
+):
+    """
+    Prune a model using SparseGPT and quantize weights using OPTQ (GPTQ).
+    SparseGPT code available at: https://github.com/IST-DASLab/sparsegpt/tree/f5c25005a61f96a0933ca2f95705a963585aafaa
+
+    Args:
+        model: torch.nn.Module - The model to prune
+        tokenizer: transformers.Tokenizer - The tokenizer for the model
+        device: torch.device - The device to use for pruning
+        sparsity_ratio: float - The ratio of weights to prune
+        prune_n: int - The number N in N:M pruning
+        prune_m: int - The number M in N:M pruning
+        nsamples: int - The number of samples to use for calibration
+        calibration_dataset: str - The dataset to use for calibration
+        skip_attention: bool - Whether to skip attention layers for compression
+        weight_update_checkpoint_dir: str - The directory to save weight update checkpoints
+
+
+    Returns:
+        None
+    """
+    use_cache = getattr(model.config, "use_cache", False)
+    model.config.use_cache = False
+
+    dataloader, _ = get_loaders(
+        calibration_dataset,
+        nsamples=nsamples,
+        seed=seed,
+        seqlen=model.config.max_position_embeddings,
+        tokenizer=tokenizer,
+    )
+
+    with torch.no_grad():
+        inps, outs, kwargs = prepare_calibration_input(model, dataloader, nsamples)
+
+    layers = get_layers_list(model)
+
+    progress_bar = tqdm.tqdm(range(len(layers)))
+
+    for i in progress_bar:
+        progress_bar.set_description(f"Layer {i} - Gathering data")
+        layer = layers[i].cuda()
+
+        subset = find_layers(layer)
+        subset = skip_layers(subset, skip_attention=skip_attention)
+
+        gpts = {}
+        for name in subset:
+            gpts[name] = ADMMPruner(subset[name])
+            if update_weights:
+                gpts[name].inputs = []
+                gpts[name].outputs = []
+                gpts[name].original_weight = (
+                    subset[name].weight.data.clone().detach().cpu()
+                )
+
+        def add_batch(name):
+            def tmp(_, inp, out):
+                gpts[name].add_batch(inp[0].data, out.data)
+                if update_weights:
+                    gpts[name].inputs.append(inp[0].clone().detach().cpu())
+                    gpts[name].outputs.append(out.clone().detach().cpu())
+
+            return tmp
+
+        handles = []
+        for name in gpts:
+            handles.append(subset[name].register_forward_hook(add_batch(name)))
+
+        for j in range(nsamples):
+            for key in kwargs:
+                if isinstance(kwargs[key], torch.Tensor):
+                    kwargs[key] = kwargs[key].cuda()
+                if isinstance(kwargs[key], tuple):
+                    kwargs[key] = tuple([k.cuda() for k in kwargs[key]])
+
+            outs[j] = layer(inps[j].unsqueeze(0).cuda(), **kwargs)[0].to(outs.device)
+
+        for h in handles:
+            h.remove()
+
+        for name in gpts:
+            progress_bar.set_description(f"Layer {i} - Pruning and Quantizing {name}")
+
+            old_weight = subset[name].weight.data.clone().detach()
+
+            gpts[name].fasterprune(
+                sparsity_ratio,
+                prune_n=prune_n,
+                prune_m=prune_m,
+                percdamp=0.1,
+            )
+            gpts[name].free()
+
+            mask = (subset[name].weight.data != 0).to(torch.bfloat16)
+            subset[name].weight.data = old_weight * mask
+
+            if update_weights:
+                if weight_update_checkpoint_dir is not None and os.path.exists(
+                    f"{weight_update_checkpoint_dir}/layer_{i}_{name}.pt"
+                ):
+                    subset[name].load_state_dict(
+                        torch.load(
+                            f"{weight_update_checkpoint_dir}/layer_{i}_{name}.pt"
+                        )
+                    )
+                else:
+                    W_mask = (subset[name].weight.data == 0).clone().detach()
+                    optimize_weights(
+                        gpts[name],
+                        subset[name],
+                        use_qp_solver,
+                        double_precision,
+                        W_mask,
+                        name=name,
+                        layer_num=i,
+                        qp_eps_abs=qp_eps_abs,
+                        qp_eps_rel=qp_eps_rel,
+                    )
+                    torch.save(
+                        subset[name].state_dict(),
+                        f"{weight_update_checkpoint_dir}/layer_{i}_{name}.pt",
+                    )
+
+        progress_bar.set_description(f"Layer {i} - Evaluating Output")
+        for j in range(nsamples):
+            with torch.no_grad():
+                outs[j] = layer(inps[j].unsqueeze(0).cuda(), **kwargs)[0].to(
+                    outs[j].device
+                )
+
+        layers[i] = layer
+        torch.cuda.empty_cache()
+
+        inps, outs = outs, inps
+
+        layers[i] = layer.cpu()
+        del layer
+        torch.cuda.empty_cache()
+
+    model.config.use_cache = use_cache
+    torch.cuda.empty_cache()
+
+
 def prune_and_quantize(
     model,
     tokenizer,
@@ -1488,6 +1650,34 @@ def prune_and_quantize(
                 prune_m,
                 structured=prune_n > 0,
                 sparsity_ratio=sparsity_ratio,
+                nsamples=nsamples,
+                seed=seed,
+                calibration_dataset=calibration_dataset,
+                update_weights=update_weights,
+                use_qp_solver=use_qp_solver,
+                double_precision=double_precision,
+                skip_attention=skip_attention,
+                weight_update_checkpoint_dir=weight_update_checkpoint_dir,
+                qp_eps_abs=qp_eps_abs,
+                qp_eps_rel=qp_eps_rel,
+            )
+        elif prune_method == "admm":
+            if scale_important_weights and quantize_weight:
+                raise NotImplementedError(
+                    "Scaling important weights not implemented for ADMM pruning and "
+                    "quantization"
+                )
+            if lora_rank > 0:
+                raise NotImplementedError("LoRA approximation not implemented for ADMM")
+            if quantize_weight:
+                raise NotImplementedError("ADMM does not support weight quantization")
+            print("Pruning the model with ADMM.")
+            prune_admm(
+                model,
+                tokenizer,
+                sparsity_ratio=sparsity_ratio,
+                prune_n=prune_n,
+                prune_m=prune_m,
                 nsamples=nsamples,
                 seed=seed,
                 calibration_dataset=calibration_dataset,

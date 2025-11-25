@@ -139,7 +139,6 @@ def update_weights_qp(
         all_objectives = []
 
         batch_size = weight.shape[0]
-        eps_abs = 1e-2
         mini_batch_size = min(
             batch_size, max(1, 128 * 12 * 1024 * 1024 // (weight.shape[1] ** 2))
         )
@@ -185,7 +184,7 @@ def update_weights_qp(
             tuning_progress_bar.set_description(
                 f"Solving mini-batch {start_idx // mini_batch_size + 1}/{(batch_size + mini_batch_size - 1) // mini_batch_size}"
             )
-            tuning_progress_bar.set_postfix({"eps_abs": eps_abs})
+            tuning_progress_bar.set_postfix({"eps_abs": qp_eps_abs})
             solutions_mini, objectives_mini, termination_status_mini = batch_optimize(
                 c, G, h, l_mini, u_mini, Q, A, b, qp_eps_abs, qp_eps_rel
             )

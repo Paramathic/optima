@@ -129,6 +129,7 @@ def main():
             "joint_pq",
             "maskllm",
             "thanos",
+            "admm",
         ],
     )
     parser.add_argument(
@@ -303,7 +304,7 @@ def main():
 
     report_gpu_memory("Before Pruning")
 
-    weight_update_checkpoint_dir = f"tmp/{args.model.split('/')[-1]}/{args.prune_method}_{args.sparsity_type}_{args.sparsity_ratio}_QP{args.use_qp_solver}"
+    weight_update_checkpoint_dir = f"tmp/{args.model.split('/')[-1]}/{args.prune_method}_{args.sparsity_type}_{args.sparsity_ratio}_QP{args.use_qp_solver}_eps{args.qp_eps_abs}-{args.qp_eps_rel}"
 
     os.makedirs(weight_update_checkpoint_dir, exist_ok=True)
 
