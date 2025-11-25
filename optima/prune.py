@@ -1253,8 +1253,6 @@ def prune_admm(
         for name in gpts:
             progress_bar.set_description(f"Layer {i} - Pruning and Quantizing {name}")
 
-            old_weight = subset[name].weight.data.clone().detach()
-
             gpts[name].fasterprune(
                 sparsity_ratio,
                 prune_n=prune_n,
@@ -1262,9 +1260,6 @@ def prune_admm(
                 percdamp=0.1,
             )
             gpts[name].free()
-
-            mask = (subset[name].weight.data != 0).to(torch.bfloat16)
-            subset[name].weight.data = old_weight * mask
 
             if update_weights:
                 if weight_update_checkpoint_dir is not None and os.path.exists(
